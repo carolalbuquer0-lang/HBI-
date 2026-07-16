@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hevile — Exporter & Fruit Dashboard</title>
+<style>
+  :root{
+    --orange:#F47920;
+    --teal:#3D7D96;
+    --teal-deep:#2A5F75;
+    --bg:#F0F0F0;
+    --ink:#2A2A2A;
+    --muted:#6B6B6B;
+    --line:#DADADA;
+    --white:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--ink);
+  }
+  .topbar{
+    background:var(--teal-deep); color:#fff; padding:22px 4vw; border-bottom:4px solid var(--orange);
+  }
+  .topbar .eyebrow{font-size:11.5px; letter-spacing:.12em; font-weight:bold; color:#BFE0EA; margin-bottom:8px;}
+  .topbar h1{margin:0 0 6px; font-size:24px;}
+  .topbar p{margin:0; color:#CFE6EC; font-size:13.5px; max-width:720px; line-height:1.5;}
+
+  .stats{
+    display:flex; gap:0; background:var(--teal); color:#fff; padding:14px 4vw;
+  }
+  .stats .stat{padding-right:32px; margin-right:32px; border-right:1px solid rgba(255,255,255,0.25);}
+  .stats .stat:last-child{border:none;}
+  .stats .num{font-size:20px; font-weight:bold; display:block;}
+  .stats .lbl{font-size:11px; color:#DCEEF3;}
+
+  .layout{display:grid; grid-template-columns: 300px 1fr; gap:0; min-height:70vh;}
+  .sidebar{
+    background:#fff; border-right:1px solid var(--line); padding:20px; overflow-y:auto; max-height:calc(100vh - 40px); position:sticky; top:0;
+  }
+  .sidebar h3{font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px;}
+  #search{
+    width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; margin-bottom:16px;
+  }
+  .fruit-chip{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:7px 10px; border-radius:8px; margin-bottom:4px; cursor:pointer; font-size:13px;
+    border:1px solid transparent;
+  }
+  .fruit-chip:hover{background:#F5F5F5;}
+  .fruit-chip.active{background:var(--teal); color:#fff;}
+  .fruit-chip .dot{width:9px;height:9px;border-radius:50%; flex-shrink:0; display:inline-block; margin-right:7px;}
+  .fruit-chip .name{display:flex; align-items:center;}
+  .fruit-chip .count{font-size:11px; opacity:.7;}
+  .clear-btn{
+    display:inline-block; font-size:12px; color:var(--teal-deep); cursor:pointer; margin-bottom:14px; text-decoration:underline;
+  }
+
+  .main{padding:22px 4vw;}
+  .main-header{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
+  .main-header h2{margin:0 0 4px; font-size:19px;}
+  .main-header .sub{color:var(--muted); font-size:13px;}
+
+  .fruit-info-panel{
+    background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:18px;
+    display:none;
+  }
+  .fruit-info-panel.visible{display:block;}
+  .fruit-info-panel .title{font-size:15px; font-weight:bold; margin-bottom:6px; display:flex; align-items:center; gap:8px;}
+  .fruit-info-panel .row{font-size:13px; color:var(--muted); margin-bottom:3px;}
+  .fruit-info-panel .row b{color:var(--ink);}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px;}
+  .card{
+    background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;
+    transition:box-shadow .15s, transform .15s;
+  }
+  .card:hover{box-shadow:0 6px 16px rgba(0,0,0,0.08); transform:translateY(-1px);}
+  .card .name{font-weight:bold; font-size:14px; margin-bottom:2px;}
+  .card .site{font-size:11.5px; color:var(--teal-deep); margin-bottom:8px;}
+  .card .pills{display:flex; flex-wrap:wrap; gap:5px;}
+  .pill{font-size:10.5px; padding:3px 8px; border-radius:999px; color:#fff;}
+  .badge-confirmed{
+    display:inline-block; font-size:9.5px; background:#E9F3EE; color:#2E6B39; padding:2px 6px; border-radius:5px; margin-left:6px; font-weight:bold;
+  }
+
+  .empty{color:var(--muted); font-size:13px; padding:20px 0;}
+
+  /* Modal */
+  .overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:50; padding:20px;
+  }
+  .overlay.visible{display:flex;}
+  .modal{
+    background:#fff; border-radius:14px; max-width:560px; width:100%; max-height:85vh; overflow-y:auto; padding:26px 28px; position:relative;
+  }
+  .modal .close{position:absolute; top:14px; right:18px; cursor:pointer; font-size:20px; color:var(--muted); background:none; border:none;}
+  .modal h2{margin:0 0 4px; font-size:19px;}
+  .modal .site-link{font-size:13px; margin-bottom:16px; display:block;}
+  .modal .site-link a{color:var(--teal-deep);}
+  .modal h4{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:18px 0 8px;}
+  .fruit-row{
+    display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:8px; margin-bottom:6px; background:#F7F7F7;
+  }
+  .fruit-row .fname{font-size:13.5px; font-weight:bold; display:flex; align-items:center; gap:8px;}
+  .fruit-row .variety{font-size:12px; color:var(--muted); text-align:right; max-width:260px;}
+  .fruit-row .variety.confirmed{color:#2E6B39; font-weight:600;}
+
+  footer{text-align:center; padding:26px; color:var(--muted); font-size:12px; background:#fff; border-top:1px solid var(--line);}
+  footer a{color:var(--teal-deep);}
+
+  @media (max-width: 760px){
+    .layout{grid-template-columns:1fr;}
+    .sidebar{position:static; max-height:none; border-right:none; border-bottom:1px solid var(--line);}
+  }
+
+  /* Upcoming seasons */
+  .alerts-wrap{background:#fff; border-bottom:1px solid var(--line); padding:14px 4vw;}
+  .alerts-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .alerts-head h3{font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0;}
+  .alerts-head .toggle{font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;}
+  .alerts-row{display:flex; gap:10px; overflow-x:auto; padding-bottom:4px;}
+  .alert-card{
+    flex:0 0 auto; min-width:168px; border-radius:10px; padding:10px 12px; color:#fff; position:relative; cursor:pointer;
+  }
+  .alert-card .af-name{font-size:12.5px; font-weight:bold; margin-bottom:2px;}
+  .alert-card .af-days{font-size:19px; font-weight:bold; line-height:1.1;}
+  .alert-card .af-lbl{font-size:10.5px; opacity:.85;}
+  .alert-card .af-count{font-size:10.5px; opacity:.85; margin-top:4px;}
+  .alerts-empty{color:var(--muted); font-size:12.5px;}
+
+  /* Card extras */
+  .card .meta-line{font-size:11px; color:var(--muted); margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap;}
+  .card .tier-tag{font-weight:600;}
+  .card .last-contact{
+    display:inline-flex; align-items:center; gap:4px; font-size:10.5px; color:var(--teal-deep); margin-top:8px;
+    background:#EAF3F5; padding:3px 7px; border-radius:6px;
+  }
+  .card .last-contact.stale{color:#9C6B1E; background:#FBF0DE;}
+  .card .last-contact.none{color:var(--muted); background:#F2F2F2;}
+
+  /* Modal tabs */
+  .modal-tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); margin:14px 0 16px;}
+  .modal-tab{
+    padding:8px 4px; margin-right:14px; font-size:12.5px; font-weight:bold; color:var(--muted); cursor:pointer;
+    border-bottom:2px solid transparent; text-transform:uppercase; letter-spacing:.04em;
+  }
+  .modal-tab.active{color:var(--teal-deep); border-bottom-color:var(--orange);}
+  .modal-pane{display:none;}
+  .modal-pane.active{display:block;}
+
+  /* Contact log */
+  .contact-form{background:#F7F7F7; border-radius:10px; padding:12px; margin-bottom:14px;}
+  .contact-form .cf-row{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
+  .contact-form input, .contact-form select, .contact-form textarea{
+    font-family:inherit; font-size:13px; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:#fff;
+  }
+  .contact-form input[type=date]{flex:0 0 150px;}
+  .contact-form input[type=text]{flex:1; min-width:120px;}
+  .contact-form select{flex:0 0 130px;}
+  .contact-form textarea{width:100%; min-height:56px; resize:vertical;}
+  .contact-form button{
+    background:var(--orange); color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:13px; font-weight:bold; cursor:pointer;
+  }
+  .contact-form button:hover{opacity:.9;}
+  .log-entry{border-left:3px solid var(--teal); padding:8px 12px; margin-bottom:8px; background:#FAFAFA; border-radius:0 8px 8px 0; position:relative;}
+  .log-entry .le-top{display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;}
+  .log-entry .le-top b{color:var(--ink);}
+  .log-entry .le-notes{font-size:13px; color:var(--ink); white-space:pre-wrap;}
+  .log-entry .le-del{position:absolute; top:6px; right:8px; cursor:pointer; color:#B3413B; font-size:11px; background:none; border:none;}
+  .log-empty{color:var(--muted); font-size:13px; padding:8px 0;}
+
+  .feedback-box textarea{
+    width:100%; min-height:110px; font-family:inherit; font-size:13.5px; padding:10px 12px; border:1px solid var(--line);
+    border-radius:8px; resize:vertical; background:#FAFAFA;
+  }
+  .feedback-save{margin-top:8px; display:flex; align-items:center; gap:10px;}
+  .feedback-save button{
+    background:var(--teal); color:#fff; border:none; padding:7px 15px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;
+  }
+  .feedback-save .fs-status{font-size:11.5px; color:var(--muted);}
+
+  /* Referrals view */
+  .history-row{
+    display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid var(--line);
+    border-radius:10px; padding:12px 16px; margin-bottom:8px; cursor:pointer;
+  }
+  .history-row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.06);}
+  .history-row .hr-name{font-weight:bold; font-size:13.5px;}
+  .history-row .hr-feedback{font-size:12px; color:var(--muted); max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .history-row .hr-when{font-size:11.5px; color:var(--teal-deep); flex-shrink:0; text-align:right;}
+  .nav-toggle{display:flex; gap:8px; margin-bottom:16px;}
+  .nav-toggle button{
+    background:#fff; border:1px solid var(--line); padding:7px 14px; border-radius:8px; font-size:12.5px; cursor:pointer; color:var(--muted);
+  }
+  .nav-toggle button.active{background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);}
+  .new-exp-form label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; font-weight:bold;}
+  .new-exp-form input[type=text]{
+    width:100%; font-family:inherit; font-size:13.5px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff;
+  }
+  .fruit-check-list{
+    display:grid; grid-template-columns:repeat(2,1fr); gap:4px 10px; max-height:180px; overflow-y:auto;
+    border:1px solid var(--line); border-radius:8px; padding:10px; background:#FAFAFA;
+  }
+  .fruit-check-item{display:flex; align-items:center; gap:6px; font-size:12.5px;}
+  .fruit-check-item input{margin:0;}
+  .new-exp-actions{display:flex; align-items:center; gap:10px; margin-top:16px;}
+  .new-exp-actions button{
+    background:var(--orange); color:#fff; border:none; padding:9px 18px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;
+  }
+  .new-exp-actions .cancel{background:#eee; color:var(--ink);}
+  .new-exp-error{color:#B3413B; font-size:12px; margin-top:6px; display:none;}
+
+  /* Cross-sell & prospects view */
+  .prospect-tag{
+    display:inline-block; font-size:9px; font-weight:bold; letter-spacing:.04em; color:#fff;
+    background:var(--orange); padding:2px 6px; border-radius:5px; vertical-align:middle;
+  }
+  .cs-heading{
+    font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+    margin:0 0 10px; padding-top:4px;
+  }
+  .cs-grid{margin-bottom:30px;}
+  .cs-disclaimer{
+    background:#FBF0DE; border:1px solid #E8D5A8; color:#7A5A1E; font-size:12.5px; line-height:1.5;
+    padding:12px 14px; border-radius:10px; margin-bottom:20px;
+  }
+  .fit-warning{
+    margin-top:8px; font-size:11px; line-height:1.4; color:#8A3A2E; background:#FBE9E6;
+    padding:6px 8px; border-radius:6px;
+  }
+  .fit-unknown{
+    margin-top:8px; font-size:11px; color:var(--muted); font-style:italic;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="eyebrow">HEVILE · WE DELIVER THE BEST</div>
+  <h1>Exporter &amp; Fruit Dashboard</h1>
+  <p>Explore Hevile's verified network of Brazilian exporters. Click a fruit to see who works with it, or click any exporter to see their full profile and known varieties.</p>
+</div>
+
+<div class="stats" id="statsBar"></div>
+
+<div class="alerts-wrap">
+  <div class="alerts-head">
+    <h3>Upcoming seasons</h3>
+    <span class="toggle" id="toggleAllAlerts">Show all</span>
+  </div>
+  <div class="alerts-row" id="alertsRow"></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <h3>Filter by fruit</h3>
+    <input id="search" type="text" placeholder="Search exporter name…" />
+    <div class="clear-btn" id="clearFilter" style="display:none;">&times; Clear fruit filter</div>
+    <div id="fruitList"></div>
+  </div>
+
+  <div class="main">
+    <div class="nav-toggle">
+      <button id="navExporters" class="active">Exporters</button>
+      <button id="navProspects">New Prospects</button>
+      <button id="navHistory">Referrals &amp; feedback</button>
+    </div>
+
+    <div class="main-header">
+      <div>
+        <h2 id="mainTitle">All exporters</h2>
+        <div class="sub" id="mainSub"></div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button id="cloudSyncBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">☁ Cloud sync</button>
+        <button id="agendorSettingsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📇 Agendor</button>
+        <button id="newExporterBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">+ New exporter</button>
+      </div>
+    </div>
+
+    <div class="fruit-info-panel" id="fruitInfoPanel"></div>
+
+    <div class="grid" id="cardGrid"></div>
+    <div class="empty" id="emptyState" style="display:none;">No exporters match this search.</div>
+
+    <div id="historyView" style="display:none;"></div>
+    <div id="prospectsView" style="display:none;"></div>
+  </div>
+</div>
+
+<footer>
+  Hevile — 28 years connecting Brazil to the world · <a href="https://hevile.com.br">hevile.com.br</a> · contato@hevile.com.br<br>
+  Compiled from Hevile shipment records (Jan 2024 – Jul 2026) and public exporter websites. Varieties marked "confirmed" come from the exporter's own site; others reflect general Brazilian export standards for that fruit.
+</footer>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+const EXPORTERS = [{"name": "FAZENDA SANTA TEREZINHA LTDA", "fruits": ["Papaya"], "active": true, "tier": "High volume", "shipments": 393, "display": "Fazenda Santa Terezinha LTDA", "trade": "Frutas Doce Mel", "site": "frutasdocemel.com.br", "extra_fruits": ["Pineapple"], "all_fruits": ["Papaya", "Pineapple"], "variety_confirmed": {}, "cross_sell_fit": "unlikely", "cross_sell_note": "Own site lists exported products as mango, papaya, pineapple and green coconut only — no avocado."}, {"name": "CALIMAN AGRICOLA SA", "fruits": ["Papaya"], "active": true, "tier": "High volume", "shipments": 354, "display": "Caliman Agricola SA", "trade": "Caliman Agrícola", "site": "caliman.com.br", "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {"Papaya": "Golden (Caliman is the variety's original developer)"}, "cross_sell_fit": "unlikely", "cross_sell_note": "Site & social media: \"For over 35 years producing and exporting papaya at its best\" — single-crop papaya grower, no mention of avocado."}, {"name": "SUNSHINE INTERNATIONAL EXP. E IMP. LTDA", "fruits": ["Atemoya", "Avocado", "Dragon Fruit", "Fig", "Ginger", "Guava", "Lemon / Lime", "Mango", "Papaya", "Star Fruit"], "active": true, "tier": "High volume", "shipments": 349, "display": "Sunshine International EXP. e IMP. LTDA", "trade": "Sunshine International EXP. e IMP. LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Atemoya", "Avocado", "Dragon Fruit", "Fig", "Ginger", "Guava", "Lemon / Lime", "Mango", "Papaya", "Star Fruit"], "variety_confirmed": {}}, {"name": "FRUTMEL FRUTAS LTDA", "fruits": ["Papaya"], "active": true, "tier": "High volume", "shipments": 278, "display": "Frutmel Frutas LTDA", "trade": "Frutmel Frutas", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}, "address": "GOV. MARIO COVAS, KM 122,5 S/N COMUNIDADE DE FARIAS - linhares"}, {"name": "FRUTAS SOLO AGROINDUSTRIAL LTDA", "fruits": ["Mango", "Papaya"], "active": true, "tier": "High volume", "shipments": 207, "display": "Frutas Solo Agroindustrial LTDA", "trade": "Frutas Solo Agroindustrial LTDA", "site": "frutassolo.com.br", "extra_fruits": [], "all_fruits": ["Mango", "Papaya"], "variety_confirmed": {}, "address": "RUA ROBEL CORREIRA, 87 - CORREGO ALEGRE - soretama"}, {"name": "DS AGRO LTDA", "fruits": ["Dragon Fruit", "Mango", "Papaya"], "active": true, "tier": "High volume", "shipments": 180, "display": "DS Agro LTDA", "trade": "Delícias do Sertão (DS)", "site": "deliciasdosertao.com.br", "extra_fruits": [], "all_fruits": ["Dragon Fruit", "Papaya"], "variety_confirmed": {"Dragon Fruit": "Red-flesh (organic)", "Papaya": "Organic"}, "cross_sell_fit": "unlikely", "cross_sell_note": "Site (DS Farms) frames the business around pitaya specifically since 2018 — no avocado mentioned in their production pages."}, {"name": "SUNRAINBOW IMPORTAÇÃO E EXPORTAÇÃO LTDA", "fruits": ["Mango"], "active": true, "tier": "High volume", "shipments": 154, "display": "Sunrainbow Importação e Exportação LTDA", "trade": "Sunrainbow Importação e Exportação LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "AGC COMERCIO DE FRUTAS LTDA", "fruits": ["Papaya"], "active": true, "tier": "High volume", "shipments": 186, "display": "AGC Comercio de Frutas LTDA", "trade": "AGC Frutas", "site": "agcfrutas.com.br", "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}, "address": "Av. Angelo Suzano, 191 - Vale do Sol, Sooretama - ES, 29927-000", "cross_sell_fit": "unlikely", "cross_sell_note": "Self-described as \"o mamão mais famoso do Brasil\" — papaya + melon specialist, no avocado mentioned anywhere on site."}, {"name": "ADELPHO", "fruits": ["Avocado", "Fig", "Guava", "Star Fruit"], "active": true, "tier": "Regular", "shipments": 86, "display": "Adelpho", "trade": "Adelpho", "site": "adelphofrutas.wixsite.com/site", "extra_fruits": [], "all_fruits": ["Avocado", "Fig", "Guava", "Star Fruit"], "variety_confirmed": {}, "address": "EST LUIZ DE QUEIROZ GUIMARAES, 53-B - KM 6.5 CH FLORESTAL"}, {"name": "SPECIAL FRUITA IMP E EXPORT LTDA", "fruits": ["Mango"], "active": true, "tier": "Regular", "shipments": 82, "display": "Special Fruita IMP e Export LTDA", "trade": "Special Fruit", "site": "specialfruit.com.br", "extra_fruits": ["Grape", "Melon"], "all_fruits": ["Grape", "Mango", "Melon"], "variety_confirmed": {}, "cross_sell_fit": "unlikely", "cross_sell_note": "CNAE registration technically includes avocado cultivation (one of ~40 generic codes), but site & \"Quem Somos\" describe mango and grape as their only specialty — no real signal they currently export avocado."}, {"name": "AGROCORIBE IMPORTACAO E EXPORTACAO", "fruits": ["Ginger", "Papaya"], "active": true, "tier": "Regular", "shipments": 81, "display": "Agrocoribe Importacao e Exportacao", "trade": "AgroCoribe", "site": "agrocoribe.com", "extra_fruits": [], "all_fruits": ["Ginger", "Papaya"], "variety_confirmed": {}, "address": "R. Henrique João Júlio Kuster, 1821 - São Luiz, Santa Maria de Jetibá - ES, 29645-000", "cross_sell_fit": "unlikely", "cross_sell_note": "Site explicitly states they focus on two products only: Mamão Formosa and Ginger, across two production units — no avocado."}, {"name": "FRESH QUALITY COMERCIO EXTERIOR LTDA", "fruits": ["Atemoya", "Avocado", "Dragon Fruit", "Guava", "Lychee", "Mango", "Papaya", "Sweet Potato"], "active": true, "tier": "Regular", "shipments": 74, "display": "Fresh Quality Comercio Exterior LTDA", "trade": "Fresh Quality Comercio Exterior LTDA", "site": "freshquality.com.br", "extra_fruits": [], "all_fruits": ["Atemoya", "Avocado", "Dragon Fruit", "Guava", "Lychee", "Mango", "Papaya", "Sweet Potato"], "variety_confirmed": {}, "address": "ESTRADA DOS LAVRADORES 2001 PIEDADE"}, {"name": "COLA FOODS PRODUÇÃO & COMERCIALIZAÇÃO LTDA", "fruits": ["Ginger"], "active": true, "tier": "Regular", "shipments": 61, "display": "Cola Foods Produção & Comercialização LTDA", "trade": "Cola Foods", "site": "colafoods.com.br", "extra_fruits": [], "all_fruits": ["Ginger"], "variety_confirmed": {}}, {"name": "SILMARA CAMPOS", "fruits": ["Flowers"], "active": true, "tier": "Regular", "shipments": 41, "display": "Silmara Campos", "trade": "Silmara Campos", "site": null, "extra_fruits": [], "all_fruits": ["Flowers"], "variety_confirmed": {}}, {"name": "AGRODAN – AGROPECUÁRIA RORIZ DANTAS LTDA", "fruits": ["Mango"], "active": true, "tier": "Regular", "shipments": 40, "display": "Agrodan – Agropecuária Roriz Dantas LTDA", "trade": "Agrodan", "site": "agrodan.com.br", "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "TORRES BRASIL COMERCIO, EXPORT E IMPORT LTDA", "fruits": ["Avocado", "Lemon / Lime", "Mango"], "active": true, "tier": "Regular", "shipments": 39, "display": "Torres Brasil Comercio, Export e Import LTDA", "trade": "Torres Tropical", "site": "torrestropical.com", "extra_fruits": [], "all_fruits": ["Avocado", "Lemon / Lime", "Mango"], "variety_confirmed": {}}, {"name": "ANA VI COMERCIO IMPORTACAO E EXPORTAÇÃO DE FRUTAS LTDA", "fruits": ["Avocado", "Mango"], "active": true, "tier": "Regular", "shipments": 25, "display": "Ana VI Comercio Importacao e Exportação de Frutas LTDA", "trade": "Ana VI Comercio Importacao e Exportação de Frutas LTDA", "site": "instagram.com/anaviexportacao", "extra_fruits": [], "all_fruits": ["Avocado", "Mango"], "variety_confirmed": {}, "address": "R CARMINI CORTELINE, 505"}, {"name": "GRANDVALLE AGRICOLA IMP E EXP LTDA", "fruits": ["Mango"], "active": true, "tier": "Regular", "shipments": 21, "display": "Grandvalle Agricola IMP e EXP LTDA", "trade": "Grand Valle", "site": "grandvalle.com.br", "extra_fruits": ["Grape"], "all_fruits": ["Grape", "Mango"], "variety_confirmed": {"Mango": "Palmer, Tommy, Kent, Keitt, Haden"}}, {"name": "DESFRUITA BRASIL COM, IMP E EXP DE FRUTAS LTDA", "fruits": ["Avocado"], "active": true, "tier": "Regular", "shipments": 20, "display": "Desfruita Brasil Com, IMP e EXP de Frutas LTDA", "trade": "Desfruita Brasil Com, IMP e EXP de Frutas LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Avocado"], "variety_confirmed": {}}, {"name": "GENGIBRE SCHAEFFER HORTIFRUTI EIRELI", "fruits": ["Ginger"], "active": true, "tier": "Occasional", "shipments": 16, "display": "Gengibre Schaeffer Hortifruti EIRELI", "trade": "Gengibre Schaeffer Hortifruti EIRELI", "site": "instagram.com/gingerschaeffer", "extra_fruits": [], "all_fruits": ["Ginger"], "variety_confirmed": {}, "address": "V82V+7W - Zona Rural, Santa Leopoldina - ES, 29645-000"}, {"name": "BR PLUS | Exportação e Importação", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 13, "display": "BR Plus | Exportação e Importação", "trade": "BR Plus | Exportação e Importação", "site": "tropicalfruits.com.br", "extra_fruits": [], "all_fruits": ["Guava", "Mango", "Papaya", "Passion Fruit", "Star Fruit"], "variety_confirmed": {}}, {"name": "CT AGROINDUSTRIA E COMÉRCIO DE FRUTOS CITRICOS", "fruits": ["Lemon / Lime"], "active": true, "tier": "Occasional", "shipments": 12, "display": "CT Agroindustria e Comércio de Frutos Citricos", "trade": "Citrus Tree", "site": "citrustree.com.br", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}, "address": "Sítio da Chuva, Gleba B - Pirapitingui Mogi Mirim/ SP"}, {"name": "LUCAS BROTTO", "fruits": ["Fig"], "active": true, "tier": "Occasional", "shipments": 10, "display": "Lucas Brotto", "trade": "Lucas Brotto", "site": "brottofigs.com", "extra_fruits": [], "all_fruits": ["Fig", "Guava"], "variety_confirmed": {}, "address": "RODOVIA LIX DA CUNHA, S/N. SITIO MONTE CARLO BAIRRO PEDRA BRANCA"}, {"name": "BESSA PRODUÇÃO E DISTRIBUIÇÃO DE FRUTAS LTDA", "fruits": ["Papaya"], "active": true, "tier": "Occasional", "shipments": 9, "display": "Bessa Produção e Distribuição de Frutas LTDA", "trade": "Frutas Bessa", "site": "frutasbessa.com", "extra_fruits": ["Banana", "Dragon Fruit", "Lemon / Lime"], "all_fruits": ["Banana", "Dragon Fruit", "Lemon / Lime", "Papaya"], "variety_confirmed": {}}, {"name": "AVM COMERCIO DE HORTIFRUGRANJEIROS EIRELI", "fruits": ["Avocado", "Lemon / Lime"], "active": true, "tier": "Occasional", "shipments": 9, "display": "Avm Comercio de Hortifrugranjeiros EIRELI", "trade": "AVM Fresh Fruits", "site": "avmfreshfruits.com", "extra_fruits": [], "all_fruits": ["Avocado", "Lemon / Lime"], "variety_confirmed": {}}, {"name": "HMV COM. EXP. E IMP. DE FRUTAS LTDA", "fruits": ["Dragon Fruit", "Fig"], "active": true, "tier": "Occasional", "shipments": 8, "display": "HMV Com. EXP. e IMP. de Frutas LTDA", "trade": "HMV Com. EXP. e IMP. de Frutas LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Dragon Fruit", "Fig"], "variety_confirmed": {}, "address": "RUA PEDRO MANOEL BARROSO - RESID BOSQUE DA MATA 356"}, {"name": "ANDRADE SUN FARMS AGROCOMERCIAL LTDA", "fruits": ["Avocado", "Lemon / Lime"], "active": true, "tier": "Occasional", "shipments": 7, "display": "Andrade Sun Farms Agrocomercial LTDA", "trade": "Sun Farms", "site": "sunfarms.com.br", "extra_fruits": [], "all_fruits": ["Avocado", "Lemon / Lime"], "variety_confirmed": {}, "address": "ROD SP 340 - KM 149 SITIO DA CHUVA, PIRAPITINGUI"}, {"name": "ESN FRUTECER PRODUCAO E COMERCIALIZACAO DE FRUTAS LTDA", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 6, "display": "ESN Frutecer Producao e Comercializacao de Frutas LTDA", "trade": "ESN Frutecer Producao e Comercializacao de Frutas LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "JOSE ALCIDES BONELLA HORTIFRUITA LTDA", "fruits": ["Avocado"], "active": true, "tier": "Occasional", "shipments": 6, "display": "Jose Alcides Bonella Hortifruita LTDA", "trade": "Bonella Hortifruti", "site": null, "extra_fruits": ["Dragon Fruit", "Mango", "Persimmon", "Tangerine"], "all_fruits": ["Avocado", "Dragon Fruit", "Mango", "Persimmon", "Tangerine"], "variety_confirmed": {}, "address": "AV DOUTOR GASTAO VIDIGAL, 1946 - vila leopoldina"}, {"name": "IMPERIAL AGRONEGOCIOS LTDA", "fruits": ["Papaya"], "active": true, "tier": "Occasional", "shipments": 5, "display": "Imperial Agronegocios LTDA", "trade": "Imperial Agronegocios LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}}, {"name": "MULTIPLA COMEX EXPORTACAO E IMPORTACAO DE", "fruits": ["Atemoya", "Kumquat"], "active": true, "tier": "Occasional", "shipments": 5, "display": "Multipla Comex Exportacao e Importacao de", "trade": "Multipla Comex Exportacao e Importacao de", "site": null, "extra_fruits": [], "all_fruits": ["Atemoya", "Kumquat"], "variety_confirmed": {}}, {"name": "MBR COMÉRCIO, EXPORTAÇÃO E IMPORTAÇÃO LTDA", "fruits": ["Persimmon"], "active": true, "tier": "Occasional", "shipments": 5, "display": "Mbr Comércio, Exportação e Importação LTDA", "trade": "MBR Company", "site": "mbrcompany.com", "extra_fruits": ["Apple", "Atemoya", "Avocado", "Banana", "Blackberry", "Blueberry", "Dragon Fruit", "Fig", "Ginger", "Grape", "Guava", "Lemon / Lime", "Lychee", "Mango", "Melon", "Orange", "Raspberry", "Star Fruit", "Watermelon"], "all_fruits": ["Apple", "Atemoya", "Avocado", "Banana", "Blackberry", "Blueberry", "Dragon Fruit", "Fig", "Ginger", "Grape", "Guava", "Lemon / Lime", "Lychee", "Mango", "Melon", "Orange", "Persimmon", "Raspberry", "Star Fruit", "Watermelon"], "variety_confirmed": {}, "address": "AVENIDA CASSIANO RICARDO. 604 - CJ 32 SAO JOSE DOS CAMPOS"}, {"name": "IBO FRUTAS EXPORTACAO LTDA", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 5, "display": "Ibo Frutas Exportacao LTDA", "trade": "Ibo Frutas Exportacao LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "ZIEL ORGANIZAÇÃO LOGÍSTICA DO BRASIL LTDA", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 5, "display": "Ziel Organização Logística do Brasil LTDA", "trade": "Ziel Organização Logística do Brasil LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "BELLO FRUITA IMPORTAÇÃO E EXPORTAÇÃO LTDA", "fruits": ["Papaya"], "active": true, "tier": "Occasional", "shipments": 4, "display": "Bello Fruita Importação e Exportação LTDA", "trade": "Bello Papaya", "site": "bellopapaya.com.br", "extra_fruits": ["Cacao", "Coconut", "Lemon / Lime", "Orange", "Pear", "Tangerine"], "all_fruits": ["Cacao", "Coconut", "Lemon / Lime", "Orange", "Papaya", "Pear", "Tangerine"], "variety_confirmed": {}}, {"name": "VENDFOODS COMERCIO VAREJISTA DE ALIMENTOS LTDA", "fruits": ["Frozen Açaí"], "active": true, "tier": "Occasional", "shipments": 3, "display": "Vendfoods Comercio Varejista de Alimentos LTDA", "trade": "Vendfoods Comercio Varejista de Alimentos LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Frozen Açaí"], "variety_confirmed": {}}, {"name": "SALVADOR ORLANDO BROTTO E OUTRA", "fruits": ["Fig"], "active": true, "tier": "Occasional", "shipments": 3, "display": "Salvador Orlando Brotto e Outra", "trade": "Salvador Orlando Brotto e Outra", "site": null, "extra_fruits": [], "all_fruits": ["Fig"], "variety_confirmed": {}}, {"name": "AGRONOGUEIRA - IMPORTAÇÃO E EXPORTAÇÃO LTDA", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 3, "display": "Agronogueira - Importação e Exportação LTDA", "trade": "Agronogueira - Importação e Exportação LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "Alabarse Comercio de Frutas LTDA", "fruits": ["Papaya", "Passion Fruit"], "active": true, "tier": "Occasional", "shipments": 2, "display": "Alabarse Comercio de Frutas LTDA", "trade": "Alabarse", "site": "alabarsefrutas.com.br", "extra_fruits": ["Dragon Fruit", "Guava", "Lychee", "Mango"], "all_fruits": ["Dragon Fruit", "Guava", "Lychee", "Mango", "Papaya", "Passion Fruit"], "variety_confirmed": {}, "address": "Avenida Doutor Gastao Vidigal, 1946 - Vila Leopoldina"}, {"name": "REPRESENTACAO EXP E IMP JESUS O BOM PASTOR LTDA", "fruits": ["Avocado", "Papaya"], "active": true, "tier": "Occasional", "shipments": 2, "display": "Representacao EXP e IMP Jesus O Bom Pastor LTDA", "trade": "Representacao EXP e IMP Jesus O Bom Pastor LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Avocado", "Papaya"], "variety_confirmed": {}}, {"name": "FRUTAS B.S. LTDA - FILIAL", "fruits": ["Papaya"], "active": true, "tier": "Occasional", "shipments": 1, "display": "Frutas B.s. LTDA - Filial", "trade": "Frutas B.s. LTDA - Filial", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}}, {"name": "LPM IMPORTADORA E EXPORTADORA LTDA", "fruits": ["Mango"], "active": true, "tier": "Occasional", "shipments": 1, "display": "Lpm Importadora e Exportadora LTDA", "trade": "Lpm Importadora e Exportadora LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Mango"], "variety_confirmed": {}}, {"name": "AGRICOLA FAMOSA S.A.", "fruits": ["Watermelon"], "active": true, "tier": "Occasional", "shipments": 1, "display": "Agricola Famosa S.a.", "trade": "Agrícola Famosa", "site": "agricolafamosa.com.br", "extra_fruits": ["Melon", "Papaya", "Passion Fruit"], "all_fruits": ["Melon", "Papaya", "Passion Fruit", "Watermelon"], "variety_confirmed": {}}, {"name": "SABORES DO BRASIL LTDA", "fruits": ["Lemon / Lime"], "active": true, "tier": "Occasional", "shipments": 1, "display": "Sabores do Brasil LTDA", "trade": "Sabores do Brasil LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "INTERFRUITA ALIMENTOS LTDA", "fruits": ["Papaya"], "active": false, "tier": "High volume", "shipments": 120, "display": "Interfruita Alimentos LTDA", "trade": "Interfruit", "site": "interfruit.com.br", "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {"Papaya": "Formosa"}}, {"name": "RIO CORRENTE AGRICOLA LTDA", "fruits": ["Papaya"], "active": false, "tier": "Occasional", "shipments": 11, "display": "Rio Corrente Agricola LTDA", "trade": "Rio Corrente Agricola LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}}, {"name": "FRUTALI INDUSTRIA DE ALIMENTOS LTDA", "fruits": ["Frozen Açaí"], "active": false, "tier": "Occasional", "shipments": 6, "display": "Frutali Industria de Alimentos LTDA", "trade": "Frutali Industria de Alimentos LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Frozen Açaí"], "variety_confirmed": {}}, {"name": "BRASFRUITA EXPORTAÇÃO E IMPORTAÇÃO LTDA.", "fruits": ["Avocado", "Lemon / Lime"], "active": false, "tier": "Occasional", "shipments": 4, "display": "Brasfruita Exportação e Importação LTDA.", "trade": "Brasfruit", "site": "brasfruit.com", "extra_fruits": ["Mango"], "all_fruits": ["Avocado", "Lemon / Lime", "Mango"], "variety_confirmed": {}, "address": "ESTR.GRAMA ROXA KM 5 SN - AVARE"}, {"name": "FRUTAPACK EXPORTAÇÃO E IMPORTAÇÃO LTDA", "fruits": ["Papaya"], "active": false, "tier": "Occasional", "shipments": 4, "display": "Frutapack Exportação e Importação LTDA", "trade": "Frutapack Exportação e Importação LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}}, {"name": "IBACEM AGRICOLA, COMERCIO E EXPORTACAO LTDA", "fruits": ["Mango"], "active": false, "tier": "Occasional", "shipments": 3, "display": "Ibacem Agricola, Comercio e Exportacao LTDA", "trade": "Ibacem", "site": "ibacem.com.br", "extra_fruits": ["Grape"], "all_fruits": ["Grape", "Mango"], "variety_confirmed": {}}, {"name": "ALL COMERCIO, IMPORTACAO E EXPORTACAO DE PRODUTOS LTDA", "fruits": ["Dragon Fruit", "Papaya"], "active": false, "tier": "Occasional", "shipments": 2, "display": "All Comercio, Importacao e Exportacao de Produtos LTDA", "trade": "All Comercio, Importacao e Exportacao de Produtos LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Dragon Fruit", "Papaya"], "variety_confirmed": {}}, {"name": "UGBP PRODUCAO E EXPORTACAO LTDA", "fruits": ["Papaya"], "active": false, "tier": "Occasional", "shipments": 2, "display": "UGBP Producao e Exportacao LTDA", "trade": "UGBP", "site": "ugbp.com", "extra_fruits": ["Coconut", "Ginger", "Lemon / Lime", "Orange"], "all_fruits": ["Coconut", "Ginger", "Lemon / Lime", "Orange", "Papaya"], "variety_confirmed": {}}, {"name": "JORGE NORIO MANFRE", "fruits": ["Avocado"], "active": false, "tier": "Occasional", "shipments": 1, "display": "Jorge Norio Manfre", "trade": "Jorge Norio Manfre", "site": null, "extra_fruits": [], "all_fruits": ["Avocado"], "variety_confirmed": {}}, {"name": "NORTH AÇAÍ FOODS", "fruits": ["Frozen Açaí"], "active": false, "tier": "Occasional", "shipments": 1, "display": "North Açaí Foods", "trade": "North Açaí Foods", "site": "northacai.com.br", "extra_fruits": [], "all_fruits": ["Frozen Açaí"], "variety_confirmed": {}}, {"name": "IRMAOS NUNES COMERCIO E REPRESENTACOES LTDA", "fruits": ["Frozen Açaí"], "active": false, "tier": "Occasional", "shipments": 1, "display": "Irmaos Nunes Comercio e Representacoes LTDA", "trade": "Irmaos Nunes Comercio e Representacoes LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Frozen Açaí"], "variety_confirmed": {}}, {"name": "MC AGRICOLA LTDA", "fruits": ["Papaya"], "active": false, "tier": "Occasional", "shipments": 1, "display": "MC Agricola LTDA", "trade": "MC Agricola LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Papaya"], "variety_confirmed": {}, "address": "RUA CIRILO COSTA 100 - soretama"}, {"name": "ECO FOODS INDUSTRIA E COMERCIO DE ALIMENTOS LTDA", "fruits": ["Frozen Açaí"], "active": false, "tier": "Occasional", "shipments": 1, "display": "Eco Foods Industria e Comercio de Alimentos LTDA", "trade": "Eco Foods Industria e Comercio de Alimentos LTDA", "site": null, "extra_fruits": [], "all_fruits": ["Frozen Açaí"], "variety_confirmed": {}}, {"name": "JAGUACY BRASIL COMERCIO DE FRUTAS LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Jaguacy Brasil Comercio de Frutas LTDA", "trade": "Jaguacy Brasil", "site": "jaguacy.com.br", "phone": "(14) 3042-2255", "email": "contato@jaguacy.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Avocado"], "variety_confirmed": {}}, {"name": "UP-FRUIT IMPORTAÇÃO E EXPORTAÇÃO LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Up-Fruit Importação e Exportação LTDA", "trade": "Up-Fruit", "site": "up-fruit.com", "phone": "+55 19 3716-8282", "email": "info@up-fruit.com", "source": "ABRAFRUTAS directory", "extra_fruits": ["Atemoya", "Star Fruit", "Fig", "Guava", "Lemon / Lime", "Mango", "Dragon Fruit"], "all_fruits": ["Avocado", "Atemoya", "Star Fruit", "Fig", "Guava", "Lemon / Lime", "Mango", "Dragon Fruit"], "variety_confirmed": {}}, {"name": "ARGOFRUTA COMERCIAL EXPORTADORA LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Argofruta Comercial Exportadora LTDA", "trade": "Argofruta", "site": "argofruta.com", "phone": "(11) 3863-6442", "email": "contact@argofruta.com", "source": "ABRAFRUTAS directory", "extra_fruits": ["Lemon / Lime", "Mango", "Grape"], "all_fruits": ["Avocado", "Lemon / Lime", "Mango", "Grape"], "variety_confirmed": {}}, {"name": "COMERCIAL IMPORTADORA E EXPORTADORA CONE LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Comercial Importadora e Exportadora Cone LTDA", "trade": "Frutas Cone", "site": "linktr.ee/frutascone", "phone": "+55 71 3013-5442", "email": "contato@frutascone.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Ginger", "Lemon / Lime", "Mango", "Grape"], "all_fruits": ["Avocado", "Ginger", "Lemon / Lime", "Mango", "Grape"], "variety_confirmed": {}}, {"name": "PEREIRA E RUGERI COMERCIO E EXPORTACAO DE FRUTAS LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Pereira e Rugeri Comercio e Exportacao de Frutas LTDA", "trade": "Rocão Citrus", "site": "rocao-citrus.business.site", "phone": "+55 17 99707-2610", "email": "exportacao@rocaocitrus.com", "source": "ABRAFRUTAS directory", "extra_fruits": ["Ginger", "Lemon / Lime", "Mango"], "all_fruits": ["Avocado", "Ginger", "Lemon / Lime", "Mango"], "variety_confirmed": {}}, {"name": "CAMPAL FRUTAS E LEGUMES LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Campal Frutas e Legumes LTDA", "trade": "Campal Frutas", "site": "campalfrutas.com", "phone": "(19) 3881-2635", "email": "contato@campalfrutas.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Atemoya", "Star Fruit", "Fig", "Guava", "Lychee"], "all_fruits": ["Avocado", "Atemoya", "Star Fruit", "Fig", "Guava", "Lychee"], "variety_confirmed": {}}, {"name": "COMERCIAL TSUGE EXPORTAÇÃO E IMPORTAÇÃO LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Comercial Tsuge Exportação e Importação LTDA", "trade": "Tsuge", "site": "tsuge.com.br", "phone": "(34) 3671-2115", "email": "contato@tsuge.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Avocado"], "variety_confirmed": {}}, {"name": "FARMER AGRÍCOLA DO BRASIL LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Farmer Agrícola do Brasil LTDA", "trade": "Farmer Brazil", "site": "farmerbrazil.com", "phone": "+55 11 99023-8585", "email": "farmerbrazil@farmerbrazil.com", "source": "ABRAFRUTAS directory", "extra_fruits": ["Lemon / Lime"], "all_fruits": ["Avocado", "Lemon / Lime"], "variety_confirmed": {}}, {"name": "BE FRUIT COMÉRCIO E EXPORTAÇÃO LTDA", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Be Fruit Comércio e Exportação LTDA", "trade": "Be Fruit", "site": "befruit.com.br", "phone": "(11) 3373-7333", "email": "contato@befruit.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Orange", "Lemon / Lime"], "all_fruits": ["Avocado", "Orange", "Lemon / Lime"], "variety_confirmed": {}}, {"name": "ITACITRUS AGROINDÚSTRIA E EXPORTADORA LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Itacitrus Agroindústria e Exportadora LTDA", "trade": "Itacitrus", "site": "itacitrus.com.br", "phone": "(17) 3546-2942", "email": "silmara.pasiani@itacitrus.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "GIBRAN EXPORTADORES DE FRUTAS CÍTRICAS LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Gibran Exportadores de Frutas Cítricas LTDA", "trade": "Gibran Citrus", "site": "gibrancitrus.com.br", "phone": "(16) 3263-9898", "email": "contato@gibrancitrus.com.br", "source": "ABRAFRUTAS / ABCM directories", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "SUPRACITRUS COMERCIAL EIRELI", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Supracitrus Comercial Eireli", "trade": "Supracitrus", "site": "supracitrus.com.br", "phone": "(17) 3281-4977", "email": "supracitrus@supracitrus.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "CI TRADING AGROINDÚSTRIA EIRELI (FRUTOESTE)", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "CI Trading Agroindústria Eireli", "trade": "Frutoeste", "site": "frutoeste.com", "phone": "(16) 99700-9699", "email": "info@frutoeste.com", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "SÃO FRANCISCO CITRUS LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "São Francisco Citrus LTDA", "trade": "São Francisco Citrus", "site": null, "phone": "+55 35 99889-798", "email": "adm@saofranciscocitrus.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "COMERCIAL E EXPORTADORA DE FRUTAS DON VICENTE LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Comercial e Exportadora de Frutas Don Vicente LTDA", "trade": "Frutas Don Vicente", "site": "frutasdonvicente.com.br", "phone": "(17) 3546-2942 / (75) 98184-7171", "email": "filial.bahia@frutasdonvicente.com.br", "source": "ABRAFRUTAS / ABCM directories", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "GREENYARD FRESH BRAZIL LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Greenyard Fresh Brazil LTDA", "trade": "Greenyard Fresh Brazil", "site": "greenyard.group", "phone": "+55 71 3023-4379", "email": "gcrouzet@greenyardfresh.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "KUARÁ FRUTAS", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Kuará Frutas", "trade": "Kuará Frutas", "site": "kuarafrutas.com.br", "phone": "+55 43 98801-1795", "email": "sac@kuarafrutas.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Mango", "Melon", "Blueberry", "Grape"], "all_fruits": ["Lemon / Lime", "Mango", "Melon", "Blueberry", "Grape"], "variety_confirmed": {}}, {"name": "FOREVER 5 COMERCIAL E IMPORTADORA E EXPORTADORA LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Forever 5 Comercial e Importadora e Exportadora LTDA", "trade": "Forever 5", "site": "forever5.com.br", "phone": "+55 17 3546-3233", "email": "contato@forever5.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Mango"], "all_fruits": ["Lemon / Lime", "Mango"], "variety_confirmed": {}}, {"name": "HAPPY FRUITS", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Happy Fruits", "trade": "Happy Fruits", "site": "happyfruits.com.br", "phone": "+55 87 99683-6701", "email": "info@happyfruits4you.com", "source": "ABRAFRUTAS directory", "extra_fruits": ["Ginger", "Mango", "Dragon Fruit"], "all_fruits": ["Lemon / Lime", "Ginger", "Mango", "Dragon Fruit"], "variety_confirmed": {}}, {"name": "AGRÍCOLA ARAUJO DO VALE LTDA - SEBASTIÃO DA MANGA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Agrícola Araujo do Vale LTDA - Sebastião da Manga", "trade": "Sebastião da Manga", "site": "sebastiaodamanga.com", "phone": "+55 21 98458-1439", "email": "ronaldo@sebastiaodamanga.com.br", "source": "ABRAFRUTAS directory", "extra_fruits": ["Ginger", "Mango", "Dragon Fruit"], "all_fruits": ["Lemon / Lime", "Ginger", "Mango", "Dragon Fruit"], "variety_confirmed": {}}, {"name": "CISOL DO BRASIL EXPORTAÇÃO LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Cisol do Brasil Exportação LTDA", "trade": "Cisol do Brasil", "site": "cisol.com", "phone": "(19) 3827-3719", "email": "cisol@cisol.com", "source": "ABCM directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "CITRÍCOLA LUCATO CIAL IMP. EXP. LTDA", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Citrícola Lucato Cial Imp. Exp. LTDA", "trade": "Citrícola Lucato", "site": "citricolalucato.com.br", "phone": "(19) 3442-1910", "email": "limeira@citricolalucato.com.br", "source": "ABCM directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "CITRUS SCHOLL", "fruits": ["Lemon / Lime"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Citrus Scholl", "trade": "Citrus Scholl", "site": null, "phone": "(19) 99372-1601", "email": "se_scholl@hotmail.com", "source": "ABCM directory", "extra_fruits": [], "all_fruits": ["Lemon / Lime"], "variety_confirmed": {}}, {"name": "COOPERATIVA DOS FRUTICULTORES DE NOVA AMERICA DA COLINA E REGIAO - NOVA CITRUS", "fruits": ["Avocado"], "active": false, "tier": "Prospect", "shipments": 0, "display": "Cooperativa dos Fruticultores de Nova America da Colina e Regiao - Nova Citrus", "trade": "Nova Citrus", "site": null, "phone": "(43) 3553-1654", "email": "novacitrus@gmail.com", "source": "Trade press (avocado expansion in Paraná, 2024) + Paraná state agriculture registry", "extra_fruits": ["Orange", "Tangerine", "Lemon / Lime"], "all_fruits": ["Avocado", "Orange", "Tangerine", "Lemon / Lime"], "variety_confirmed": {}}];
+const FRUIT_GUIDE = {"Papaya": {"season": [[1, 12]], "peak": "Year-round", "varieties": "Formosa, Golden (Solo)"}, "Mango": {"season": [[2, 11]], "peak": "Aug-Oct", "varieties": "Tommy Atkins, Palmer, Kent, Keitt, Haden"}, "Ginger": {"season": [[7, 11]], "peak": "Jul-Nov", "varieties": "—"}, "Avocado": {"season": [[1, 9], [12, 12]], "peak": "Jan-Sep", "varieties": "Breda, Fortuna, Geada, Margarida, Hass"}, "Dragon Fruit": {"season": [[11, 12], [1, 5]], "peak": "Feb-Mar", "varieties": "White-flesh, Red-flesh, Yellow"}, "Fig": {"season": [[11, 12], [1, 3]], "peak": "Dec-Feb", "varieties": "Roxo de Valinhos"}, "Guava": {"season": [[1, 12]], "peak": "Year-round", "varieties": "Red-flesh (Paluma)"}, "Atemoya": {"season": [[5, 8]], "peak": "May-Aug", "varieties": "—"}, "Flowers": {"season": [[1, 12]], "peak": "Year-round", "varieties": "—"}, "Lemon / Lime": {"season": [[1, 9]], "peak": "Jan-Jul (lime) · May-Sep (lemon)", "varieties": "Tahiti Lime, Sicilian Lemon"}, "Star Fruit": {"season": [[2, 4], [8, 10]], "peak": "Feb-Apr & Aug-Oct", "varieties": "—"}, "Frozen Açaí": {"season": [[1, 12]], "peak": "Year-round (frozen)", "varieties": "—"}, "Persimmon": {"season": [[3, 6]], "peak": "Mar-Jun", "varieties": "Fuyu, Rama Forte"}, "Sweet Potato": {"season": [[7, 11]], "peak": "Jul-Nov", "varieties": "Orange-flesh, Purple"}, "Kumquat": {"season": [[5, 8]], "peak": "May-Aug", "varieties": "—"}, "Lychee": {"season": [[11, 12], [1, 2]], "peak": "Nov-Feb (peak Dec)", "varieties": "—"}, "Watermelon": {"season": [[8, 12], [1, 3]], "peak": "Aug-Mar", "varieties": "—"}, "Passion Fruit": {"season": [[2, 5], [8, 10]], "peak": "Feb-May & Aug-Oct", "varieties": "—"}, "Pineapple": {"season": [[10, 12], [1, 2]], "peak": "Oct-Feb", "varieties": "Pérola, Smooth Cayenne"}, "Grape": {"season": [[3, 5], [8, 11]], "peak": "Mar-May & Aug-Nov", "varieties": "Sweet Jubilee, Cotton Candy, Sugar Crisp, Scarlota"}, "Melon": {"season": [[9, 12], [1, 1]], "peak": "Sep-Jan", "varieties": "Yellow (Honeydew), Cantaloupe, Galia"}, "Cacao": {"season": [[4, 9]], "peak": "Apr-Sep", "varieties": "—"}, "Coconut": {"season": [[9, 12], [1, 3]], "peak": "Sep-Mar", "varieties": "—"}, "Orange": {"season": [[6, 11]], "peak": "Jun-Nov", "varieties": "Pera, Bahia (Navel), Valencia"}, "Pear": {"season": [[1, 3]], "peak": "Jan-Mar", "varieties": "—"}, "Tangerine": {"season": [[4, 9]], "peak": "Apr-Sep", "varieties": "Ponkan, Murcott"}, "Banana": {"season": [[1, 12]], "peak": "Year-round", "varieties": "Prata, Nanica (Cavendish), Maçã"}, "Blackberry": {"season": [[11, 12], [1, 1]], "peak": "Nov-Jan", "varieties": "—"}, "Raspberry": {"season": [[10, 12]], "peak": "Oct-Dec", "varieties": "—"}, "Apple": {"season": [[1, 4]], "peak": "Jan-Apr", "varieties": "Gala, Fuji"}, "Blueberry": {"season": [[9, 12]], "peak": "Sep-Dec", "varieties": "—"}};
+const FRUIT_COLORS = {"Papaya": "#E1722E", "Mango": "#C9962F", "Ginger": "#A9762E", "Dragon Fruit": "#B03D6E", "Avocado": "#4F6E45", "Fig": "#5C4160", "Guava": "#7C8F3E", "Atemoya": "#688A50", "Flowers": "#A14E80", "Lemon / Lime": "#8AA22A", "Star Fruit": "#B5901F", "Frozen Açaí": "#3F3260", "Persimmon": "#C9701F", "Sweet Potato": "#8E4E33", "Kumquat": "#C08A1F", "Lychee": "#AD3F4E", "Watermelon": "#2F7A4B", "Passion Fruit": "#C29E2A", "Pineapple": "#D9A22A", "Grape": "#6E3B6E", "Melon": "#9FBF3B", "Cacao": "#6B4226", "Coconut": "#8C6E4A", "Orange": "#E08B1F", "Pear": "#9FB13E", "Tangerine": "#E0972E", "Banana": "#D9C13A", "Blackberry": "#4A2E55", "Raspberry": "#B23A5B", "Apple": "#B23A3A", "Blueberry": "#3A4FB2"};
+
+function fruitColor(fruit){
+  if (FRUIT_COLORS[fruit]) return FRUIT_COLORS[fruit];
+  let h = 0;
+  for (let i=0;i<fruit.length;i++) h = (h * 31 + fruit.charCodeAt(i)) >>> 0;
+  const palette = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E'];
+  return palette[h % palette.length];
+}
+
+/* ---------- Upcoming seasons (day countdown — private view only) ---------- */
+const ALERT_WINDOW_DAYS = 60; // "upcoming" window in days — adjustable
+
+function isYearRound(fruit){
+  const guide = FRUIT_GUIDE[fruit];
+  return !!(guide && guide.season && guide.season.some(([s,e]) => s === 1 && e === 12));
+}
+
+function daysUntilNextSeasonStart(fruit, fromDate){
+  const guide = FRUIT_GUIDE[fruit];
+  if (!guide || !guide.season || !guide.season.length) return null;
+  if (isYearRound(fruit)) return null; // no meaningful "start" — always in season
+  const today = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+  let best = null;
+  guide.season.forEach(range => {
+    const startMonth = range[0]; // 1-12
+    [0, 1].forEach(yearOffset => {
+      const candidate = new Date(today.getFullYear() + yearOffset, startMonth - 1, 1);
+      const diff = Math.round((candidate - today) / 86400000);
+      if (diff >= -3 && (best === null || diff < best)) best = diff; // -3: tolerate being right at the start
+    });
+  });
+  return best;
+}
+
+function getUpcomingSeasons(){
+  const today = new Date();
+  const fruits = allFruits();
+  const list = fruits.map(f => {
+    const days = daysUntilNextSeasonStart(f, today);
+    return { fruit: f, days, count: fruitCount(f) };
+  }).filter(x => x.days !== null);
+  list.sort((a,b) => a.days - b.days);
+  return list;
+}
+
+let showAllAlerts = false;
+
+function renderAlerts(){
+  const row = document.getElementById('alertsRow');
+  const all = getUpcomingSeasons();
+  const within = all.filter(x => x.days <= ALERT_WINDOW_DAYS);
+  const list = showAllAlerts ? all : within;
+  document.getElementById('toggleAllAlerts').textContent = showAllAlerts ? 'Show upcoming only' : 'Show all';
+
+  const yearRoundFruits = allFruits().filter(isYearRound);
+  const yearRoundHtml = yearRoundFruits.length
+    ? `<div class="alerts-empty" style="margin-top:8px;">Available year-round: ${yearRoundFruits.join(', ')}</div>`
+    : '';
+
+  if (!list.length){
+    row.innerHTML = '<div class="alerts-empty">No upcoming seasons in the next days.</div>' + yearRoundHtml;
+    return;
+  }
+  row.innerHTML = list.map(x => {
+    const color = fruitColor(x.fruit);
+    let label, days;
+    if (x.days <= 0){ label = 'In season now'; days = '●'; }
+    else { label = 'days until start'; days = x.days; }
+    return `<div class="alert-card" style="background:${color}" data-fruit="${x.fruit.replace(/"/g,'&quot;')}">
+      <div class="af-name">${x.fruit}</div>
+      <div class="af-days">${days}</div>
+      <div class="af-lbl">${label}</div>
+      <div class="af-count">${x.count} exporter${x.count===1?'':'s'}</div>
+    </div>`;
+  }).join('') + yearRoundHtml;
+  row.querySelectorAll('.alert-card').forEach(el => {
+    el.onclick = () => { activeFruit = el.getAttribute('data-fruit'); setNav('exporters'); render(); window.scrollTo({top:0, behavior:'smooth'}); };
+  });
+}
+
+document.getElementById('toggleAllAlerts').addEventListener('click', () => { showAllAlerts = !showAllAlerts; renderAlerts(); });
+
+/* ---------- Cloud backend (Google Sheets via Apps Script) — falls back to this browser only if not configured ---------- */
+function getSheetsUrl(){ return localStorage.getItem('hevile_sheets_url') || ''; }
+function setSheetsUrl(u){ localStorage.setItem('hevile_sheets_url', u); }
+
+async function backendGet(key){
+  const url = getSheetsUrl();
+  if (url){
+    try{
+      const res = await fetch(`${url}?action=get&key=${encodeURIComponent(key)}`);
+      const data = await res.json();
+      if (data.value !== null && data.value !== undefined){
+        localStorage.setItem(key, data.value); // keep a local mirror
+        return data.value;
+      }
+    } catch(e){ console.error('Cloud read failed, using local copy', e); }
+  }
+  return localStorage.getItem(key);
+}
+
+async function backendSet(key, value){
+  localStorage.setItem(key, value); // always keep an instant local copy
+  const url = getSheetsUrl();
+  if (url){
+    try{
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
+        body: JSON.stringify({ action: 'set', key, value })
+      });
+    } catch(e){ console.error('Cloud sync failed, saved locally only', e); }
+  }
+}
+
+async function backendListValues(prefix){
+  const url = getSheetsUrl();
+  if (url){
+    try{
+      const res = await fetch(`${url}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
+      const data = await res.json();
+      (data.entries || []).forEach(e => localStorage.setItem(e.key, e.value));
+      return data.entries || [];
+    } catch(e){ console.error('Cloud list failed, using local copies', e); }
+  }
+  const entries = [];
+  for (let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) entries.push({ key: k, value: localStorage.getItem(k) });
+  }
+  return entries;
+}
+
+async function testCloudConnection(){
+  const url = getSheetsUrl();
+  if (!url) throw new Error('No Google Sheets URL configured yet.');
+  const res = await fetch(`${url}?action=ping`);
+  return res.json();
+}
+
+/* ---------- Agendor sync (proxied through the same Apps Script, to avoid CORS) ---------- */
+function getAgendorToken(){ return localStorage.getItem('hevile_agendor_token') || ''; }
+function setAgendorToken(t){ localStorage.setItem('hevile_agendor_token', t); }
+function getAgendorLastSync(){ return localStorage.getItem('hevile_agendor_last_sync') || ''; }
+function setAgendorLastSync(iso){ localStorage.setItem('hevile_agendor_last_sync', iso); }
+
+async function agendorPushOrg(d){
+  const url = getSheetsUrl();
+  const token = getAgendorToken();
+  if (!url) throw new Error('Configure o Cloud sync (Google Sheets) primeiro — o Agendor passa por ele.');
+  if (!token) throw new Error('Cole seu token do Agendor nas configurações antes de enviar.');
+  const description = `Fonte: ${d.source || 'Hevile'}. Frutas: ${d.all_fruits.join(', ') || '—'}.`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'agendorPush', token,
+      name: d.trade, phone: d.phone || '', email: d.email || '', description
+    })
+  });
+  return res.json();
+}
+
+async function agendorPullOrgs(){
+  const url = getSheetsUrl();
+  const token = getAgendorToken();
+  if (!url) throw new Error('Configure o Cloud sync (Google Sheets) primeiro — o Agendor passa por ele.');
+  if (!token) throw new Error('Cole seu token do Agendor nas configurações antes de buscar.');
+  const since = getAgendorLastSync() || '2020-01-01T00:00:00Z';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'agendorPull', token, since })
+  });
+  const data = await res.json();
+  setAgendorLastSync(new Date().toISOString());
+  return data;
+}
+
+/* ---------- Referrals (importer x exporter) & feedback — never shown in the public file ---------- */
+function exporterKey(d){ return d.name; }
+
+async function getReferrals(key){
+  try{
+    const v = await backendGet('hevile_referrals:' + key);
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setReferrals(key, arr){
+  await backendSet('hevile_referrals:' + key, JSON.stringify(arr));
+}
+async function getFeedback(key){
+  const v = await backendGet('hevile_feedback:' + key);
+  return v || '';
+}
+async function setFeedback(key, text){
+  await backendSet('hevile_feedback:' + key, text);
+}
+
+// in-memory cache: exporter name -> list of referrals [{id, importer, season, feedback, notes}]
+let referralsCache = {};
+
+function seasonSortValue(season){
+  const m = (season || '').match(/\d{4}/);
+  return m ? parseInt(m[0], 10) : 0;
+}
+
+async function loadReferralsCache(){
+  referralsCache = {};
+  const entries = await backendListValues('hevile_referrals:');
+  entries.forEach(({key, value}) => {
+    try{
+      const arr = JSON.parse(value);
+      if (arr && arr.length) referralsCache[key.replace('hevile_referrals:', '')] = arr;
+    } catch(e){ /* skip corrupted entry */ }
+  });
+  renderCards();
+}
+
+const FEEDBACK_ICON = { 'Positive': '✅', 'Negative': '❌', 'Neutral': '➖' };
+
+function lastReferralOf(key){
+  const arr = referralsCache[key];
+  if (!arr || !arr.length) return null;
+  return [...arr].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season))[0];
+}
+
+let activeFruit = null;
+let searchTerm = '';
+
+function allFruits(){
+  const set = new Set();
+  EXPORTERS.forEach(d => d.all_fruits.forEach(f => set.add(f)));
+  return [...set].sort();
+}
+
+function fruitCount(fruit){
+  return EXPORTERS.filter(d => d.all_fruits.includes(fruit)).length;
+}
+
+function renderStats(){
+  const bar = document.getElementById('statsBar');
+  const fruits = allFruits();
+  const withSite = EXPORTERS.filter(d => d.site).length;
+  bar.innerHTML = `
+    <div class="stat"><span class="num">${EXPORTERS.length}</span><span class="lbl">Exporters</span></div>
+    <div class="stat"><span class="num">${fruits.length}</span><span class="lbl">Fruit categories</span></div>
+    <div class="stat"><span class="num">${withSite}</span><span class="lbl">With a website on file</span></div>
+    <div class="stat"><span class="num">28</span><span class="lbl">Years — Hevile</span></div>
+  `;
+}
+
+function renderFruitList(){
+  const el = document.getElementById('fruitList');
+  el.innerHTML = '';
+  allFruits().forEach(f => {
+    const color = fruitColor(f);
+    const chip = document.createElement('div');
+    chip.className = 'fruit-chip' + (activeFruit === f ? ' active' : '');
+    chip.innerHTML = `<span class="name"><span class="dot" style="background:${color}"></span>${f}</span><span class="count">${fruitCount(f)}</span>`;
+    chip.onclick = () => { activeFruit = (activeFruit === f) ? null : f; render(); };
+    el.appendChild(chip);
+  });
+}
+
+function matchesSearch(d){
+  if (!searchTerm) return true;
+  return d.trade.toLowerCase().includes(searchTerm);
+}
+
+function matchesFruit(d){
+  if (!activeFruit) return true;
+  return d.all_fruits.includes(activeFruit);
+}
+
+function renderFruitInfoPanel(){
+  const panel = document.getElementById('fruitInfoPanel');
+  if (!activeFruit){
+    panel.classList.remove('visible');
+    panel.innerHTML = '';
+    return;
+  }
+  const g = FRUIT_GUIDE[activeFruit] || {peak:'—', varieties:'—'};
+  const color = fruitColor(activeFruit);
+  panel.classList.add('visible');
+  panel.innerHTML = `
+    <div class="title"><span class="dot" style="width:11px;height:11px;border-radius:50%;display:inline-block;background:${color}"></span>${activeFruit}</div>
+    <div class="row"><b>Peak season from Brazil:</b> ${g.peak}</div>
+    <div class="row"><b>Common export varieties (industry-wide):</b> ${g.varieties}</div>
+  `;
+}
+
+function renderCards(){
+  const grid = document.getElementById('cardGrid');
+  const empty = document.getElementById('emptyState');
+  grid.innerHTML = '';
+  let list = EXPORTERS.filter(d => matchesFruit(d) && matchesSearch(d));
+  list.sort((a,b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)) || b.shipments - a.shipments);
+
+  document.getElementById('mainTitle').textContent = activeFruit ? `Exporters working with ${activeFruit}` : 'All exporters';
+  document.getElementById('mainSub').textContent = `${list.length} exporter${list.length===1?'':'s'} shown`;
+
+  empty.style.display = list.length === 0 ? 'block' : 'none';
+
+  list.forEach(d => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const pills = d.all_fruits.map(f => {
+      const c = fruitColor(f);
+      const confirmed = d.variety_confirmed && d.variety_confirmed[f];
+      return `<span class="pill" style="background:${c}">${f}${confirmed ? ' ✓' : ''}</span>`;
+    }).join('');
+    const lastRef = lastReferralOf(exporterKey(d));
+    let contactBadge;
+    if (d.tier === 'Prospect'){
+      contactBadge = `<div class="meta-line">${d.phone ? `<span>📞 ${d.phone}</span>` : ''}${d.email ? `<span>✉ ${d.email}</span>` : ''}</div>`;
+    } else if (lastRef){
+      const icon = FEEDBACK_ICON[lastRef.feedback] || '';
+      contactBadge = `<span class="last-contact">${icon} ${lastRef.importer} · ${lastRef.season}</span>`;
+    } else {
+      contactBadge = `<span class="last-contact none">Sem indicação registrada</span>`;
+    }
+    card.innerHTML = `
+      <div class="name">${d.trade}${d.tier === 'Prospect' ? ' <span class="prospect-tag">PROSPECT</span>' : ''}</div>
+      <div class="site">${d.site ? d.site : ''}</div>
+      <div class="meta-line"><span class="tier-tag">${d.tier}</span><span>${d.shipments} shipments</span></div>
+      <div class="pills">${pills}</div>
+      ${contactBadge}
+    `;
+    card.onclick = () => openModal(d);
+    grid.appendChild(card);
+  });
+}
+
+function openModal(d, initialTab){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const key = exporterKey(d);
+  const siteHtml = d.site
+    ? `<a href="https://${d.site.replace(/^https?:\/\//,'')}" target="_blank">${d.site}</a>`
+    : `<span style="color:#999;">No website on file</span>`;
+
+  const fruitRows = d.all_fruits.map(f => {
+    const c = fruitColor(f);
+    const confirmed = d.variety_confirmed && d.variety_confirmed[f];
+    const generalVariety = (FRUIT_GUIDE[f] && FRUIT_GUIDE[f].varieties !== '—') ? FRUIT_GUIDE[f].varieties : null;
+    const g = FRUIT_GUIDE[f];
+    let varietyHtml;
+    if (confirmed) {
+      varietyHtml = `<span class="variety confirmed">${confirmed} ✓ confirmed</span>`;
+    } else if (generalVariety) {
+      varietyHtml = `<span class="variety">Typically: ${generalVariety}</span>`;
+    } else {
+      varietyHtml = `<span class="variety">—</span>`;
+    }
+    return `<div class="fruit-row">
+      <span class="fname"><span class="dot" style="width:9px;height:9px;border-radius:50%;display:inline-block;background:${c}"></span>${f}</span>
+      <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+        ${varietyHtml}
+        <span style="font-size:11px;color:var(--muted);">Peak: ${g ? g.peak : '—'}</span>
+      </span>
+    </div>`;
+  }).join('');
+
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${d.trade}</h2>
+    <span class="site-link">${siteHtml}</span>
+
+    <div class="modal-tabs">
+      <div class="modal-tab${initialTab==='historico'||initialTab==='frutas'?'':' active'}" data-tab="perfil">Profile</div>
+      <div class="modal-tab${initialTab==='frutas'?' active':''}" data-tab="frutas">Fruits</div>
+      <div class="modal-tab${initialTab==='historico'?' active':''}" data-tab="historico">Referrals &amp; feedback</div>
+    </div>
+
+    <div class="modal-pane${initialTab==='historico'||initialTab==='frutas'?'':' active'}" data-pane="perfil">
+      <h4>Summary</h4>
+      <div class="fruit-row"><span class="fname">Tier</span><span class="variety">${d.tier}</span></div>
+      <div class="fruit-row"><span class="fname">Recorded shipments</span><span class="variety">${d.shipments}</span></div>
+      <div class="fruit-row"><span class="fname">Status</span><span class="variety">${d.active ? 'Active' : 'Inactive'}</span></div>
+      ${d.phone ? `<div class="fruit-row"><span class="fname">Phone</span><span class="variety">${d.phone}</span></div>` : ''}
+      ${d.email ? `<div class="fruit-row"><span class="fname">Email</span><span class="variety">${d.email}</span></div>` : ''}
+      ${d.source ? `<div class="fruit-row"><span class="fname">Source</span><span class="variety">${d.source}</span></div>` : ''}
+      <div style="margin-top:14px;">
+        <button id="agendorPushBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">📇 Enviar para o Agendor</button>
+        <span class="fs-status" id="agendorPushStatus" style="margin-left:8px;"></span>
+      </div>
+    </div>
+
+    <div class="modal-pane${initialTab==='frutas'?' active':''}" data-pane="frutas">
+      <h4>Fruits &amp; varieties</h4>
+      <div id="fruitRowsWrap">${fruitRows || '<div class="log-empty">No fruits added yet.</div>'}</div>
+      ${isProspect(d) ? `
+        <div class="contact-form" style="margin-top:14px;">
+          <div class="cf-row">
+            <select id="addFruitSelect" style="flex:1;">
+              ${allFruitOptions().map(f => `<option value="${f}">${f}</option>`).join('')}
+            </select>
+            <button id="addFruitBtn" type="button">+ Add fruit</button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+
+    <div class="modal-pane${initialTab==='historico'?' active':''}" data-pane="historico">
+      <h4>Log a referral</h4>
+      <div class="contact-form">
+        <div class="cf-row">
+          <input type="text" id="cfImporter" placeholder="Importer / client name" style="flex:1.4;">
+          <input type="text" id="cfSeason" placeholder="Season (e.g. Season 2025)" value="Season ${new Date().getFullYear()}" style="flex:0 0 150px;">
+          <select id="cfFeedback">
+            <option value="Positive">✅ Positive</option>
+            <option value="Negative">❌ Negative</option>
+            <option value="Neutral">➖ Neutral</option>
+          </select>
+        </div>
+        <div class="cf-row">
+          <textarea id="cfNotes" placeholder="Details: what happened, why they liked or disliked it..."></textarea>
+        </div>
+        <button id="cfSave">Save referral</button>
+        <span class="fs-status" id="cfSyncStatus"></span>
+      </div>
+      <h4>Logged referrals</h4>
+      <div id="logList"><div class="log-empty">Loading…</div></div>
+
+      <h4>General feedback (free text)</h4>
+      <div class="feedback-box">
+        <textarea id="feedbackText" placeholder="General notes about this exporter — impressions, things to watch for...">Loading…</textarea>
+        <div class="feedback-save">
+          <button id="feedbackSave">Save feedback</button>
+          <span class="fs-status" id="feedbackStatus"></span>
+        </div>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+
+  modal.querySelectorAll('.modal-tab').forEach(tab => {
+    tab.onclick = () => {
+      modal.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+      modal.querySelectorAll('.modal-pane').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      modal.querySelector(`.modal-pane[data-pane="${tab.dataset.tab}"]`).classList.add('active');
+    };
+  });
+
+  const addFruitBtn = document.getElementById('addFruitBtn');
+  if (addFruitBtn){
+    addFruitBtn.onclick = async () => {
+      const sel = document.getElementById('addFruitSelect');
+      const fruit = sel.value;
+      if (!fruit || d.all_fruits.includes(fruit)) return;
+      d.all_fruits = [...d.all_fruits, fruit];
+      await setProspectFruitOverrides(key, d.all_fruits);
+      openModal(d, 'frutas');
+      renderCards();
+      if (currentNav === 'prospects') renderProspectsView();
+    };
+  }
+
+  const agendorPushBtn = document.getElementById('agendorPushBtn');
+  if (agendorPushBtn){
+    agendorPushBtn.onclick = async () => {
+      const statusEl = document.getElementById('agendorPushStatus');
+      statusEl.textContent = 'Enviando…';
+      try{
+        const result = await agendorPushOrg(d);
+        if (result.status && result.status >= 200 && result.status < 300){
+          statusEl.textContent = 'Enviado ✓';
+        } else {
+          statusEl.textContent = 'Erro: ' + (result.body && result.body.message ? result.body.message : JSON.stringify(result));
+        }
+      } catch(err){
+        statusEl.textContent = 'Falhou: ' + err.message;
+      }
+    };
+  }
+
+  initHistoricoPane(d, key);
+}
+
+function allFruitOptions(){
+  return Object.keys(FRUIT_GUIDE).sort();
+}
+
+async function initHistoricoPane(d, key){
+  const logList = document.getElementById('logList');
+  const feedbackEl = document.getElementById('feedbackText');
+  const statusEl = document.getElementById('feedbackStatus');
+
+  let log = await getReferrals(key);
+  renderLogList();
+
+  const fb = await getFeedback(key);
+  feedbackEl.value = fb || '';
+
+  function renderLogList(){
+    if (!log.length){
+      logList.innerHTML = '<div class="log-empty">No referrals logged yet.</div>';
+      return;
+    }
+    const sorted = [...log].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season));
+    logList.innerHTML = sorted.map(e => `
+      <div class="log-entry" data-id="${e.id}">
+        <button class="le-del" data-id="${e.id}">remove</button>
+        <div class="le-top"><span>${FEEDBACK_ICON[e.feedback] || ''} <b>${e.importer}</b> · ${e.season}</span></div>
+        <div class="le-notes">${(e.notes || '').replace(/</g,'&lt;')}</div>
+      </div>
+    `).join('');
+    logList.querySelectorAll('.le-del').forEach(btn => {
+      btn.onclick = async () => {
+        log = log.filter(e => e.id !== btn.dataset.id);
+        await setReferrals(key, log);
+        renderLogList();
+        referralsCache[key] = log;
+        renderCards();
+      };
+    });
+  }
+
+  document.getElementById('cfSave').onclick = async () => {
+    const importer = document.getElementById('cfImporter').value.trim();
+    const season = document.getElementById('cfSeason').value.trim();
+    const feedback = document.getElementById('cfFeedback').value;
+    const notes = document.getElementById('cfNotes').value.trim();
+    if (!importer || !season){ return; }
+    const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), importer, season, feedback, notes };
+    log.push(entry);
+
+    const syncStatus = document.getElementById('cfSyncStatus');
+    syncStatus.textContent = getSheetsUrl() ? 'Saving…' : '';
+    await setReferrals(key, log);
+    syncStatus.textContent = getSheetsUrl() ? 'Saved to the cloud ✓' : 'Saved on this device only';
+
+    renderLogList();
+    document.getElementById('cfImporter').value = '';
+    document.getElementById('cfNotes').value = '';
+    referralsCache[key] = log;
+    renderCards();
+  };
+
+  document.getElementById('feedbackSave').onclick = async () => {
+    statusEl.textContent = 'Saving…';
+    await setFeedback(key, feedbackEl.value);
+    statusEl.textContent = 'Saved ✓';
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  };
+}
+
+function closeModal(){
+  document.getElementById('overlay').classList.remove('visible');
+}
+document.getElementById('overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'overlay') closeModal();
+});
+
+function render(){
+  renderFruitList();
+  renderFruitInfoPanel();
+  renderCards();
+  document.getElementById('clearFilter').style.display = activeFruit ? 'inline-block' : 'none';
+}
+
+document.getElementById('search').addEventListener('input', e => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  renderCards();
+});
+document.getElementById('clearFilter').addEventListener('click', () => { activeFruit = null; render(); });
+
+/* ---------- Navigation: Exporters x Referrals & feedback ---------- */
+let currentNav = 'exporters';
+
+function setNav(which){
+  currentNav = which;
+  document.getElementById('navExporters').classList.toggle('active', which === 'exporters');
+  document.getElementById('navProspects').classList.toggle('active', which === 'prospects');
+  document.getElementById('navHistory').classList.toggle('active', which === 'history');
+  const gridOn = which === 'exporters';
+  const prospOn = which === 'prospects';
+  const histOn = which === 'history';
+  document.getElementById('cardGrid').style.display = gridOn ? 'grid' : 'none';
+  document.getElementById('fruitInfoPanel').style.display = gridOn ? '' : 'none';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('historyView').style.display = histOn ? 'block' : 'none';
+  document.getElementById('prospectsView').style.display = prospOn ? 'block' : 'none';
+  document.getElementById('mainTitle').textContent = gridOn
+    ? (activeFruit ? `Exporters working with ${activeFruit}` : 'All exporters')
+    : (prospOn ? 'New prospects' : 'Referrals & feedback');
+  document.getElementById('mainSub').textContent = gridOn
+    ? document.getElementById('mainSub').textContent
+    : (prospOn
+        ? 'Companies Hevile doesn\'t work with yet. Open one and add fruits as you learn more about them.'
+        : 'Search by importer to see which exporters have been referred to them, and how it went');
+  if (histOn) renderHistoryView();
+  if (prospOn) renderProspectsView();
+}
+document.getElementById('navExporters').addEventListener('click', () => setNav('exporters'));
+document.getElementById('navProspects').addEventListener('click', () => setNav('prospects'));
+document.getElementById('navHistory').addEventListener('click', () => setNav('history'));
+
+/* ---------- New prospects (not yet a Hevile client) ---------- */
+function isProspect(d){ return d.tier === 'Prospect' || d.tier === 'Manually added'; }
+function prospectsList(){
+  return EXPORTERS.filter(isProspect).sort((a,b) => a.trade.localeCompare(b.trade));
+}
+function prospectCard(d){
+  const pills = d.all_fruits.length
+    ? d.all_fruits.map(f => `<span class="pill" style="background:${fruitColor(f)}">${f}</span>`).join('')
+    : `<span class="pill" style="background:#B3B3B3;">No fruits added yet</span>`;
+  const meta = `<div class="meta-line">${d.phone ? `<span>📞 ${d.phone}</span>` : ''}${d.email ? `<span>✉ ${d.email}</span>` : ''}</div>`;
+  return `<div class="card" data-key="${exporterKey(d).replace(/"/g,'&quot;')}">
+      <div class="name">${d.trade}</div>
+      <div class="site">${d.site ? d.site : ''}</div>
+      ${meta}
+      <div class="pills">${pills}</div>
+    </div>`;
+}
+function renderProspectsView(){
+  const el = document.getElementById('prospectsView');
+  const list = prospectsList();
+  el.innerHTML = `
+    <div class="grid cs-grid">${list.map(prospectCard).join('') || '<div class="empty">No prospects yet. Use "+ New exporter" to add one.</div>'}</div>
+  `;
+  el.querySelectorAll('.card').forEach(card => {
+    card.onclick = () => {
+      const d = EXPORTERS.find(x => exporterKey(x) === card.dataset.key);
+      if (d) openModal(d, 'frutas');
+    };
+  });
+}
+
+/* ---------- Editing a prospect's fruit list as you learn more about them ---------- */
+async function getProspectFruitOverrides(key){
+  try{
+    const v = await backendGet('hevile_prospect_fruits:' + key);
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setProspectFruitOverrides(key, arr){
+  await backendSet('hevile_prospect_fruits:' + key, JSON.stringify(arr));
+}
+async function loadProspectFruitOverrides(){
+  const entries = await backendListValues('hevile_prospect_fruits:');
+  entries.forEach(({key, value}) => {
+    const expKey = key.replace('hevile_prospect_fruits:', '');
+    const d = EXPORTERS.find(x => exporterKey(x) === expKey);
+    if (!d) return;
+    try{
+      const extra = JSON.parse(value);
+      d.all_fruits = [...new Set([...d.all_fruits, ...extra])];
+    } catch(e){ /* skip */ }
+  });
+}
+
+let importerGroupsCache = [];
+
+function buildImporterGroups(){
+  const groups = {};
+  Object.entries(referralsCache).forEach(([key, arr]) => {
+    const d = EXPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    arr.forEach(e => {
+      const gk = (e.importer || '').trim().toLowerCase();
+      if (!gk) return;
+      if (!groups[gk]) groups[gk] = { display: e.importer.trim(), items: [] };
+      groups[gk].items.push({ exporterTrade: d.trade, exporterKey: key, season: e.season, feedback: e.feedback, notes: e.notes });
+    });
+  });
+  return Object.values(groups).sort((a,b) => a.display.localeCompare(b.display));
+}
+
+function renderHistoryView(){
+  const el = document.getElementById('historyView');
+  importerGroupsCache = buildImporterGroups();
+  el.innerHTML = `
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <input id="importerSearch" type="text" placeholder="Buscar por importador…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
+      <button id="refreshCloudBtn" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">🔄 Refresh from cloud</button>
+    </div>
+    <div id="importerGroups"></div>`;
+  document.getElementById('importerSearch').addEventListener('input', e => renderImporterGroups(e.target.value.trim().toLowerCase()));
+  document.getElementById('refreshCloudBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('refreshCloudBtn');
+    btn.textContent = 'Refreshing…';
+    await loadReferralsCache();
+    importerGroupsCache = buildImporterGroups();
+    renderImporterGroups(document.getElementById('importerSearch').value.trim().toLowerCase());
+    btn.textContent = '🔄 Refresh from cloud';
+  });
+  renderImporterGroups('');
+}
+
+function renderImporterGroups(filter){
+  const wrap = document.getElementById('importerGroups');
+  const groups = importerGroupsCache.filter(g => !filter || g.display.toLowerCase().includes(filter));
+  if (!groups.length){
+    wrap.innerHTML = '<div class="empty">No referrals found. Open an exporter and use the "Referrals &amp; feedback" tab to log the first one.</div>';
+    return;
+  }
+  wrap.innerHTML = groups.map(g => {
+    const items = [...g.items].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season));
+    const rows = items.map(it => `<div class="history-row" data-exp="${it.exporterKey}">
+      <div>
+        <div class="hr-name">${FEEDBACK_ICON[it.feedback] || ''} ${it.exporterTrade}</div>
+        <div class="hr-feedback">${it.season}${it.notes ? ' · ' + it.notes.replace(/\n/g,' ') : ''}</div>
+      </div>
+    </div>`).join('');
+    return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+  }).join('');
+  wrap.querySelectorAll('.history-row').forEach(row => {
+    row.onclick = () => {
+      const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+      if (d) openModal(d, 'historico');
+    };
+  });
+}
+
+/* ---------- Add new exporter (saved to the cloud too, so it shows up on every device) ---------- */
+async function getCustomExporters(){
+  try{
+    const v = await backendGet('hevile_custom_exporters');
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setCustomExporters(arr){
+  await backendSet('hevile_custom_exporters', JSON.stringify(arr));
+}
+
+async function loadCustomExporters(){
+  const custom = await getCustomExporters();
+  custom.forEach(d => EXPORTERS.push(d));
+  render();
+}
+
+function uniqueExporterKey(base){
+  let key = base.toUpperCase().trim();
+  const existing = new Set(EXPORTERS.map(d => d.name));
+  if (!existing.has(key)) return key;
+  let i = 2;
+  while (existing.has(`${key} (${i})`)) i++;
+  return `${key} (${i})`;
+}
+
+function openNewExporterModal(){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const fruitChecks = allFruits().map(f => `
+    <label class="fruit-check-item"><input type="checkbox" value="${f.replace(/"/g,'&quot;')}" class="neFruitCheck"> ${f}</label>
+  `).join('');
+
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>New exporter</h2>
+    <div class="new-exp-form">
+      <label>Trade name *</label>
+      <input type="text" id="neTrade" placeholder="e.g. Fresh Quality">
+      <label>Legal name (optional — defaults to trade name)</label>
+      <input type="text" id="neLegal" placeholder="e.g. Fresh Quality Comercio Exterior LTDA">
+      <label>Website (optional)</label>
+      <input type="text" id="neSite" placeholder="e.g. example.com.br">
+      <label>Address (optional)</label>
+      <input type="text" id="neAddress" placeholder="Street, city, state">
+      <label>Fruits</label>
+      <div class="fruit-check-list">${fruitChecks}</div>
+      <label>Other fruit(s) not listed above (comma separated, optional)</label>
+      <input type="text" id="neOtherFruits" placeholder="e.g. Jackfruit, Cashew">
+      <label style="display:flex; align-items:center; gap:6px; font-weight:normal;">
+        <input type="checkbox" id="neActive" checked style="margin:0;"> Active exporter
+      </label>
+      <div class="new-exp-error" id="neError"></div>
+      <div class="new-exp-actions">
+        <button id="neSave">Save exporter</button>
+        <button class="cancel" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+
+  document.getElementById('neSave').onclick = async () => {
+    const trade = document.getElementById('neTrade').value.trim();
+    const legal = document.getElementById('neLegal').value.trim();
+    const site = document.getElementById('neSite').value.trim();
+    const address = document.getElementById('neAddress').value.trim();
+    const active = document.getElementById('neActive').checked;
+    const checked = [...document.querySelectorAll('.neFruitCheck:checked')].map(el => el.value);
+    const otherFruits = document.getElementById('neOtherFruits').value
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const allSelected = [...new Set([...checked, ...otherFruits])];
+
+    const errEl = document.getElementById('neError');
+    if (!trade){ errEl.textContent = 'Trade name is required.'; errEl.style.display = 'block'; return; }
+    if (!allSelected.length){ errEl.textContent = 'Select at least one fruit.'; errEl.style.display = 'block'; return; }
+    errEl.style.display = 'none';
+
+    const key = uniqueExporterKey(legal || trade);
+    const entry = {
+      name: key,
+      trade: trade,
+      display: trade,
+      site: site ? site.replace(/^https?:\/\//,'') : null,
+      address: address || undefined,
+      active: active,
+      tier: 'Manually added',
+      shipments: 0,
+      all_fruits: allSelected.sort(),
+      variety_confirmed: {},
+      custom: true
+    };
+
+    EXPORTERS.push(entry);
+    const custom = await getCustomExporters();
+    custom.push(entry);
+    await setCustomExporters(custom);
+
+    closeModal();
+    render();
+  };
+}
+
+document.getElementById('newExporterBtn').addEventListener('click', openNewExporterModal);
+
+/* ---------- Cloud sync settings (Google Sheets via Apps Script) ---------- */
+function openCloudSyncSettings(){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const current = getSheetsUrl();
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Cloud sync (Google Sheets)</h2>
+    <p style="font-size:13px; color:var(--muted); line-height:1.5;">
+      Paste the Web App URL you got after deploying the Apps Script (ends in <code>/exec</code>).
+      Once connected, referrals, feedback and manually-added exporters saved here will show up on any
+      phone, tablet or computer that opens this same file with the same URL configured.
+    </p>
+    <div class="new-exp-form">
+      <label>Google Sheets Web App URL</label>
+      <input type="text" id="sheetsUrlInput" value="${current}" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="new-exp-actions">
+        <button id="sheetsSaveBtn">Save &amp; test connection</button>
+      </div>
+      <div class="new-exp-error" id="sheetsStatus" style="display:none;"></div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+
+  document.getElementById('sheetsSaveBtn').onclick = async () => {
+    const st = document.getElementById('sheetsStatus');
+    setSheetsUrl(document.getElementById('sheetsUrlInput').value.trim());
+    st.style.display = 'block';
+    st.style.color = 'var(--muted)';
+    st.textContent = 'Testing…';
+    try{
+      const res = await testCloudConnection();
+      st.style.color = 'var(--teal-deep)';
+      st.textContent = res.ok ? 'Connected ✓ Your data will now sync across devices.' : 'Unexpected response — check the URL.';
+      if (res.ok){ await loadReferralsCache(); await loadCustomExporters(); }
+    } catch(e){
+      st.style.color = '#B3413B';
+      st.textContent = 'Connection failed: ' + e.message;
+    }
+  };
+}
+
+document.getElementById('cloudSyncBtn').addEventListener('click', openCloudSyncSettings);
+
+function openAgendorSettings(){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const currentToken = getAgendorToken();
+  const lastSync = getAgendorLastSync();
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Agendor sync</h2>
+    <p style="font-size:13px; color:var(--muted); line-height:1.5;">
+      This goes through your Google Apps Script (Cloud sync must be configured first) — the browser can't
+      call Agendor's API directly. Your token is only ever stored in this browser, never sent to anyone else.
+      Find your token in Agendor under Menu &gt; Integrações.
+    </p>
+    <div class="new-exp-form">
+      <label>Agendor API token</label>
+      <input type="text" id="agendorTokenInput" value="${currentToken}" placeholder="xxxxx-xxxxx-xxxxx-xxxx-xxxxx">
+      <div class="new-exp-actions">
+        <button id="agendorSaveBtn">Save token</button>
+      </div>
+      <div class="new-exp-error" id="agendorStatus" style="display:none;"></div>
+    </div>
+    <h4 style="margin-top:20px;">Send data to Agendor</h4>
+    <p style="font-size:12.5px; color:var(--muted);">Open any exporter or prospect card and use the "Enviar para o Agendor" button on its Profile tab.</p>
+    <h4>Pull updates from Agendor</h4>
+    <p style="font-size:12.5px; color:var(--muted);">Last sync: ${lastSync ? new Date(lastSync).toLocaleString() : 'never'}</p>
+    <div class="new-exp-actions">
+      <button id="agendorPullBtn">🔄 Fetch organizations updated in Agendor</button>
+    </div>
+    <div class="new-exp-error" id="agendorPullStatus" style="display:none;"></div>
+  `;
+  overlay.classList.add('visible');
+
+  document.getElementById('agendorSaveBtn').onclick = () => {
+    setAgendorToken(document.getElementById('agendorTokenInput').value.trim());
+    const st = document.getElementById('agendorStatus');
+    st.style.display = 'block';
+    st.style.color = 'var(--teal-deep)';
+    st.textContent = 'Token saved on this device ✓';
+  };
+
+  document.getElementById('agendorPullBtn').onclick = async () => {
+    const st = document.getElementById('agendorPullStatus');
+    st.style.display = 'block';
+    st.style.color = 'var(--muted)';
+    st.textContent = 'Fetching…';
+    try{
+      const result = await agendorPullOrgs();
+      if (result.status && result.status >= 200 && result.status < 300){
+        const orgs = (result.body && result.body.data) || [];
+        let added = 0, updated = 0;
+        orgs.forEach(org => {
+          const existing = EXPORTERS.find(x => x.trade === org.name || x.name === (org.name || '').toUpperCase());
+          if (existing){
+            existing.phone = org.contact && org.contact.workPhone ? org.contact.workPhone : existing.phone;
+            existing.email = org.contact && org.contact.email ? org.contact.email : existing.email;
+            updated++;
+          } else {
+            EXPORTERS.push({
+              name: (org.name || 'UNNAMED').toUpperCase(), fruits: [], active: false, tier: 'Manually added',
+              shipments: 0, display: org.name, trade: org.name || 'Unnamed (from Agendor)',
+              site: null, phone: (org.contact && org.contact.workPhone) || '', email: (org.contact && org.contact.email) || '',
+              source: 'Agendor', extra_fruits: [], all_fruits: [], variety_confirmed: {}
+            });
+            added++;
+          }
+        });
+        st.style.color = 'var(--teal-deep)';
+        st.textContent = `Done ✓ ${added} new, ${updated} updated.`;
+        render();
+        if (currentNav === 'prospects') renderProspectsView();
+      } else {
+        st.style.color = '#B3413B';
+        st.textContent = 'Error: ' + JSON.stringify(result.body || result);
+      }
+    } catch(err){
+      st.style.color = '#B3413B';
+      st.textContent = 'Failed: ' + err.message;
+    }
+  };
+}
+
+document.getElementById('agendorSettingsBtn').addEventListener('click', openAgendorSettings);
+
+renderStats();
+render();
+renderAlerts();
+loadReferralsCache();
+loadCustomExporters();
+loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); });
+</script>
+
+</body>
+</html>
