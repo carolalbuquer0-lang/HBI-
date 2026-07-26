@@ -569,6 +569,67 @@ async function agendorPullOrgs(){
   return data;
 }
 
+async function agendorApiCall(action, extra){
+  const url = getSheetsUrl();
+  const token = getAgendorToken();
+  if (!url || !token) return null; // silently skip if not configured — Agendor sync is optional
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, token, ...extra })
+  });
+  return res.json();
+}
+
+function extractOrgId(pushResult){
+  if (!pushResult || !pushResult.body) return null;
+  const b = pushResult.body;
+  return b.id || (b.data && b.data.id) || (b.organization && b.organization.id) || null;
+}
+function extractDealId(dealResult){
+  if (!dealResult || !dealResult.body) return null;
+  const b = dealResult.body;
+  return b.id || (b.data && b.data.id) || (b.deal && b.deal.id) || null;
+}
+
+const FEEDBACK_LABEL_PT = { 'Positive': 'Positivo', 'Negative': 'Negativo', 'Neutral': 'Neutro' };
+
+// Best-effort sync: creates/updates the deal for a referral, and logs the feedback as a
+// history entry (task) on that deal. Returns { ok, agendorOrgId, agendorDealId, error }.
+// Never throws — Agendor sync failures shouldn't block using the tool locally.
+async function syncReferralToAgendor(d, entry){
+  if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
+  try{
+    let orgId = d.agendorOrgId;
+    if (!orgId){
+      const pushResult = await agendorPushOrg(d);
+      orgId = extractOrgId(pushResult);
+      if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
+    }
+    if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor (organização não encontrada).' };
+
+    let dealId = entry.agendorDealId;
+    if (!dealId){
+      const dealResult = await agendorApiCall('agendorCreateDeal', {
+        organizationId: orgId,
+        title: `Indicação: ${entry.importer} (${entry.season})`,
+        dealStage: 1
+      });
+      dealId = extractDealId(dealResult);
+      if (!dealId) return { ok: false, error: 'Não consegui criar o negócio no Agendor.' };
+      entry.agendorDealId = dealId;
+    }
+
+    const feedbackLabel = FEEDBACK_LABEL_PT[entry.feedback] || entry.feedback;
+    const taskText = `Feedback: ${feedbackLabel}${entry.notes ? ' — ' + entry.notes : ''}`;
+    await agendorApiCall('agendorCreateTask', { dealId, text: taskText, type: 'NOTA' });
+
+    return { ok: true, agendorOrgId: orgId, agendorDealId: dealId };
+  } catch(e){
+    return { ok: false, error: e.message };
+  }
+}
+
 /* ---------- Referrals (importer x exporter) & feedback — never shown in the public file ---------- */
 function exporterKey(d){ return d.name; }
 
@@ -825,7 +886,7 @@ function openModal(d, initialTab){
     <div class="modal-pane${initialTab==='frutas'?' active':''}" data-pane="frutas">
       <h4>Fruits &amp; varieties</h4>
       <div id="fruitRowsWrap">${fruitRows || '<div class="log-empty">Nenhuma fruta adicionada ainda.</div>'}</div>
-      ${(isProspect(d) || d.editable_fruits) ? `
+      ${true ? `
         <div class="contact-form" style="margin-top:14px;">
           <div class="cf-row">
             <select id="addFruitSelect" style="flex:1;">
@@ -920,6 +981,11 @@ function openModal(d, initialTab){
       try{
         const result = await agendorPushOrg(d);
         if (result.status && result.status >= 200 && result.status < 300){
+          const orgId = extractOrgId(result);
+          if (orgId){
+            d.agendorOrgId = orgId;
+            await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId });
+          }
           statusEl.textContent = 'Enviado ✓';
         } else {
           statusEl.textContent = 'Erro: ' + (result.body && result.body.message ? result.body.message : JSON.stringify(result));
@@ -1012,11 +1078,15 @@ async function initHistoricoPane(d, key){
     const notes = document.getElementById('cfNotes').value.trim();
     if (!importer || !season){ return; }
 
+    let entry;
     if (editingId){
       const idx = log.findIndex(e => e.id === editingId);
-      if (idx !== -1) log[idx] = { ...log[idx], importer, season, feedback, notes };
+      if (idx !== -1){
+        log[idx] = { ...log[idx], importer, season, feedback, notes };
+        entry = log[idx];
+      }
     } else {
-      const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), importer, season, feedback, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), importer, season, feedback, notes };
       log.push(entry);
     }
 
@@ -1024,6 +1094,17 @@ async function initHistoricoPane(d, key){
     syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
     await setReferrals(key, log);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
+
+    if (getAgendorToken() && getSheetsUrl()){
+      syncStatus.textContent += ' · Enviando pro Agendor…';
+      const agResult = await syncReferralToAgendor(d, entry);
+      await setReferrals(key, log); // persist agendorDealId/agendorOrgId picked up on entry/d
+      if (agResult.ok){
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Virou negócio no Agendor ✓');
+      } else if (!agResult.skipped){
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Agendor: ' + (agResult.error || 'falhou'));
+      }
+    }
 
     renderLogList();
     resetForm();
@@ -1227,6 +1308,7 @@ async function loadContactOverrides(){
       const c = JSON.parse(value);
       if (c.phone) d.phone = c.phone;
       if (c.email) d.email = c.email;
+      if (c.agendorOrgId) d.agendorOrgId = c.agendorOrgId;
     } catch(e){ /* skip */ }
   });
 }
