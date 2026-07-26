@@ -605,8 +605,8 @@ async function syncReferralToAgendor(d, entry){
       const pushResult = await agendorPushOrg(d);
       orgId = extractOrgId(pushResult);
       if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
+      if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor. Resposta: ' + JSON.stringify(pushResult) };
     }
-    if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor (organização não encontrada).' };
 
     let dealId = entry.agendorDealId;
     if (!dealId){
@@ -616,13 +616,16 @@ async function syncReferralToAgendor(d, entry){
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
-      if (!dealId) return { ok: false, error: 'Não consegui criar o negócio no Agendor.' };
+      if (!dealId) return { ok: false, error: 'Não consegui criar o negócio. Resposta: ' + JSON.stringify(dealResult) };
       entry.agendorDealId = dealId;
     }
 
     const feedbackLabel = FEEDBACK_LABEL_PT[entry.feedback] || entry.feedback;
     const taskText = `Feedback: ${feedbackLabel}${entry.notes ? ' — ' + entry.notes : ''}`;
-    await agendorApiCall('agendorCreateTask', { dealId, text: taskText, type: 'NOTA' });
+    const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText, type: 'NOTA' });
+    if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
+      return { ok: false, error: 'Negócio criado, mas a tarefa/histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
+    }
 
     return { ok: true, agendorOrgId: orgId, agendorDealId: dealId };
   } catch(e){
