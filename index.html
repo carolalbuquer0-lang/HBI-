@@ -612,7 +612,7 @@ async function syncReferralToAgendor(d, entry){
     if (!dealId){
       const dealResult = await agendorApiCall('agendorCreateDeal', {
         organizationId: orgId,
-        title: `Indicação: ${entry.importer} (${entry.season})`,
+        title: `${entry.tipo || 'Indicação'}: ${entry.importer} (${entry.season})`,
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
@@ -884,6 +884,11 @@ function openModal(d, initialTab){
         <button id="agendorPushBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">📇 Enviar para o Agendor</button>
         <span class="fs-status" id="agendorPushStatus" style="margin-left:8px;"></span>
       </div>
+      ${d.tier === 'Manually added' ? `
+        <div style="margin-top:10px;">
+          <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover exportador</button>
+        </div>
+      ` : ''}
     </div>
 
     <div class="modal-pane${initialTab==='frutas'?' active':''}" data-pane="frutas">
@@ -905,6 +910,10 @@ function openModal(d, initialTab){
       <h4 id="referralFormTitle">Registrar indicação</h4>
       <div class="contact-form">
         <div class="cf-row">
+          <select id="cfTipo" style="flex:0 0 170px;">
+            <option value="Indicação">📋 Indicação</option>
+            <option value="Cotação">💲 Pedido de cotação</option>
+          </select>
           <input type="text" id="cfImporter" placeholder="Nome do importador / cliente" style="flex:1.4;">
           <input type="text" id="cfSeason" placeholder="Safra (ex: Safra 2025)" value="Safra ${new Date().getFullYear()}" style="flex:0 0 150px;">
           <select id="cfFeedback">
@@ -1003,6 +1012,22 @@ function openModal(d, initialTab){
     };
   }
 
+  const removeExporterBtn = document.getElementById('removeExporterBtn');
+  if (removeExporterBtn){
+    removeExporterBtn.onclick = async () => {
+      if (!confirm(`Remover "${d.trade}" da lista? Isso não pode ser desfeito.`)) return;
+      const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
+      if (idx !== -1) EXPORTERS.splice(idx, 1);
+      const custom = await getCustomExporters();
+      const filtered = custom.filter(x => exporterKey(x) !== key);
+      await setCustomExporters(filtered);
+      closeModal();
+      renderStats();
+      render();
+      if (currentNav === 'prospects') renderProspectsView();
+    };
+  }
+
   initHistoricoPane(d, key);
 }
 
@@ -1089,7 +1114,7 @@ async function initHistoricoPane(d, key){
           <button class="le-edit" data-id="${e.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
           <button class="le-del" data-id="${e.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
         </div>
-        <div class="le-top"><span>${FEEDBACK_ICON[e.feedback] || ''} <b>${e.importer}</b> · ${e.season}</span></div>
+        <div class="le-top"><span>${e.tipo === 'Cotação' ? '💲' : '📋'} ${FEEDBACK_ICON[e.feedback] || ''} <b>${e.importer}</b> · ${e.season}</span></div>
         <div class="le-notes">${(e.notes || '').replace(/</g,'&lt;')}</div>
       </div>
     `).join('');
@@ -1108,6 +1133,7 @@ async function initHistoricoPane(d, key){
         const entry = log.find(e => e.id === btn.dataset.id);
         if (!entry) return;
         editingId = entry.id;
+        document.getElementById('cfTipo').value = entry.tipo || 'Indicação';
         document.getElementById('cfImporter').value = entry.importer;
         document.getElementById('cfSeason').value = entry.season;
         document.getElementById('cfFeedback').value = entry.feedback;
@@ -1122,6 +1148,7 @@ async function initHistoricoPane(d, key){
 
   function resetForm(){
     editingId = null;
+    document.getElementById('cfTipo').value = 'Indicação';
     document.getElementById('cfImporter').value = '';
     document.getElementById('cfSeason').value = `Safra ${new Date().getFullYear()}`;
     document.getElementById('cfFeedback').value = 'Positive';
@@ -1134,6 +1161,7 @@ async function initHistoricoPane(d, key){
   document.getElementById('cfCancelEdit').onclick = resetForm;
 
   document.getElementById('cfSave').onclick = async () => {
+    const tipo = document.getElementById('cfTipo').value;
     const importer = document.getElementById('cfImporter').value.trim();
     const season = document.getElementById('cfSeason').value.trim();
     const feedback = document.getElementById('cfFeedback').value;
@@ -1144,11 +1172,11 @@ async function initHistoricoPane(d, key){
     if (editingId){
       const idx = log.findIndex(e => e.id === editingId);
       if (idx !== -1){
-        log[idx] = { ...log[idx], importer, season, feedback, notes };
+        log[idx] = { ...log[idx], tipo, importer, season, feedback, notes };
         entry = log[idx];
       }
     } else {
-      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), importer, season, feedback, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, importer, season, feedback, notes };
       log.push(entry);
     }
 
@@ -1508,6 +1536,8 @@ function openNewExporterModal(){
       <input type="text" id="neLegal" placeholder="ex: Fresh Quality Comercio Exterior LTDA">
       <label>Site (opcional)</label>
       <input type="text" id="neSite" placeholder="ex: exemplo.com.br">
+      <label>Telefone (opcional)</label>
+      <input type="text" id="nePhone" placeholder="ex: (11) 99999-0000">
       <label>Endereço (opcional)</label>
       <input type="text" id="neAddress" placeholder="Rua, cidade, estado">
       <label>Frutas</label>
@@ -1527,9 +1557,12 @@ function openNewExporterModal(){
   overlay.classList.add('visible');
 
   document.getElementById('neSave').onclick = async () => {
+    const saveBtn = document.getElementById('neSave');
+    if (saveBtn.disabled) return; // guard against double-tap / double network round trip
     const trade = document.getElementById('neTrade').value.trim();
     const legal = document.getElementById('neLegal').value.trim();
     const site = document.getElementById('neSite').value.trim();
+    const phone = document.getElementById('nePhone').value.trim();
     const address = document.getElementById('neAddress').value.trim();
     const active = document.getElementById('neActive').checked;
     const checked = [...document.querySelectorAll('.neFruitCheck:checked')].map(el => el.value);
@@ -1542,12 +1575,17 @@ function openNewExporterModal(){
     if (!allSelected.length){ errEl.textContent = 'Selecione ao menos uma fruta.'; errEl.style.display = 'block'; return; }
     errEl.style.display = 'none';
 
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Salvando…';
+
     const key = uniqueExporterKey(legal || trade);
     const entry = {
       name: key,
       trade: trade,
       display: trade,
       site: site ? site.replace(/^https?:\/\//,'') : null,
+      phone: phone || '',
+      email: '',
       address: address || undefined,
       active: active,
       tier: 'Manually added',
