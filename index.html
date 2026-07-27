@@ -622,7 +622,7 @@ async function syncReferralToAgendor(d, entry){
 
     const feedbackLabel = FEEDBACK_LABEL_PT[entry.feedback] || entry.feedback;
     const taskText = `Feedback: ${feedbackLabel}${entry.notes ? ' — ' + entry.notes : ''}`;
-    const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText, type: 'NOTA' });
+    const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
       return { ok: false, error: 'Negócio criado, mas a tarefa/histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
     }
