@@ -303,6 +303,7 @@
       <div style="display:flex; gap:8px;">
         <button id="cloudSyncBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">☁ Sincronizar nuvem</button>
         <button id="agendorSettingsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📇 Agendor</button>
+        <button id="newImporterBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer; display:none;">+ Novo importador</button>
         <button id="newExporterBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">+ Novo exportador</button>
       </div>
     </div>
@@ -1059,15 +1060,23 @@ function openModal(d, initialTab){
   if (removeExporterBtn){
     removeExporterBtn.onclick = async () => {
       if (!confirm(`Remover "${d.trade}" da lista? Isso não pode ser desfeito.`)) return;
-      const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
-      if (idx !== -1) EXPORTERS.splice(idx, 1);
-      const custom = await getCustomExporters();
-      const filtered = custom.filter(x => exporterKey(x) !== key);
-      await setCustomExporters(filtered);
+      const expIdx = EXPORTERS.findIndex(x => exporterKey(x) === key);
+      if (expIdx !== -1){
+        EXPORTERS.splice(expIdx, 1);
+        const custom = await getCustomExporters();
+        await setCustomExporters(custom.filter(x => exporterKey(x) !== key));
+      }
+      const impIdx = IMPORTERS.findIndex(x => exporterKey(x) === key);
+      if (impIdx !== -1){
+        IMPORTERS.splice(impIdx, 1);
+        const customImp = await getCustomImporters();
+        await setCustomImporters(customImp.filter(x => exporterKey(x) !== key));
+      }
       closeModal();
       renderStats();
       render();
       if (currentNav === 'prospects') renderProspectsView();
+      if (currentNav === 'importers') renderImportersView();
     };
   }
 
@@ -1465,6 +1474,7 @@ function setNav(which){
         ? 'Busque por cliente para ver quais cotações já foram pedidas, com quem, e em que status estão'
         : 'Busque por importador para ver quais exportadores já foram indicados a ele, e como foi o resultado'))));
   document.getElementById('newExporterBtn').style.display = (impOn || marketOn || quotesOn || histOn) ? 'none' : 'inline-block';
+  document.getElementById('newImporterBtn').style.display = impOn ? 'inline-block' : 'none';
   if (histOn) renderHistoryView();
   if (prospOn) renderProspectsView();
   if (impOn) renderImportersView();
@@ -1760,6 +1770,21 @@ async function loadCustomExporters(){
   render();
 }
 
+async function getCustomImporters(){
+  try{
+    const v = await backendGet('hevile_custom_importers');
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setCustomImporters(arr){
+  await backendSet('hevile_custom_importers', JSON.stringify(arr));
+}
+async function loadCustomImporters(){
+  const custom = await getCustomImporters();
+  custom.forEach(d => IMPORTERS.push(d));
+  if (currentNav === 'importers') renderImportersView();
+}
+
 function uniqueExporterKey(base){
   let key = base.toUpperCase().trim();
   const existing = new Set(EXPORTERS.map(d => d.name));
@@ -1767,6 +1792,91 @@ function uniqueExporterKey(base){
   let i = 2;
   while (existing.has(`${key} (${i})`)) i++;
   return `${key} (${i})`;
+}
+
+function openNewImporterModal(){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const fruitChecks = allFruits().map(f => `
+    <label class="fruit-check-item"><input type="checkbox" value="${f.replace(/"/g,'&quot;')}" class="niFruitCheck"> ${ptFruit(f)}</label>
+  `).join('');
+
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Novo importador</h2>
+    <div class="new-exp-form">
+      <label>Nome *</label>
+      <input type="text" id="niName" placeholder="ex: Fresh Buyer Ltd">
+      <label>Telefone (opcional)</label>
+      <input type="text" id="niPhone" placeholder="ex: +44 20 0000 0000">
+      <label>E-mail (opcional)</label>
+      <input type="text" id="niEmail" placeholder="ex: contato@fresh-buyer.com">
+      <label>Site (opcional)</label>
+      <input type="text" id="niSite" placeholder="ex: fresh-buyer.com">
+      <label>Destino / cidade (opcional)</label>
+      <input type="text" id="niDestination" placeholder="ex: Rotterdam">
+      <label>Frutas que compra</label>
+      <div class="fruit-check-list">${fruitChecks}</div>
+      <label>Outra(s) fruta(s) não listada(s) acima (separadas por vírgula, opcional)</label>
+      <input type="text" id="niOtherFruits" placeholder="ex: Jaca, Castanha de Caju">
+      <div class="new-exp-error" id="niError"></div>
+      <div class="new-exp-actions">
+        <button id="niSave">Salvar importador</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+
+  document.getElementById('niSave').onclick = async () => {
+    const saveBtn = document.getElementById('niSave');
+    if (saveBtn.disabled) return;
+    const name = document.getElementById('niName').value.trim();
+    const phone = document.getElementById('niPhone').value.trim();
+    const email = document.getElementById('niEmail').value.trim();
+    const site = document.getElementById('niSite').value.trim();
+    const destination = document.getElementById('niDestination').value.trim();
+    const checked = [...document.querySelectorAll('.niFruitCheck:checked')].map(el => el.value);
+    const otherFruits = document.getElementById('niOtherFruits').value
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const allSelected = [...new Set([...checked, ...otherFruits])];
+
+    const errEl = document.getElementById('niError');
+    if (!name){ errEl.textContent = 'O nome é obrigatório.'; errEl.style.display = 'block'; return; }
+    errEl.style.display = 'none';
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Salvando…';
+
+    const key = uniqueExporterKey(name);
+    const entry = {
+      name: key,
+      trade: name,
+      display: name,
+      site: site ? site.replace(/^https?:\/\//,'') : null,
+      phone: phone || '',
+      email: email || '',
+      tier: 'Manually added',
+      active: true,
+      shipments: 0,
+      weight: 0,
+      products: allSelected.sort(),
+      all_fruits: allSelected.sort(),
+      destinations: destination ? [destination] : [],
+      source: 'Adicionado manualmente',
+      editable_fruits: true,
+      variety_confirmed: {},
+      custom: true
+    };
+
+    IMPORTERS.push(entry);
+    const custom = await getCustomImporters();
+    custom.push(entry);
+    await setCustomImporters(custom);
+
+    closeModal();
+    if (currentNav === 'importers') renderImportersView();
+  };
 }
 
 function openNewExporterModal(){
@@ -1857,6 +1967,7 @@ function openNewExporterModal(){
 }
 
 document.getElementById('newExporterBtn').addEventListener('click', openNewExporterModal);
+document.getElementById('newImporterBtn').addEventListener('click', openNewImporterModal);
 
 /* ---------- Cloud sync settings (Google Sheets via Apps Script) ---------- */
 function openCloudSyncSettings(){
@@ -1999,6 +2110,7 @@ renderAlerts();
 loadReferralsCache();
 loadQuotesCache();
 loadCustomExporters();
+loadCustomImporters();
 loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); if (currentNav === 'importers') renderImportersView(); });
 loadContactOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); if (currentNav === 'importers') renderImportersView(); });
 </script>
