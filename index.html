@@ -291,6 +291,7 @@
       <button id="navImporters">Importadores</button>
       <button id="navMarket">Inteligência de Mercado</button>
       <button id="navProspects">Novos Prospects</button>
+      <button id="navQuotes">Cotações</button>
       <button id="navHistory">Indicações e feedback</button>
     </div>
 
@@ -311,6 +312,7 @@
     <div class="grid" id="cardGrid"></div>
     <div class="empty" id="emptyState" style="display:none;">Nenhum exportador encontrado para essa busca.</div>
 
+    <div id="quotesView" style="display:none;"></div>
     <div id="historyView" style="display:none;"></div>
     <div id="prospectsView" style="display:none;"></div>
     <div id="importersView" style="display:none;"></div>
@@ -652,9 +654,19 @@ async function getFeedback(key){
 async function setFeedback(key, text){
   await backendSet('hevile_feedback:' + key, text);
 }
+async function getQuotes(key){
+  try{
+    const v = await backendGet('hevile_quotes:' + key);
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setQuotes(key, arr){
+  await backendSet('hevile_quotes:' + key, JSON.stringify(arr));
+}
 
 // in-memory cache: exporter name -> list of referrals [{id, importer, season, feedback, notes}]
 let referralsCache = {};
+let quotesCache = {};
 
 function seasonSortValue(season){
   const m = (season || '').match(/\d{4}/);
@@ -671,6 +683,17 @@ async function loadReferralsCache(){
     } catch(e){ /* skip corrupted entry */ }
   });
   renderCards();
+}
+
+async function loadQuotesCache(){
+  quotesCache = {};
+  const entries = await backendListValues('hevile_quotes:');
+  entries.forEach(({key, value}) => {
+    try{
+      const arr = JSON.parse(value);
+      if (arr && arr.length) quotesCache[key.replace('hevile_quotes:', '')] = arr;
+    } catch(e){ /* skip corrupted entry */ }
+  });
 }
 
 const FEEDBACK_ICON = { 'Positive': '✅', 'Negative': '❌', 'Neutral': '➖' };
@@ -855,8 +878,9 @@ function openModal(d, initialTab){
     <span class="site-link">${siteHtml}</span>
 
     <div class="modal-tabs">
-      <div class="modal-tab${initialTab==='historico'||initialTab==='frutas'?'':' active'}" data-tab="perfil">Perfil</div>
+      <div class="modal-tab${initialTab==='historico'||initialTab==='frutas'||initialTab==='cotacoes'?'':' active'}" data-tab="perfil">Perfil</div>
       <div class="modal-tab${initialTab==='frutas'?' active':''}" data-tab="frutas">Frutas</div>
+      <div class="modal-tab${initialTab==='cotacoes'?' active':''}" data-tab="cotacoes">Cotações</div>
       <div class="modal-tab${initialTab==='historico'?' active':''}" data-tab="historico">Indicações e feedback</div>
     </div>
 
@@ -906,14 +930,33 @@ function openModal(d, initialTab){
       ` : ''}
     </div>
 
+    <div class="modal-pane${initialTab==='cotacoes'?' active':''}" data-pane="cotacoes">
+      <h4 id="quoteFormTitle">Registrar cotação</h4>
+      <div class="contact-form">
+        <div class="cf-row">
+          <input type="text" id="qtCliente" placeholder="Nome do cliente / importador" style="flex:1.4;">
+          <select id="qtStatus" style="flex:0 0 190px;">
+            <option value="Solicitado CIA">📨 Solicitado CIA</option>
+            <option value="Criação de cotação">📝 Criação de cotação</option>
+            <option value="Cotação enviada">✅ Cotação enviada</option>
+          </select>
+        </div>
+        <div class="cf-row" style="align-items:flex-start;">
+          <textarea id="qtNotes" placeholder="Detalhes: produto, peso, destino, validade..."></textarea>
+          <button type="button" class="voice-btn" data-target="qtNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
+        </div>
+        <button id="qtSave">Salvar cotação</button>
+        <button id="qtCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
+        <span class="fs-status" id="qtSyncStatus"></span>
+      </div>
+      <h4>Cotações registradas</h4>
+      <div id="quoteList"><div class="log-empty">Carregando…</div></div>
+    </div>
+
     <div class="modal-pane${initialTab==='historico'?' active':''}" data-pane="historico">
       <h4 id="referralFormTitle">Registrar indicação</h4>
       <div class="contact-form">
         <div class="cf-row">
-          <select id="cfTipo" style="flex:0 0 170px;">
-            <option value="Indicação">📋 Indicação</option>
-            <option value="Cotação">💲 Pedido de cotação</option>
-          </select>
           <input type="text" id="cfImporter" placeholder="Nome do importador / cliente" style="flex:1.4;">
           <input type="text" id="cfSeason" placeholder="Safra (ex: Safra 2025)" value="Safra ${new Date().getFullYear()}" style="flex:0 0 150px;">
           <select id="cfFeedback">
@@ -1028,6 +1071,7 @@ function openModal(d, initialTab){
     };
   }
 
+  initQuotesPane(d, key);
   initHistoricoPane(d, key);
 }
 
@@ -1089,6 +1133,145 @@ function initVoiceButtons(root){
   (root || document).querySelectorAll('.voice-btn').forEach(attachVoiceButton);
 }
 
+const QUOTE_STATUS_ICON = { 'Solicitado CIA': '📨', 'Criação de cotação': '📝', 'Cotação enviada': '✅' };
+
+async function syncQuoteToAgendor(d, quote, statusChanged){
+  if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
+  try{
+    let orgId = d.agendorOrgId;
+    if (!orgId){
+      const pushResult = await agendorPushOrg(d);
+      orgId = extractOrgId(pushResult);
+      if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
+      if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor. Resposta: ' + JSON.stringify(pushResult) };
+    }
+
+    let dealId = quote.agendorDealId;
+    if (!dealId){
+      const dealResult = await agendorApiCall('agendorCreateDeal', {
+        organizationId: orgId,
+        title: `Cotação: ${quote.cliente}`,
+        dealStage: 1
+      });
+      dealId = extractDealId(dealResult);
+      if (!dealId) return { ok: false, error: 'Não consegui criar a cotação. Resposta: ' + JSON.stringify(dealResult) };
+      quote.agendorDealId = dealId;
+    }
+
+    const statusLabel = `${QUOTE_STATUS_ICON[quote.status] || ''} ${quote.status}`;
+    const taskText = statusChanged
+      ? `Status atualizado: ${statusLabel}${quote.notes ? ' — ' + quote.notes : ''}`
+      : `${statusLabel}${quote.notes ? ' — ' + quote.notes : ''}`;
+    const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
+    if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
+      return { ok: false, error: 'Cotação criada, mas o histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
+    }
+
+    return { ok: true, agendorOrgId: orgId, agendorDealId: dealId };
+  } catch(e){
+    return { ok: false, error: e.message };
+  }
+}
+
+async function initQuotesPane(d, key){
+  const quoteList = document.getElementById('quoteList');
+  let quotes = await getQuotes(key);
+  let editingQuoteId = null;
+  renderQuoteList();
+
+  function renderQuoteList(){
+    if (!quotes.length){
+      quoteList.innerHTML = '<div class="log-empty">Nenhuma cotação registrada ainda.</div>';
+      return;
+    }
+    quoteList.innerHTML = quotes.map(q => `
+      <div class="log-entry" data-id="${q.id}" style="position:relative;">
+        <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+          <button class="qt-edit" data-id="${q.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
+          <button class="qt-del" data-id="${q.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
+        </div>
+        <div class="le-top"><span>${QUOTE_STATUS_ICON[q.status] || ''} <b>${q.cliente}</b> · ${q.status}</span></div>
+        <div class="le-notes">${(q.notes || '').replace(/</g,'&lt;')}</div>
+      </div>
+    `).join('');
+    quoteList.querySelectorAll('.qt-del').forEach(btn => {
+      btn.onclick = async () => {
+        quotes = quotes.filter(q => q.id !== btn.dataset.id);
+        await setQuotes(key, quotes);
+        renderQuoteList();
+      };
+    });
+    quoteList.querySelectorAll('.qt-edit').forEach(btn => {
+      btn.onclick = () => {
+        const q = quotes.find(x => x.id === btn.dataset.id);
+        if (!q) return;
+        editingQuoteId = q.id;
+        document.getElementById('qtCliente').value = q.cliente;
+        document.getElementById('qtStatus').value = q.status;
+        document.getElementById('qtNotes').value = q.notes || '';
+        document.getElementById('quoteFormTitle').textContent = 'Editando cotação';
+        document.getElementById('qtSave').textContent = 'Atualizar cotação';
+        document.getElementById('qtCancelEdit').style.display = 'inline-block';
+      };
+    });
+  }
+
+  function resetQuoteForm(){
+    editingQuoteId = null;
+    document.getElementById('qtCliente').value = '';
+    document.getElementById('qtStatus').value = 'Solicitado CIA';
+    document.getElementById('qtNotes').value = '';
+    document.getElementById('quoteFormTitle').textContent = 'Registrar cotação';
+    document.getElementById('qtSave').textContent = 'Salvar cotação';
+    document.getElementById('qtCancelEdit').style.display = 'none';
+  }
+  document.getElementById('qtCancelEdit').onclick = resetQuoteForm;
+
+  document.getElementById('qtSave').onclick = async () => {
+    const saveBtn = document.getElementById('qtSave');
+    if (saveBtn.disabled) return;
+    const cliente = document.getElementById('qtCliente').value.trim();
+    const status = document.getElementById('qtStatus').value;
+    const notes = document.getElementById('qtNotes').value.trim();
+    if (!cliente) return;
+
+    saveBtn.disabled = true;
+    let quote, statusChanged = false;
+    if (editingQuoteId){
+      const idx = quotes.findIndex(q => q.id === editingQuoteId);
+      if (idx !== -1){
+        statusChanged = quotes[idx].status !== status;
+        quotes[idx] = { ...quotes[idx], cliente, status, notes };
+        quote = quotes[idx];
+      }
+    } else {
+      quote = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cliente, status, notes };
+      quotes.push(quote);
+    }
+
+    const syncStatus = document.getElementById('qtSyncStatus');
+    syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
+    await setQuotes(key, quotes);
+    syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
+
+    if (getAgendorToken() && getSheetsUrl()){
+      syncStatus.textContent += ' · Enviando pro Agendor…';
+      const agResult = await syncQuoteToAgendor(d, quote, statusChanged);
+      await setQuotes(key, quotes);
+      if (agResult.ok){
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Virou negócio no Agendor ✓');
+      } else if (!agResult.skipped){
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Agendor: ' + (agResult.error || 'falhou'));
+      }
+    }
+
+    renderQuoteList();
+    resetQuoteForm();
+    saveBtn.disabled = false;
+    quotesCache[key] = quotes;
+  };
+}
+
 async function initHistoricoPane(d, key){
   const logList = document.getElementById('logList');
   const feedbackEl = document.getElementById('feedbackText');
@@ -1133,7 +1316,6 @@ async function initHistoricoPane(d, key){
         const entry = log.find(e => e.id === btn.dataset.id);
         if (!entry) return;
         editingId = entry.id;
-        document.getElementById('cfTipo').value = entry.tipo || 'Indicação';
         document.getElementById('cfImporter').value = entry.importer;
         document.getElementById('cfSeason').value = entry.season;
         document.getElementById('cfFeedback').value = entry.feedback;
@@ -1148,7 +1330,6 @@ async function initHistoricoPane(d, key){
 
   function resetForm(){
     editingId = null;
-    document.getElementById('cfTipo').value = 'Indicação';
     document.getElementById('cfImporter').value = '';
     document.getElementById('cfSeason').value = `Safra ${new Date().getFullYear()}`;
     document.getElementById('cfFeedback').value = 'Positive';
@@ -1161,7 +1342,7 @@ async function initHistoricoPane(d, key){
   document.getElementById('cfCancelEdit').onclick = resetForm;
 
   document.getElementById('cfSave').onclick = async () => {
-    const tipo = document.getElementById('cfTipo').value;
+    const tipo = 'Indicação';
     const importer = document.getElementById('cfImporter').value.trim();
     const season = document.getElementById('cfSeason').value.trim();
     const feedback = document.getElementById('cfFeedback').value;
@@ -1255,11 +1436,13 @@ function setNav(which){
   document.getElementById('navImporters').classList.toggle('active', which === 'importers');
   document.getElementById('navMarket').classList.toggle('active', which === 'market');
   document.getElementById('navProspects').classList.toggle('active', which === 'prospects');
+  document.getElementById('navQuotes').classList.toggle('active', which === 'quotes');
   document.getElementById('navHistory').classList.toggle('active', which === 'history');
   const gridOn = which === 'exporters';
   const impOn = which === 'importers';
   const marketOn = which === 'market';
   const prospOn = which === 'prospects';
+  const quotesOn = which === 'quotes';
   const histOn = which === 'history';
   document.getElementById('cardGrid').style.display = gridOn ? 'grid' : 'none';
   document.getElementById('fruitInfoPanel').style.display = gridOn ? '' : 'none';
@@ -1268,26 +1451,31 @@ function setNav(which){
   document.getElementById('prospectsView').style.display = prospOn ? 'block' : 'none';
   document.getElementById('importersView').style.display = impOn ? 'block' : 'none';
   document.getElementById('marketView').style.display = marketOn ? 'block' : 'none';
+  document.getElementById('quotesView').style.display = quotesOn ? 'block' : 'none';
   document.getElementById('mainTitle').textContent = gridOn
     ? (activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : 'Todos os exportadores')
-    : (impOn ? 'Importadores (compradores no exterior)' : (marketOn ? 'Inteligência de mercado — dados de LPCO/DU-E' : (prospOn ? 'Novos prospects' : 'Indicações e feedback')));
+    : (impOn ? 'Importadores (compradores no exterior)' : (marketOn ? 'Inteligência de mercado — dados de LPCO/DU-E' : (prospOn ? 'Novos prospects' : (quotesOn ? 'Cotações' : 'Indicações e feedback'))));
   document.getElementById('mainSub').textContent = gridOn
     ? document.getElementById('mainSub').textContent
     : (impOn ? `${IMPORTERS.length} consignatários do histórico de embarques — são compradores no exterior, não exportadores para prospectar`
         : (marketOn ? `${MARKET.length} importadores encontrados em dados oficiais de exportação (LPCO/DU-E) — de quais exportadores brasileiros eles já compram, e se esse exportador já é cliente atual`
         : (prospOn
         ? 'Empresas exportadoras com as quais ainda não há relação comercial. Abra uma e vá adicionando frutas conforme for descobrindo mais sobre elas.'
-        : 'Busque por importador para ver quais exportadores já foram indicados a ele, e como foi o resultado')));
-  document.getElementById('newExporterBtn').style.display = (impOn || marketOn) ? 'none' : 'inline-block';
+        : (quotesOn
+        ? 'Busque por cliente para ver quais cotações já foram pedidas, com quem, e em que status estão'
+        : 'Busque por importador para ver quais exportadores já foram indicados a ele, e como foi o resultado'))));
+  document.getElementById('newExporterBtn').style.display = (impOn || marketOn || quotesOn || histOn) ? 'none' : 'inline-block';
   if (histOn) renderHistoryView();
   if (prospOn) renderProspectsView();
   if (impOn) renderImportersView();
   if (marketOn) renderMarketView();
+  if (quotesOn) renderQuotesView();
 }
 document.getElementById('navExporters').addEventListener('click', () => setNav('exporters'));
 document.getElementById('navImporters').addEventListener('click', () => setNav('importers'));
 document.getElementById('navMarket').addEventListener('click', () => setNav('market'));
 document.getElementById('navProspects').addEventListener('click', () => setNav('prospects'));
+document.getElementById('navQuotes').addEventListener('click', () => setNav('quotes'));
 document.getElementById('navHistory').addEventListener('click', () => setNav('history'));
 
 let marketFilter = 'all'; // all | opportunity | new
@@ -1430,6 +1618,68 @@ async function loadProspectFruitOverrides(){
 }
 
 let importerGroupsCache = [];
+
+function buildClienteGroups(){
+  const groups = {};
+  Object.entries(quotesCache).forEach(([key, arr]) => {
+    const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    arr.forEach(q => {
+      const gk = (q.cliente || '').trim().toLowerCase();
+      if (!gk) return;
+      if (!groups[gk]) groups[gk] = { display: q.cliente.trim(), items: [] };
+      groups[gk].items.push({ exporterTrade: d.trade, exporterKey: key, status: q.status, notes: q.notes });
+    });
+  });
+  return Object.values(groups).sort((a,b) => a.display.localeCompare(b.display));
+}
+
+let clienteGroupsCache = [];
+
+function renderQuotesView(){
+  const el = document.getElementById('quotesView');
+  clienteGroupsCache = buildClienteGroups();
+  el.innerHTML = `
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <input id="clienteSearch" type="text" placeholder="Buscar por cliente…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
+      <button id="refreshQuotesCloudBtn" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">🔄 Atualizar da nuvem</button>
+    </div>
+    <div id="clienteGroups"></div>`;
+  document.getElementById('clienteSearch').addEventListener('input', e => renderClienteGroups(e.target.value.trim().toLowerCase()));
+  document.getElementById('refreshQuotesCloudBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('refreshQuotesCloudBtn');
+    btn.textContent = 'Atualizando…';
+    await loadQuotesCache();
+    clienteGroupsCache = buildClienteGroups();
+    renderClienteGroups(document.getElementById('clienteSearch').value.trim().toLowerCase());
+    btn.textContent = '🔄 Atualizar da nuvem';
+  });
+  renderClienteGroups('');
+}
+
+function renderClienteGroups(filter){
+  const wrap = document.getElementById('clienteGroups');
+  const groups = clienteGroupsCache.filter(g => !filter || g.display.toLowerCase().includes(filter));
+  if (!groups.length){
+    wrap.innerHTML = '<div class="empty">Nenhuma cotação encontrada. Abra um exportador ou importador e use a aba "Cotações" pra registrar a primeira.</div>';
+    return;
+  }
+  wrap.innerHTML = groups.map(g => {
+    const rows = g.items.map(it => `<div class="history-row" data-exp="${it.exporterKey}">
+      <div>
+        <div class="hr-name">${QUOTE_STATUS_ICON[it.status] || ''} ${it.exporterTrade}</div>
+        <div class="hr-feedback">${it.status}${it.notes ? ' · ' + it.notes.replace(/\n/g,' ') : ''}</div>
+      </div>
+    </div>`).join('');
+    return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+  }).join('');
+  wrap.querySelectorAll('.history-row').forEach(row => {
+    row.onclick = () => {
+      const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+      if (d) openModal(d, 'cotacoes');
+    };
+  });
+}
 
 function buildImporterGroups(){
   const groups = {};
@@ -1747,6 +1997,7 @@ renderStats();
 render();
 renderAlerts();
 loadReferralsCache();
+loadQuotesCache();
 loadCustomExporters();
 loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); if (currentNav === 'importers') renderImportersView(); });
 loadContactOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); if (currentNav === 'importers') renderImportersView(); });
