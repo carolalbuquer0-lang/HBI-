@@ -60,6 +60,11 @@
   .fruit-chip .dot{width:9px;height:9px;border-radius:50%; flex-shrink:0; display:inline-block; margin-right:7px;}
   .fruit-chip .name{display:flex; align-items:center;}
   .fruit-chip .count{font-size:11px; opacity:.7;}
+  .variety-chip{
+    display:inline-flex; align-items:center; padding:5px 12px; border-radius:14px; font-size:12px;
+    border:1.5px solid var(--line); cursor:pointer; background:#fff; color:var(--muted); user-select:none;
+  }
+  .variety-chip:hover{border-color:#B7B7B7;}
   .clear-btn{
     display:inline-block; font-size:12px; color:var(--teal-deep); cursor:pointer; margin-bottom:14px; text-decoration:underline;
   }
@@ -853,15 +858,21 @@ function openModal(d, initialTab){
 
   const fruitRows = d.all_fruits.map(f => {
     const c = fruitColor(f);
-    const confirmed = (d.variety_confirmed && d.variety_confirmed[f]) || '';
+    let confirmedArr = d.variety_confirmed && d.variety_confirmed[f];
+    if (typeof confirmedArr === 'string') confirmedArr = confirmedArr ? [confirmedArr] : [];
+    confirmedArr = confirmedArr || [];
     const g = FRUIT_GUIDE[f];
-    const varietyOptions = (g && g.varieties && g.varieties !== '—')
+    const baseOptions = (g && g.varieties && g.varieties !== '—')
       ? g.varieties.split(',').map(v => v.trim()).filter(Boolean)
       : [];
-    const isCustom = !!confirmed && !varietyOptions.includes(confirmed);
+    const allOptions = [...new Set([...baseOptions, ...confirmedArr])];
     const fEsc = f.replace(/"/g,'&quot;');
-    const optionsHtml = varietyOptions.map(v => `<option value="${v.replace(/"/g,'&quot;')}" ${v===confirmed?'selected':''}>${v}</option>`).join('');
-    return `<div class="fruit-row" style="flex-direction:column; align-items:stretch; gap:6px; padding:10px 0;">
+    const chipsHtml = allOptions.map(v => {
+      const vEsc = v.replace(/"/g,'&quot;');
+      const isSel = confirmedArr.includes(v);
+      return `<span class="variety-chip${isSel?' selected':''}" data-fruit="${fEsc}" data-variety="${vEsc}" style="${isSel?`border-color:${c};background:${c}22;color:var(--ink);font-weight:600;`:''}">${v}</span>`;
+    }).join('');
+    return `<div class="fruit-row" style="flex-direction:column; align-items:stretch; gap:8px; padding:12px 0;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span class="fname"><span class="dot" style="width:9px;height:9px;border-radius:50%;display:inline-block;background:${c}"></span>${ptFruit(f)}</span>
         <span style="display:flex; align-items:center; gap:10px;">
@@ -869,13 +880,12 @@ function openModal(d, initialTab){
           <button type="button" class="fruit-remove-btn" data-fruit="${fEsc}" title="Remover fruta" style="background:none;border:none;color:#B3413B;cursor:pointer;font-size:15px;line-height:1;padding:0 2px;">✕</button>
         </span>
       </div>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <select class="variety-select" data-fruit="${fEsc}" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
-          <option value="">Variedade não especificada</option>
-          ${optionsHtml}
-          <option value="__custom__" ${isCustom?'selected':''}>Outra (escrever)...</option>
-        </select>
-        <input type="text" class="variety-custom" data-fruit="${fEsc}" placeholder="Variedade" value="${isCustom?confirmed.replace(/"/g,'&quot;'):''}" style="display:${isCustom?'inline-block':'none'}; width:120px; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
+      <div class="variety-chip-wrap" style="display:flex; flex-wrap:wrap; gap:6px;">
+        ${chipsHtml || '<span style="font-size:11.5px;color:var(--muted);">Nenhuma variedade cadastrada ainda</span>'}
+      </div>
+      <div style="display:flex; gap:6px;">
+        <input type="text" class="variety-add-input" data-fruit="${fEsc}" placeholder="Adicionar variedade…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
+        <button type="button" class="variety-add-btn" data-fruit="${fEsc}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">+ Adicionar</button>
       </div>
     </div>`;
   }).join('');
@@ -1024,31 +1034,34 @@ function openModal(d, initialTab){
   }
 
   d.variety_confirmed = d.variety_confirmed || {};
-  modal.querySelectorAll('.variety-select').forEach(sel => {
-    const fruit = sel.dataset.fruit;
-    const customInput = modal.querySelector(`.variety-custom[data-fruit="${fruit.replace(/"/g,'\\"')}"]`);
-    sel.addEventListener('change', async () => {
-      if (sel.value === '__custom__'){
-        customInput.style.display = 'inline-block';
-        customInput.focus();
-        return;
-      }
-      customInput.style.display = 'none';
-      if (sel.value) d.variety_confirmed[fruit] = sel.value;
-      else delete d.variety_confirmed[fruit];
+  function toArr(v){ if (Array.isArray(v)) return v; return v ? [v] : []; }
+
+  modal.querySelectorAll('.variety-chip').forEach(chip => {
+    chip.addEventListener('click', async () => {
+      const fruit = chip.dataset.fruit;
+      const variety = chip.dataset.variety;
+      let arr = toArr(d.variety_confirmed[fruit]);
+      arr = arr.includes(variety) ? arr.filter(v => v !== variety) : [...arr, variety];
+      if (arr.length) d.variety_confirmed[fruit] = arr; else delete d.variety_confirmed[fruit];
       await setVarietyOverride(key, d.variety_confirmed);
+      openModal(d, 'frutas');
     });
   });
-  modal.querySelectorAll('.variety-custom').forEach(input => {
-    const fruit = input.dataset.fruit;
-    const commit = async () => {
+  modal.querySelectorAll('.variety-add-btn').forEach(btn => {
+    const row = btn.closest('.fruit-row');
+    const fruit = btn.dataset.fruit;
+    const input = row.querySelector('.variety-add-input');
+    const commitAdd = async () => {
       const v = input.value.trim();
-      if (v) d.variety_confirmed[fruit] = v;
-      else delete d.variety_confirmed[fruit];
+      if (!v) return;
+      let arr = toArr(d.variety_confirmed[fruit]);
+      if (!arr.includes(v)) arr = [...arr, v];
+      d.variety_confirmed[fruit] = arr;
       await setVarietyOverride(key, d.variety_confirmed);
+      openModal(d, 'frutas');
     };
-    input.addEventListener('blur', commit);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); input.blur(); } });
+    btn.addEventListener('click', commitAdd);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); commitAdd(); } });
   });
   modal.querySelectorAll('.fruit-remove-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
