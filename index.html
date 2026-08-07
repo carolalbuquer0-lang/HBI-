@@ -65,8 +65,21 @@
     border:1.5px solid var(--line); cursor:pointer; background:#fff; color:var(--muted); user-select:none;
   }
   .variety-chip:hover{border-color:#B7B7B7;}
-  .rate-dest-header{font-size:14px; font-weight:bold; color:var(--ink); margin:22px 0 10px;}
-  .rate-card-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; margin-bottom:6px;}
+  .rate-dest-group{
+    border:1px solid var(--line); border-radius:10px; margin-bottom:12px; background:#fff; overflow:hidden;
+  }
+  .rate-dest-group[open]{ padding-bottom:14px; }
+  .rate-dest-header{
+    font-size:13.5px; font-weight:bold; color:var(--ink); padding:12px 16px; cursor:pointer; list-style:none;
+    display:flex; align-items:center; gap:8px; background:#F7F7F7; user-select:none;
+  }
+  .rate-dest-header::-webkit-details-marker{ display:none; }
+  .rate-dest-header::before{ content:'▶'; font-size:9px; color:var(--teal-deep); transition:transform .15s; }
+  .rate-dest-group[open] > .rate-dest-header::before{ transform:rotate(90deg); }
+  .rate-dest-count{
+    background:var(--teal-deep); color:#fff; font-size:11px; font-weight:bold; border-radius:10px; padding:1px 8px;
+  }
+  .rate-card-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; margin:14px 16px 0;}
   .rate-card{border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff;}
   .rate-card-head{background:#1B2F4E; color:#fff; font-weight:bold; font-size:14px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;}
   .rate-card-actions button{background:none; border:none; color:#fff; opacity:.75; cursor:pointer; font-size:13px; margin-left:8px;}
@@ -220,9 +233,14 @@
   }
   .nav-toggle button.active{background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);}
   .new-exp-form label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; font-weight:bold;}
-  .new-exp-form input[type=text]{
-    width:100%; font-family:inherit; font-size:13.5px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff;
+  .new-exp-form input[type=text], .new-exp-form input[type=number], .new-exp-form input[type=password],
+  .new-exp-form select, .new-exp-form textarea{
+    width:100%; font-family:inherit; font-size:13.5px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; box-sizing:border-box;
   }
+  .new-exp-form textarea{ resize:vertical; min-height:70px; }
+  .qb-section{ background:#FAFAFA; border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .qb-section > label:first-child{ margin-top:0; }
+  .qb-section-title{ font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--teal-deep); font-weight:bold; margin-bottom:8px; }
   .fruit-check-list{
     display:grid; grid-template-columns:repeat(2,1fr); gap:4px 10px; max-height:180px; overflow-y:auto;
     border:1px solid var(--line); border-radius:8px; padding:10px; background:#FAFAFA;
@@ -1175,10 +1193,6 @@ function openNoShowForm(note){
 function renderRatesView(){
   const el = document.getElementById('ratesView');
 
-  const byDestino = {};
-  ratesCache.forEach(r => { (byDestino[r.destino] || (byDestino[r.destino] = [])).push(r); });
-  const destinos = Object.keys(byDestino).sort();
-
   function rateCard(r){
     const tipoTag = r.tipo === 'To Door'
       ? ` (to door${r.pesoMinimoToDoor ? ' · mín. ' + Number(r.pesoMinimoToDoor).toLocaleString('pt-BR') + 'kg' : ''})`
@@ -1206,19 +1220,64 @@ function renderRatesView(){
   }
 
   el.innerHTML = `
-    <div style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+      <input type="text" id="ratesSearch" placeholder="🔍 Buscar por CIA, origem, destino, produto..." style="flex:1; min-width:240px; padding:9px 14px; border:1px solid var(--line); border-radius:8px; font-size:13.5px;">
       <button id="addRateBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">+ Nova tarifa</button>
       <button id="openQuoteBuilderBtn" style="background:var(--teal); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💲 Gerar cotação de venda</button>
       <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">⚠ Observações de no-show</button>
     </div>
     <div id="noShowWrap" style="display:none; margin-bottom:22px;"></div>
     <div id="rateFormWrap"></div>
-    ${destinos.map(dest => `
-      <div class="rate-dest-header">Destino: ${dest}</div>
-      <div class="rate-card-grid">${byDestino[dest].map(rateCard).join('')}</div>
-    `).join('')}
-    ${!ratesCache.length ? '<div class="empty">Nenhuma tarifa cadastrada ainda. Clique em "+ Nova tarifa" pra começar.</div>' : ''}
+    <div style="display:flex; gap:14px; margin-bottom:10px;">
+      <span id="ratesToggleAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Expandir todos</span>
+      <span id="ratesCollapseAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Recolher todos</span>
+    </div>
+    <div id="ratesListWrap"></div>
   `;
+
+  function renderList(filterText){
+    const wrap = document.getElementById('ratesListWrap');
+    const f = (filterText || '').trim().toLowerCase();
+    const filtered = !f ? ratesCache : ratesCache.filter(r =>
+      [r.cia, r.origem, r.conexao, r.destino, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
+    );
+    const byDestino = {};
+    filtered.forEach(r => { (byDestino[r.destino] || (byDestino[r.destino] = [])).push(r); });
+    const destinos = Object.keys(byDestino).sort();
+
+    if (!filtered.length){
+      wrap.innerHTML = `<div class="empty">${ratesCache.length ? 'Nenhuma tarifa encontrada pra essa busca.' : 'Nenhuma tarifa cadastrada ainda. Clique em "+ Nova tarifa" pra começar.'}</div>`;
+      return;
+    }
+
+    wrap.innerHTML = destinos.map(dest => `
+      <details class="rate-dest-group" ${f ? 'open' : ''}>
+        <summary class="rate-dest-header">Destino: ${dest} <span class="rate-dest-count">${byDestino[dest].length}</span></summary>
+        <div class="rate-card-grid">${byDestino[dest].map(rateCard).join('')}</div>
+      </details>
+    `).join('');
+
+    wrap.querySelectorAll('.rate-edit').forEach(btn => {
+      btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
+    });
+    wrap.querySelectorAll('.rate-del').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Remover essa tarifa?')) return;
+        ratesCache = ratesCache.filter(r => r.id !== btn.dataset.id);
+        await setRates(ratesCache);
+        renderList(document.getElementById('ratesSearch').value);
+      };
+    });
+  }
+
+  renderList('');
+  document.getElementById('ratesSearch').addEventListener('input', (e) => renderList(e.target.value));
+  document.getElementById('ratesToggleAll').onclick = () => {
+    document.querySelectorAll('.rate-dest-group').forEach(d => d.open = true);
+  };
+  document.getElementById('ratesCollapseAll').onclick = () => {
+    document.querySelectorAll('.rate-dest-group').forEach(d => d.open = false);
+  };
 
   document.getElementById('addRateBtn').onclick = () => openRateForm(null);
   document.getElementById('openQuoteBuilderBtn').onclick = openQuoteBuilder;
@@ -1229,17 +1288,6 @@ function renderRatesView(){
     wrap.style.display = 'block';
     renderNoShowView();
   };
-  el.querySelectorAll('.rate-edit').forEach(btn => {
-    btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
-  });
-  el.querySelectorAll('.rate-del').forEach(btn => {
-    btn.onclick = async () => {
-      if (!confirm('Remover essa tarifa?')) return;
-      ratesCache = ratesCache.filter(r => r.id !== btn.dataset.id);
-      await setRates(ratesCache);
-      renderRatesView();
-    };
-  });
 }
 
 function openRateForm(rate){
@@ -1341,41 +1389,56 @@ function openQuoteBuilder(){
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>Gerar cotação de venda</h2>
     <div class="new-exp-form">
-      <label>Cliente / destinatário da proposta</label>
-      <input type="text" id="qbCliente" placeholder="Nome do cliente" list="qbClienteList">
-      <datalist id="qbClienteList">
-        ${[...EXPORTERS, ...IMPORTERS].map(d => `<option value="${d.trade.replace(/"/g,'&quot;')}">`).join('')}
-      </datalist>
-      <div class="cf-row">
-        <input type="text" id="qbRef" placeholder="REF (opcional)">
-        <input type="text" id="qbValidade" placeholder="Validade (ex: 30 dias)" value="30 dias">
+
+      <div class="qb-section">
+        <div class="qb-section-title">Dados da proposta</div>
+        <label>Cliente / destinatário</label>
+        <input type="text" id="qbCliente" placeholder="Nome do cliente" list="qbClienteList">
+        <datalist id="qbClienteList">
+          ${[...EXPORTERS, ...IMPORTERS].map(d => `<option value="${d.trade.replace(/"/g,'&quot;')}">`).join('')}
+        </datalist>
+        <div class="cf-row">
+          <div style="flex:1;"><label>REF (opcional)</label><input type="text" id="qbRef"></div>
+          <div style="flex:1;"><label>Validade</label><input type="text" id="qbValidade" value="30 dias"></div>
+        </div>
       </div>
 
-      <label style="margin-top:10px;">Filtrar por rota (opcional)</label>
-      <div class="cf-row">
-        <input type="text" id="qbFiltroOrigem" placeholder="Origem (ex: GRU)">
-        <input type="text" id="qbFiltroDestino" placeholder="Destino (ex: AMS)">
+      <div class="qb-section">
+        <div class="qb-section-title">Filtrar por rota (opcional)</div>
+        <div class="cf-row">
+          <div style="flex:1;"><label>Origem</label><input type="text" id="qbFiltroOrigem" placeholder="ex: GRU"></div>
+          <div style="flex:1;"><label>Destino</label><input type="text" id="qbFiltroDestino" placeholder="ex: AMS"></div>
+        </div>
       </div>
 
-      <label style="margin-top:10px;">Profit fixo (aplica pra todas as tarifas marcadas abaixo)</label>
-      <div class="cf-row">
-        <input type="number" step="0.01" id="qbProfitFixo" placeholder="ex: 0.05">
-        <button type="button" id="qbApplyProfit" style="flex:0 0 160px;">Aplicar a todas</button>
+      <div class="qb-section">
+        <div class="qb-section-title">Profit e custos padrão da Hevile</div>
+        <div class="cf-row">
+          <div style="flex:1;">
+            <label>Profit fixo (USD/kg)</label>
+            <input type="number" step="0.01" id="qbProfitFixo" placeholder="ex: 0.05">
+          </div>
+          <div style="flex:0 0 auto; align-self:flex-end;">
+            <button type="button" id="qbApplyProfit" style="margin-top:0; background:var(--teal); color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:13px; font-weight:bold; cursor:pointer;">Aplicar a todas</button>
+          </div>
+        </div>
+        <div class="cf-row">
+          <div style="flex:1;"><label>Desembaraço (USD)</label><input type="number" step="0.01" id="qbDesembaraco" value="50.00"></div>
+          <div style="flex:1;"><label>Armazenagem (USD/kg)</label><input type="number" step="0.001" id="qbArmazenagem" value="0.035"></div>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">A armazenagem entra somada na tarifa final por kg; o desembaraço fica como taxa fixa por AWB na tabela.</div>
       </div>
 
-      <label style="margin-top:10px;">Custos padrão da Hevile (entram na tarifa final de venda)</label>
-      <div class="cf-row">
-        <input type="number" step="0.01" id="qbDesembaraco" placeholder="Desembaraço (USD)" value="50.00">
-        <input type="number" step="0.001" id="qbArmazenagem" placeholder="Armazenagem (USD/kg)" value="0.035">
+      <div class="qb-section">
+        <div class="qb-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Selecione as tarifas e o profit de cada uma</span>
+          <span style="text-transform:none; font-weight:normal; font-size:12px; display:flex; align-items:center; gap:5px; color:var(--ink);"><input type="checkbox" id="qbSelectAll"> Selecionar tudo</span>
+        </div>
+        <div id="qbRatesList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 10px; background:#fff;">
+          ${rowsHtml(ratesCache)}
+        </div>
       </div>
 
-      <label style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
-        <span>Selecione as tarifas e o profit de cada uma</span>
-        <span style="font-weight:normal; font-size:12px; display:flex; align-items:center; gap:5px;"><input type="checkbox" id="qbSelectAll"> Selecionar tudo</span>
-      </label>
-      <div id="qbRatesList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 10px;">
-        ${rowsHtml(ratesCache)}
-      </div>
       <div class="new-exp-actions">
         <button id="qbGenerate">Gerar PDF</button>
         <span class="fs-status" id="qbStatus" style="margin-left:8px;"></span>
@@ -1469,6 +1532,9 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
   const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
   rates.forEach(r => { (groups[r.tipo] || (groups[r.tipo] = [])).push(r); });
+
+  const ciasInQuote = [...new Set(rates.map(r => r.cia))];
+  const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
 
   // Pulls the weight-tier label (+500KG, Q1000, +3 TONS, etc.) out of the condicao text,
   // returns { faixa, faixaSortKey, obs } — obs is everything else, cleaned up (day-of-week,
@@ -1572,6 +1638,12 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
     <div class="pq-intro">Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${cliente}</b>.</div>
     ${groups['To Door'].length ? `<div class="pq-section-label">Opção To Door</div>${tableFor(groups['To Door'])}` : ''}
     ${groups['Aeroporto'].length ? `<div class="pq-section-label">Opções aeroporto</div>${tableFor(groups['Aeroporto'])}` : ''}
+    ${relevantNoShow.length ? `
+      <div class="pq-section-label">Condições de No-Show</div>
+      <div class="pq-notes" style="margin-top:0;">
+        ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br><br>')}
+      </div>
+    ` : ''}
     <div class="pq-notes">
       Notes:<br>
       - Taxa de câmbio apenas para fins de referência.<br>
