@@ -2269,10 +2269,9 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
       quote.agendorDealId = dealId;
     }
 
-    const statusLabel = `${QUOTE_STATUS_ICON[quote.status] || ''} ${quote.status}`;
     const taskText = statusChanged
-      ? `Status atualizado: ${statusLabel}${quote.notes ? ' — ' + quote.notes : ''}`
-      : `${statusLabel}${quote.notes ? ' — ' + quote.notes : ''}`;
+      ? `Status atualizado: ${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`
+      : `${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`;
     const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
       return { ok: false, error: 'Cotação criada, mas o histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
@@ -2369,7 +2368,8 @@ async function initQuotesPane(d, key){
     await setQuotes(key, quotes);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
+    const skippedNoChange = syncToAgendor && editingQuoteId && !statusChanged;
+    if (syncToAgendor && !skippedNoChange && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncQuoteToAgendor(d, quote, statusChanged);
       await setQuotes(key, quotes);
@@ -2380,6 +2380,8 @@ async function initQuotesPane(d, key){
       }
     } else if (!syncToAgendor && editingQuoteId){
       syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
+    } else if (skippedNoChange){
+      syncStatus.textContent += ' · Status não mudou — nada novo enviado pro Agendor';
     }
 
     renderQuoteList();
@@ -2474,10 +2476,11 @@ async function initHistoricoPane(d, key){
     const notes = document.getElementById('cfNotes').value.trim();
     if (!importer || !season){ return; }
 
-    let entry;
+    let entry, feedbackChanged = false;
     if (editingId){
       const idx = log.findIndex(e => e.id === editingId);
       if (idx !== -1){
+        feedbackChanged = log[idx].feedback !== feedback || log[idx].notes !== notes;
         log[idx] = { ...log[idx], tipo, importer, season, feedback, notes };
         entry = log[idx];
       }
@@ -2491,7 +2494,8 @@ async function initHistoricoPane(d, key){
     await setReferrals(key, log);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
+    const skippedNoChange = syncToAgendor && editingId && !feedbackChanged;
+    if (syncToAgendor && !skippedNoChange && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncReferralToAgendor(d, entry);
       await setReferrals(key, log); // persist agendorDealId/agendorOrgId picked up on entry/d
@@ -2502,6 +2506,8 @@ async function initHistoricoPane(d, key){
       }
     } else if (!syncToAgendor && editingId){
       syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
+    } else if (skippedNoChange){
+      syncStatus.textContent += ' · Nada mudou no feedback/notas — nada novo enviado pro Agendor';
     }
 
     renderLogList();
