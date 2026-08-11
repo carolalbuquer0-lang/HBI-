@@ -1190,6 +1190,14 @@ function openNoShowForm(note){
   };
 }
 
+// Returns the product a rate refers to — from the dedicated field if set, or by pulling
+// "Produto: X" out of the older free-text condicao (for rates entered before this field existed).
+function getEffectiveProduto(r){
+  if (r.produto) return r.produto;
+  const m = (r.condicao || '').match(/Produto:\s*([^·]+)/i);
+  return m ? m[1].trim() : '';
+}
+
 function renderRatesView(){
   const el = document.getElementById('ratesView');
 
@@ -1239,7 +1247,7 @@ function renderRatesView(){
     const wrap = document.getElementById('ratesListWrap');
     const f = (filterText || '').trim().toLowerCase();
     const filtered = !f ? ratesCache : ratesCache.filter(r =>
-      [r.cia, r.origem, r.conexao, r.destino, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
+      [r.cia, r.origem, r.conexao, r.destino, r.produto, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
     );
     const byDestino = {};
     filtered.forEach(r => { (byDestino[r.destino] || (byDestino[r.destino] = [])).push(r); });
@@ -1293,6 +1301,10 @@ function renderRatesView(){
 function openRateForm(rate){
   editingRateId = rate ? rate.id : null;
   const wrap = document.getElementById('rateFormWrap');
+  const effectiveProduto = rate ? getEffectiveProduto(rate) : '';
+  const cleanCondicao = rate
+    ? (rate.condicao || '').replace(/Produto:\s*[^·]+·?\s*/i, '').replace(/^\s*·\s*|\s*·\s*$/g, '').trim()
+    : '';
   wrap.innerHTML = `
     <div class="new-exp-form" style="margin-bottom:10px;">
       <h4 style="margin-top:0;">${rate ? 'Editar tarifa' : 'Nova tarifa'}</h4>
@@ -1312,8 +1324,11 @@ function openRateForm(rate){
         <input type="text" id="rfDestino" placeholder="Destino (ex: AMS)" value="${rate?.destino||''}">
       </div>
       <div class="cf-row">
+        <input type="text" id="rfProduto" placeholder="Produto (ex: Gengibre, Fruta, Mamão...)" value="${effectiveProduto}">
+      </div>
+      <div class="cf-row">
         <input type="number" step="0.01" id="rfTarifa" placeholder="Tarifa USD/kg (ex: 1.15)" value="${rate?.tarifaBase||''}">
-        <input type="text" id="rfCondicao" placeholder="Condição (ex: mínimo de 6.000kg)" value="${rate?.condicao||''}" style="flex:1.4;">
+        <input type="text" id="rfCondicao" placeholder="Condição (ex: mínimo de 6.000kg)" value="${cleanCondicao}" style="flex:1.4;">
       </div>
       <div class="cf-row">
         <input type="number" step="0.01" id="rfTaxasCia" placeholder="Taxas da CIA (USD, opcional)" value="${rate?.taxasCia||''}">
@@ -1341,6 +1356,7 @@ function openRateForm(rate){
     const origem = document.getElementById('rfOrigem').value.trim().toUpperCase();
     const conexao = document.getElementById('rfConexao').value.trim().toUpperCase();
     const destino = document.getElementById('rfDestino').value.trim().toUpperCase();
+    const produto = document.getElementById('rfProduto').value.trim();
     const tarifaBase = parseFloat(document.getElementById('rfTarifa').value);
     const condicao = document.getElementById('rfCondicao').value.trim();
     const taxasCia = parseFloat(document.getElementById('rfTaxasCia').value) || 0;
@@ -1355,9 +1371,9 @@ function openRateForm(rate){
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
-      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor };
+      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor };
     } else {
-      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor });
+      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor });
     }
     await setRates(ratesCache);
     editingRateId = null;
@@ -1372,17 +1388,21 @@ function openQuoteBuilder(){
 
   function rowsHtml(list){
     const sorted = [...list].sort((a,b) => a.cia.localeCompare(b.cia) || a.tarifaBase - b.tarifaBase);
-    return sorted.map(r => `
+    return sorted.map(r => {
+      const produto = getEffectiveProduto(r);
+      return `
       <div class="cf-row" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:8px 0;" data-rate-id="${r.id}">
         <input type="checkbox" class="qb-check" data-id="${r.id}" style="flex:0 0 20px; margin-top:2px;">
         <span style="flex:1.6; font-size:12.5px; line-height:1.4;">
           <b>${r.cia}</b> ${r.origem}${r.conexao?(' → '+r.conexao):''} → ${r.destino} <span style="color:var(--muted);">(USD ${r.tarifaBase.toFixed(2)}/kg base)</span>
+          ${produto ? `<br><span style="font-size:10.5px; background:var(--teal); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold;">${produto}</span>` : ''}
           ${r.condicao ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${r.condicao}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
         <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
         <label style="flex:0 0 150px; font-size:11.5px; display:flex; align-items:center; gap:4px; margin-top:4px;"><input type="checkbox" class="qb-notax" data-id="${r.id}"> remover taxa CIA</label>
       </div>
-    `).join('') || '<div class="empty">Nenhuma tarifa encontrada pra essa rota.</div>';
+    `;
+    }).join('') || '<div class="empty">Nenhuma tarifa encontrada pra essa rota.</div>';
   }
 
   modal.innerHTML = `
@@ -1404,10 +1424,13 @@ function openQuoteBuilder(){
       </div>
 
       <div class="qb-section">
-        <div class="qb-section-title">Filtrar por rota (opcional)</div>
+        <div class="qb-section-title">Filtrar por rota e produto (opcional — deixe em branco pra ver tudo)</div>
         <div class="cf-row">
           <div style="flex:1;"><label>Origem</label><input type="text" id="qbFiltroOrigem" placeholder="ex: GRU"></div>
           <div style="flex:1;"><label>Destino</label><input type="text" id="qbFiltroDestino" placeholder="ex: AMS"></div>
+        </div>
+        <div class="cf-row">
+          <div style="flex:1;"><label>Produto</label><input type="text" id="qbFiltroProduto" placeholder="ex: Gengibre"></div>
         </div>
       </div>
 
@@ -1451,15 +1474,18 @@ function openQuoteBuilder(){
   function refilter(){
     const o = document.getElementById('qbFiltroOrigem').value.trim().toUpperCase();
     const d = document.getElementById('qbFiltroDestino').value.trim().toUpperCase();
+    const p = document.getElementById('qbFiltroProduto').value.trim().toLowerCase();
     const filtered = ratesCache.filter(r =>
       (!o || r.origem.toUpperCase().includes(o)) &&
-      (!d || r.destino.toUpperCase().includes(d))
+      (!d || r.destino.toUpperCase().includes(d)) &&
+      (!p || getEffectiveProduto(r).toLowerCase().includes(p))
     );
     document.getElementById('qbRatesList').innerHTML = rowsHtml(filtered);
     document.getElementById('qbSelectAll').checked = false;
   }
   document.getElementById('qbFiltroOrigem').addEventListener('input', refilter);
   document.getElementById('qbFiltroDestino').addEventListener('input', refilter);
+  document.getElementById('qbFiltroProduto').addEventListener('input', refilter);
 
   document.getElementById('qbSelectAll').onchange = (e) => {
     document.querySelectorAll('#qbRatesList .qb-check').forEach(cb => { cb.checked = e.target.checked; });
@@ -1974,6 +2000,8 @@ function openModal(d, initialTab){
           <button type="button" class="voice-btn" data-target="qtNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
         </div>
         <button id="qtSave">Salvar cotação</button>
+        <button id="qtCorrigir" type="button" style="display:none; background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">✎ Corrigir (sem histórico novo)</button>
+        <button id="qtAtualizar" type="button" style="display:none;">↻ Atualizar (nova etapa)</button>
         <button id="qtCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
         <span class="fs-status" id="qtSyncStatus"></span>
       </div>
@@ -1998,6 +2026,8 @@ function openModal(d, initialTab){
           <button type="button" class="voice-btn" data-target="cfNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
         </div>
         <button id="cfSave">Salvar indicação</button>
+        <button id="cfCorrigir" type="button" style="display:none; background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">✎ Corrigir (sem histórico novo)</button>
+        <button id="cfAtualizar" type="button" style="display:none;">↻ Atualizar (nova etapa)</button>
         <button id="cfCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
         <span class="fs-status" id="cfSyncStatus"></span>
       </div>
@@ -2258,6 +2288,7 @@ async function initQuotesPane(d, key){
   const quoteList = document.getElementById('quoteList');
   let quotes = await getQuotes(key);
   let editingQuoteId = null;
+  let savingQuote = false;
   renderQuoteList();
 
   function renderQuoteList(){
@@ -2291,7 +2322,9 @@ async function initQuotesPane(d, key){
         document.getElementById('qtStatus').value = q.status;
         document.getElementById('qtNotes').value = q.notes || '';
         document.getElementById('quoteFormTitle').textContent = 'Editando cotação';
-        document.getElementById('qtSave').textContent = 'Atualizar cotação';
+        document.getElementById('qtSave').style.display = 'none';
+        document.getElementById('qtCorrigir').style.display = 'inline-block';
+        document.getElementById('qtAtualizar').style.display = 'inline-block';
         document.getElementById('qtCancelEdit').style.display = 'inline-block';
       };
     });
@@ -2303,20 +2336,21 @@ async function initQuotesPane(d, key){
     document.getElementById('qtStatus').value = 'Solicitado CIA';
     document.getElementById('qtNotes').value = '';
     document.getElementById('quoteFormTitle').textContent = 'Registrar cotação';
-    document.getElementById('qtSave').textContent = 'Salvar cotação';
+    document.getElementById('qtSave').style.display = 'inline-block';
+    document.getElementById('qtCorrigir').style.display = 'none';
+    document.getElementById('qtAtualizar').style.display = 'none';
     document.getElementById('qtCancelEdit').style.display = 'none';
   }
   document.getElementById('qtCancelEdit').onclick = resetQuoteForm;
 
-  document.getElementById('qtSave').onclick = async () => {
-    const saveBtn = document.getElementById('qtSave');
-    if (saveBtn.disabled) return;
+  async function saveQuote(syncToAgendor){
+    if (savingQuote) return;
+    savingQuote = true;
     const cliente = document.getElementById('qtCliente').value.trim();
     const status = document.getElementById('qtStatus').value;
     const notes = document.getElementById('qtNotes').value.trim();
-    if (!cliente) return;
+    if (!cliente){ savingQuote = false; return; }
 
-    saveBtn.disabled = true;
     let quote, statusChanged = false;
     if (editingQuoteId){
       const idx = quotes.findIndex(q => q.id === editingQuoteId);
@@ -2335,7 +2369,7 @@ async function initQuotesPane(d, key){
     await setQuotes(key, quotes);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    if (getAgendorToken() && getSheetsUrl()){
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncQuoteToAgendor(d, quote, statusChanged);
       await setQuotes(key, quotes);
@@ -2344,13 +2378,19 @@ async function initQuotesPane(d, key){
       } else if (!agResult.skipped){
         syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Agendor: ' + (agResult.error || 'falhou'));
       }
+    } else if (!syncToAgendor && editingQuoteId){
+      syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
     }
 
     renderQuoteList();
     resetQuoteForm();
-    saveBtn.disabled = false;
     quotesCache[key] = quotes;
-  };
+    savingQuote = false;
+  }
+
+  document.getElementById('qtSave').onclick = () => saveQuote(true);
+  document.getElementById('qtAtualizar').onclick = () => saveQuote(true);
+  document.getElementById('qtCorrigir').onclick = () => saveQuote(false);
 }
 
 async function initHistoricoPane(d, key){
@@ -2402,7 +2442,9 @@ async function initHistoricoPane(d, key){
         document.getElementById('cfFeedback').value = entry.feedback;
         document.getElementById('cfNotes').value = entry.notes || '';
         document.getElementById('referralFormTitle').textContent = 'Editando indicação';
-        document.getElementById('cfSave').textContent = 'Atualizar indicação';
+        document.getElementById('cfSave').style.display = 'none';
+        document.getElementById('cfCorrigir').style.display = 'inline-block';
+        document.getElementById('cfAtualizar').style.display = 'inline-block';
         document.getElementById('cfCancelEdit').style.display = 'inline-block';
         document.querySelector('.modal-pane[data-pane="historico"]').scrollIntoView({behavior:'smooth', block:'start'});
       };
@@ -2416,13 +2458,15 @@ async function initHistoricoPane(d, key){
     document.getElementById('cfFeedback').value = 'Positive';
     document.getElementById('cfNotes').value = '';
     document.getElementById('referralFormTitle').textContent = 'Registrar indicação';
-    document.getElementById('cfSave').textContent = 'Salvar indicação';
+    document.getElementById('cfSave').style.display = 'inline-block';
+    document.getElementById('cfCorrigir').style.display = 'none';
+    document.getElementById('cfAtualizar').style.display = 'none';
     document.getElementById('cfCancelEdit').style.display = 'none';
   }
 
   document.getElementById('cfCancelEdit').onclick = resetForm;
 
-  document.getElementById('cfSave').onclick = async () => {
+  async function saveReferral(syncToAgendor){
     const tipo = 'Indicação';
     const importer = document.getElementById('cfImporter').value.trim();
     const season = document.getElementById('cfSeason').value.trim();
@@ -2447,7 +2491,7 @@ async function initHistoricoPane(d, key){
     await setReferrals(key, log);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    if (getAgendorToken() && getSheetsUrl()){
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncReferralToAgendor(d, entry);
       await setReferrals(key, log); // persist agendorDealId/agendorOrgId picked up on entry/d
@@ -2456,13 +2500,19 @@ async function initHistoricoPane(d, key){
       } else if (!agResult.skipped){
         syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', 'Agendor: ' + (agResult.error || 'falhou'));
       }
+    } else if (!syncToAgendor && editingId){
+      syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
     }
 
     renderLogList();
     resetForm();
     referralsCache[key] = log;
     renderCards();
-  };
+  }
+
+  document.getElementById('cfSave').onclick = () => saveReferral(true);
+  document.getElementById('cfAtualizar').onclick = () => saveReferral(true);
+  document.getElementById('cfCorrigir').onclick = () => saveReferral(false);
 
   document.getElementById('feedbackSave').onclick = async () => {
     statusEl.textContent = 'Salvando…';
