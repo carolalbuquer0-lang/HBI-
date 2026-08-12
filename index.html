@@ -1124,7 +1124,150 @@ async function loadNoShowCache(){
   await mergeSeedNoShow();
 }
 
+// ---- Structured named fees per CIA (AWC, CCC, CCA, etc.) — shown broken out on rate cards ----
+async function getCiaFees(){
+  try{
+    const v = await backendGet('hevile_cia_fees');
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setCiaFees(arr){
+  await backendSet('hevile_cia_fees', JSON.stringify(arr));
+}
+let ciaFeesCache = [];
+
+const SEED_CIA_FEES = [
+  { cia:'American Airlines', nome:'CCC', valor:7.50, obs:'Direto — caso tenha HAWB sem transmissão de e-AWB' },
+  { cia:'American Airlines', nome:'CGC', valor:3.00, obs:'Caso tenha HAWB com transmissão de e-AWB' },
+  { cia:'American Airlines', nome:'CCA', valor:50.00, obs:'' },
+  { cia:'Air Canada', nome:'AWC', valor:18.00, obs:'CBSA' },
+  { cia:'Air Canada', nome:'CCC', valor:20.00, obs:'USD por HAWB' },
+  { cia:'Air Canada', nome:'CCA', valor:50.00, obs:'' },
+  { cia:'TAP', nome:'AWC', valor:20.00, obs:'' },
+  { cia:'TAP', nome:'CCC', valor:15.00, obs:'' },
+  { cia:'TAP', nome:'XBC', valor:20.00, obs:'' },
+  { cia:'Azul', nome:'AWG', valor:15.00, obs:'' },
+  { cia:'Azul', nome:'SOC', valor:0.05, obs:'USD/kg em conexão' },
+  { cia:'Azul', nome:'CCC', valor:10.00, obs:'+ USD 5,00 por HAWB' },
+  { cia:'Azul', nome:'CCA', valor:50.00, obs:'Só quando solicitada correção de peso' },
+  { cia:'Air Europa', nome:'AWC', valor:5.00, obs:'' },
+  { cia:'Air Europa', nome:'BIC', valor:25.00, obs:'Por MAWB — ou USD 3,00 por HAWB' },
+  { cia:'Air Europa', nome:'CBC', valor:10.00, obs:'Destinos na Europa, exceto Espanha' },
+  { cia:'Cargolux', nome:'AWC', valor:2.00, obs:'' },
+  { cia:'Cargolux', nome:'CCC', valor:9.00, obs:'' },
+  { cia:'Cargolux', nome:'MZC', valor:75.00, obs:'' },
+  { cia:'British Airways', nome:'MZC', valor:20.00, obs:'' },
+  { cia:'British Airways', nome:'CCC', valor:13.00, obs:'Direto: 5,00 (P/USA) — Consolidado: 5,00 por HAWB (valor do master não conta)' },
+  { cia:'LATAM', nome:'CCC', valor:5.00, obs:'Direto (por USA) ou USD 5,00/HAWB (consolidado)' },
+  { cia:'LATAM', nome:'SOC', valor:0.015, obs:'USD/kg — conexão em GRU (atum só entra como custo)' },
+  { cia:'LATAM', nome:'DBC', valor:20.00, obs:'Apenas collect direto' },
+  { cia:'LATAM', nome:'LAC', valor:100.00, obs:'Apenas lagosta/animal vivo' },
+  { cia:'LATAM', nome:'CCA', valor:40.00, obs:'Taxa de correção — sem taxas da CIA para o Chile' },
+  { cia:'Iberia', nome:'CCC', valor:26.00, obs:'' },
+  { cia:'Iberia', nome:'MZC', valor:20.00, obs:'' },
+  { cia:'Swiss', nome:'DVC', valor:90.00, obs:'Inspeção fitossanitária p/ conexão de truck na Europa' },
+  { cia:'Swiss', nome:'CGC', valor:2.00, obs:'Por HAWB' },
+  { cia:'Swiss', nome:'CCA', valor:50.00, obs:'Quando houver' },
+  { cia:'United', nome:'CC', valor:10.00, obs:'Por HAWB' },
+];
+
+async function mergeSeedCiaFees(){
+  let changed = false;
+  SEED_CIA_FEES.forEach(seed => {
+    if (!ciaFeesCache.some(f => f.cia === seed.cia && f.nome === seed.nome)){
+      ciaFeesCache.push({ id: 'seed_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), ...seed });
+      changed = true;
+    }
+  });
+  if (changed) await setCiaFees(ciaFeesCache);
+}
+async function loadCiaFeesCache(){
+  ciaFeesCache = await getCiaFees();
+  await mergeSeedCiaFees();
+  if (currentNav === 'rates') renderRatesView();
+}
+
 let editingRateId = null;
+
+function renderCiaFeesView(){
+  const wrap = document.getElementById('ciaFeesWrap');
+  const byCia = {};
+  ciaFeesCache.forEach(f => { (byCia[f.cia] || (byCia[f.cia] = [])).push(f); });
+  const cias = Object.keys(byCia).sort();
+
+  wrap.innerHTML = `
+    <div style="background:#EEF5F1; border:1px solid #C9E0D2; border-radius:10px; padding:16px;">
+      <h4 style="margin:0 0 10px;">Taxas por CIA (nome, valor e observação)</h4>
+      ${cias.map(cia => `
+        <div style="margin-bottom:12px;">
+          <b style="font-size:12.5px;">${cia}</b>
+          ${byCia[cia].map(f => `
+            <div class="log-entry" data-id="${f.id}" style="position:relative; background:#fff; margin-top:6px;">
+              <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+                <button class="cf-edit" data-id="${f.id}" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;text-decoration:underline;font-size:11.5px;">editar</button>
+                <button class="cf-del" data-id="${f.id}" style="background:none;border:none;color:#B3413B;cursor:pointer;text-decoration:underline;font-size:11.5px;">remover</button>
+              </div>
+              <div class="le-top"><span><b>${f.nome}</b> — USD ${Number(f.valor).toFixed(2)}</span></div>
+              ${f.obs ? `<div class="le-notes">${f.obs}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `).join('') || '<div class="empty">Nenhuma taxa cadastrada ainda.</div>'}
+      <div id="ciaFeeFormWrap"></div>
+      <button id="addCiaFeeBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Nova taxa</button>
+    </div>
+  `;
+  document.getElementById('addCiaFeeBtn').onclick = () => openCiaFeeForm(null);
+  wrap.querySelectorAll('.cf-edit').forEach(btn => {
+    btn.onclick = () => openCiaFeeForm(ciaFeesCache.find(f => f.id === btn.dataset.id));
+  });
+  wrap.querySelectorAll('.cf-del').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Remover essa taxa?')) return;
+      ciaFeesCache = ciaFeesCache.filter(f => f.id !== btn.dataset.id);
+      await setCiaFees(ciaFeesCache);
+      renderCiaFeesView();
+      if (currentNav === 'rates') renderRatesView();
+    };
+  });
+}
+
+function openCiaFeeForm(fee){
+  const formWrap = document.getElementById('ciaFeeFormWrap');
+  formWrap.innerHTML = `
+    <div class="new-exp-form" style="margin-top:10px;">
+      <label>CIA</label>
+      <input type="text" id="cfeeCia" value="${fee?.cia || ''}" placeholder="ex: American Airlines">
+      <div class="cf-row">
+        <div style="flex:1;"><label>Nome da taxa</label><input type="text" id="cfeeNome" value="${fee?.nome || ''}" placeholder="ex: AWC"></div>
+        <div style="flex:1;"><label>Valor (USD)</label><input type="number" step="0.01" id="cfeeValor" value="${fee?.valor || ''}" placeholder="ex: 18.00"></div>
+      </div>
+      <label>Observação (opcional)</label>
+      <input type="text" id="cfeeObs" value="${fee?.obs || ''}" placeholder="ex: por HAWB, só quando solicitado...">
+      <div class="new-exp-actions">
+        <button id="cfeeSave">Salvar</button>
+        <button class="cancel" id="cfeeCancel">Cancelar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('cfeeCancel').onclick = () => { formWrap.innerHTML = ''; };
+  document.getElementById('cfeeSave').onclick = async () => {
+    const cia = document.getElementById('cfeeCia').value.trim();
+    const nome = document.getElementById('cfeeNome').value.trim();
+    const valor = parseFloat(document.getElementById('cfeeValor').value) || 0;
+    const obs = document.getElementById('cfeeObs').value.trim();
+    if (!cia || !nome) return;
+    if (fee){
+      const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
+      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs };
+    } else {
+      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs });
+    }
+    await setCiaFees(ciaFeesCache);
+    renderCiaFeesView();
+    if (currentNav === 'rates') renderRatesView();
+  };
+}
 
 function renderNoShowView(){
   const wrap = document.getElementById('noShowWrap');
@@ -1201,28 +1344,45 @@ function getEffectiveProduto(r){
 function renderRatesView(){
   const el = document.getElementById('ratesView');
 
-  function rateCard(r){
-    const tipoTag = r.tipo === 'To Door'
-      ? ` (to door${r.pesoMinimoToDoor ? ' · mín. ' + Number(r.pesoMinimoToDoor).toLocaleString('pt-BR') + 'kg' : ''})`
-      : (r.tipo === 'Aeroporto' ? ' (aeroporto)' : '');
+  function rateCardGroup(group){
+    const first = group[0];
+    const produto = getEffectiveProduto(first);
+    const tipoTag = first.tipo === 'To Door'
+      ? `<span class="importer-tag" style="background:var(--orange);">TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
+      : '';
+    const tarifasHtml = group.map(r => {
+      const { faixa } = parseCondicao(r.condicao);
+      return `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
+        <span style="font-size:12px; color:var(--muted);">${faixa || 'Tarifa única'}</span>
+        <span style="display:flex; align-items:center; gap:8px;">
+          <b style="color:var(--orange);">USD ${Number(r.tarifaBase).toFixed(2)}/kg</b>
+          <button class="rate-edit" data-id="${r.id}" title="Editar" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;font-size:12px;">✎</button>
+          <button class="rate-del" data-id="${r.id}" title="Remover" style="background:none;border:none;color:#B3413B;cursor:pointer;font-size:12px;">✕</button>
+        </span>
+      </div>`;
+    }).join('');
+    const obsSet = [...new Set(group.map(r => parseCondicao(r.condicao).obs).filter(Boolean))];
+    const feesForCia = ciaFeesCache.filter(f => f.cia === first.cia);
+    const feesHtml = feesForCia.length
+      ? feesForCia.map(f => `<div class="rate-row"><span class="rate-label">${f.nome}</span><span class="rate-val orange">USD ${Number(f.valor).toFixed(2)}${f.obs ? `<br><span style="font-weight:normal; font-size:10.5px; color:var(--muted);">${f.obs}</span>` : ''}</span></div>`).join('')
+      : (first.taxasCia ? `<div class="rate-row"><span class="rate-label">TAXAS DA CIA</span><span class="rate-val orange">USD ${Number(first.taxasCia).toFixed(2)}</span></div>` : '');
+
     return `<div class="rate-card">
       <div class="rate-card-head">
-        <span>${r.cia} ${r.tipo === 'To Door' ? '<span class="importer-tag" style="background:var(--orange);">TO DOOR</span>' : ''}</span>
-        <span class="rate-card-actions">
-          <button class="rate-edit" data-id="${r.id}" title="Editar">✎</button>
-          <button class="rate-del" data-id="${r.id}" title="Remover">✕</button>
-        </span>
+        <span>${first.cia}</span>
+        ${tipoTag}
       </div>
       <div class="rate-card-body">
-        <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${r.origem}</span></div>
-        <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${r.conexao || '—'}</span></div>
-        <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${r.destino}</span></div>
-        <div class="rate-row"><span class="rate-label">TARIFA (+1000KG)</span><span class="rate-val orange">USD ${Number(r.tarifaBase).toFixed(2)}/kg${tipoTag}${r.condicao ? '<br>' + r.condicao : ''}</span></div>
-        ${r.tipo === 'To Door' && r.pesoMinimoToDoor ? `<div class="rate-row"><span class="rate-label">PESO MÍNIMO TO DOOR</span><span class="rate-val orange">${Number(r.pesoMinimoToDoor).toLocaleString('pt-BR')} kg</span></div>` : ''}
-        <div class="rate-row"><span class="rate-label">TAXAS DA CIA</span><span class="rate-val orange">${r.taxasCia ? 'USD ' + Number(r.taxasCia).toFixed(2) : '—'}</span></div>
-        <div class="rate-row"><span class="rate-label">DESEMBARAÇO ORIGEM</span><span class="rate-val orange">${r.desembaraco ? 'USD ' + Number(r.desembaraco).toFixed(2) : '—'}</span></div>
-        <div class="rate-row"><span class="rate-label">ARMAZENAGEM</span><span class="rate-val orange">USD ${Number(r.armazenagem || 0).toFixed(3)}/kg</span></div>
-        ${r.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${r.validade}</span></div>` : ''}
+        ${produto ? `<div class="rate-row"><span class="rate-label">PRODUTO</span><span class="rate-val">${produto}</span></div>` : ''}
+        <div style="background:#FBF6EE; border-radius:8px; padding:6px 10px; margin:6px 0;">${tarifasHtml}</div>
+        <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${first.origem}</span></div>
+        <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
+        <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
+        ${obsSet.length ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
+        ${feesHtml}
+        <div class="rate-row"><span class="rate-label">DESEMBARAÇO ORIGEM</span><span class="rate-val orange">${first.desembaraco ? 'USD ' + Number(first.desembaraco).toFixed(2) : '—'}</span></div>
+        <div class="rate-row"><span class="rate-label">ARMAZENAGEM</span><span class="rate-val orange">USD ${Number(first.armazenagem || 0).toFixed(3)}/kg</span></div>
+        ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
       </div>
     </div>`;
   }
@@ -1233,15 +1393,30 @@ function renderRatesView(){
       <button id="addRateBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">+ Nova tarifa</button>
       <button id="openQuoteBuilderBtn" style="background:var(--teal); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💲 Gerar cotação de venda</button>
       <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">⚠ Observações de no-show</button>
+      <button id="toggleCiaFeesBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💰 Taxas por CIA</button>
     </div>
     <div id="noShowWrap" style="display:none; margin-bottom:22px;"></div>
-    <div id="rateFormWrap"></div>
+    <div id="ciaFeesWrap" style="display:none; margin-bottom:22px;"></div>
     <div style="display:flex; gap:14px; margin-bottom:10px;">
       <span id="ratesToggleAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Expandir todos</span>
       <span id="ratesCollapseAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Recolher todos</span>
     </div>
     <div id="ratesListWrap"></div>
   `;
+
+  // Groups rate entries that only differ by weight tier (same CIA/tipo/origem/conexão/destino/
+  // produto/other-observations) into a single visual card, so +500KG and +1000KG etc. show
+  // together instead of as separate cards.
+  function groupByRoute(list){
+    const map = {};
+    list.forEach(r => {
+      const { obs } = parseCondicao(r.condicao);
+      const produto = getEffectiveProduto(r);
+      const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, produto, obs].join('|');
+      (map[k] || (map[k] = [])).push(r);
+    });
+    return Object.values(map);
+  }
 
   function renderList(filterText){
     const wrap = document.getElementById('ratesListWrap');
@@ -1258,12 +1433,15 @@ function renderRatesView(){
       return;
     }
 
-    wrap.innerHTML = destinos.map(dest => `
+    wrap.innerHTML = destinos.map(dest => {
+      const groups = groupByRoute(byDestino[dest]);
+      return `
       <details class="rate-dest-group" ${f ? 'open' : ''}>
         <summary class="rate-dest-header">Destino: ${dest} <span class="rate-dest-count">${byDestino[dest].length}</span></summary>
-        <div class="rate-card-grid">${byDestino[dest].map(rateCard).join('')}</div>
+        <div class="rate-card-grid">${groups.map(rateCardGroup).join('')}</div>
       </details>
-    `).join('');
+    `;
+    }).join('');
 
     wrap.querySelectorAll('.rate-edit').forEach(btn => {
       btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
@@ -1296,18 +1474,27 @@ function renderRatesView(){
     wrap.style.display = 'block';
     renderNoShowView();
   };
+  document.getElementById('toggleCiaFeesBtn').onclick = () => {
+    const wrap = document.getElementById('ciaFeesWrap');
+    const showing = wrap.style.display !== 'none';
+    if (showing){ wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    renderCiaFeesView();
+  };
 }
 
 function openRateForm(rate){
   editingRateId = rate ? rate.id : null;
-  const wrap = document.getElementById('rateFormWrap');
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
   const effectiveProduto = rate ? getEffectiveProduto(rate) : '';
   const cleanCondicao = rate
     ? (rate.condicao || '').replace(/Produto:\s*[^·]+·?\s*/i, '').replace(/^\s*·\s*|\s*·\s*$/g, '').trim()
     : '';
-  wrap.innerHTML = `
-    <div class="new-exp-form" style="margin-bottom:10px;">
-      <h4 style="margin-top:0;">${rate ? 'Editar tarifa' : 'Nova tarifa'}</h4>
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${rate ? 'Editar tarifa' : 'Nova tarifa'}</h2>
+    <div class="new-exp-form">
       <div class="cf-row">
         <select id="rfTipo" style="flex:0 0 150px;">
           <option value="To Door" ${rate?.tipo==='To Door'?'selected':''}>To Door</option>
@@ -1340,11 +1527,11 @@ function openRateForm(rate){
       </div>
       <div class="new-exp-actions">
         <button id="rfSave">Salvar tarifa</button>
-        <button class="cancel" id="rfCancel">Cancelar</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
       </div>
     </div>
   `;
-  document.getElementById('rfCancel').onclick = () => { editingRateId = null; wrap.innerHTML = ''; };
+  overlay.classList.add('visible');
   document.getElementById('rfTipo').onchange = (e) => {
     document.getElementById('rfToDoorRow').style.display = e.target.value === 'To Door' ? 'flex' : 'none';
   };
@@ -1377,7 +1564,7 @@ function openRateForm(rate){
     }
     await setRates(ratesCache);
     editingRateId = null;
-    wrap.innerHTML = '';
+    closeModal();
     renderRatesView();
   };
 }
@@ -1554,6 +1741,26 @@ function openQuoteBuilder(){
   };
 }
 
+// Pulls the weight-tier label (+500KG, Q1000, +3 TONS, etc.) out of the condicao text,
+// returns { faixa, faixaSortKey, obs } — obs is everything else, cleaned up (day-of-week,
+// frequency, transit), with "Produto: X" and any stray "NN" token removed (product gets its
+// own dedicated field/row elsewhere, so it shouldn't also repeat inside the observations).
+function parseCondicao(condicao){
+  if (!condicao) return { faixa: '', faixaSortKey: 0, obs: '' };
+  const m = condicao.match(/Faixa\s+([+\w]+(?:\s?TONS?)?)/i);
+  const faixa = m ? m[1].toUpperCase().replace(/\s+/g,' ') : '';
+  const numMatch = faixa.match(/(\d+)/);
+  let faixaSortKey = numMatch ? parseInt(numMatch[1], 10) : 0;
+  if (/TON/i.test(faixa)) faixaSortKey *= 1000; // tons sort after plain kg numbers
+  let obs = condicao.replace(/Faixa\s+[+\w]+(?:\s?TONS?)?/i, '')
+                    .replace(/Produto:\s*[^·]+·?\s*/i, '')
+                    .replace(/\bNN\b/g, '')
+                    .replace(/(^\s*·\s*)|(\s*·\s*$)/g, '')
+                    .replace(/\s*·\s*·\s*/g, ' · ')
+                    .trim();
+  return { faixa, faixaSortKey, obs };
+}
+
 function generateQuotePDF({ cliente, ref, validade, rates }){
   const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
@@ -1561,25 +1768,6 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
 
   const ciasInQuote = [...new Set(rates.map(r => r.cia))];
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
-
-  // Pulls the weight-tier label (+500KG, Q1000, +3 TONS, etc.) out of the condicao text,
-  // returns { faixa, faixaSortKey, obs } — obs is everything else, cleaned up (day-of-week,
-  // frequency, transit, product), with any stray "NN" token removed.
-  function parseCondicao(condicao){
-    if (!condicao) return { faixa: '', faixaSortKey: 0, obs: '' };
-    const m = condicao.match(/Faixa\s+([+\w]+(?:\s?TONS?)?)/i);
-    const faixa = m ? m[1].toUpperCase().replace(/\s+/g,' ') : '';
-    const numMatch = faixa.match(/(\d+)/);
-    let faixaSortKey = numMatch ? parseInt(numMatch[1], 10) : 0;
-    if (/TON/i.test(faixa)) faixaSortKey *= 1000; // tons sort after plain kg numbers
-    let obs = condicao.replace(/Faixa\s+[+\w]+(?:\s?TONS?)?/i, '')
-                      .replace(/Produto:\s*NN\s*·?/i, '')
-                      .replace(/\bNN\b/g, '')
-                      .replace(/(^\s*·\s*)|(\s*·\s*$)/g, '')
-                      .replace(/\s*·\s*·\s*/g, ' · ')
-                      .trim();
-    return { faixa, faixaSortKey, obs };
-  }
 
   function tableFor(rows){
     if (!rows.length) return '';
@@ -3274,6 +3462,7 @@ loadReferralsCache();
 loadQuotesCache();
 loadRatesCache();
 loadNoShowCache();
+loadCiaFeesCache();
 loadCustomExporters();
 loadCustomImporters();
 loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'prospects') renderProspectsView(); if (currentNav === 'importers') renderImportersView(); });
