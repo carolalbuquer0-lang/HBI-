@@ -1092,15 +1092,15 @@ async function setNoShowNotes(arr){
 let noShowCache = [];
 
 const SEED_NOSHOW = [
-  { cia:'LATAM', texto:'Taxas gerais: CCC USD 5,00 (direto, por USA) ou USD 5,00/hawb (consolidado, valor do master não conta); SOC USD 0,015/kg (conexão em GRU — atum só entra como custo, não repassa); DBC USD 20,00 (apenas collect direto); LAC USD 100,00 (apenas lagosta/animal vivo); CCA USD 40,00 (taxa de correção). Obs: para o Chile não tem taxas da CIA. Sem observação específica de no-show registrada.' },
+  { cia:'LATAM', texto:'Sem observação específica de no-show registrada.' },
   { cia:'American Airlines', texto:'NO SHOW: USD 300,00 — sem cancelar até a hora do embarque. Reservas devem ser feitas na opção Confirmed. Não faz collect direto.' },
   { cia:'Air Canada', texto:'Taxa de no-show no valor total da carga se não cancelar em até 72 horas antes do embarque.' },
-  { cia:'United', texto:'Taxa de CC USD 10,00 para cada HAWB. Sem observação específica de no-show registrada.' },
+  { cia:'United', texto:'Sem observação específica de no-show registrada.' },
   { cia:'Lufthansa', texto:'Sem observação específica de no-show registrada até o momento.' },
   { cia:'TAP', texto:'No-show: até 100% da tarifa se a carga for entregue após o LAT (a companhia pode reajustar a tarifa pra categoria correta). Cancelamento dentro de 24h do LAT ou após o STD: até 100% da tarifa. Discrepância de booking (peso maior que o reservado): cobrança de 80% do peso tarifável. BUP entregue como carga solta ou volume reservado maior que entregue: ajuste de tarifa + taxa adicional de €0,10/kg. Reserva feita como volume solto deve ser ajustada antes do LAT.' },
   { cia:'Air France / KLM', texto:'Cancelamento de reserva sempre pelo sistema (em caso de erro, enviar e-mail). No-show até 100% do frete dependendo do prazo antes do STD: sem penalização até 72h antes; 25% do frete líquido entre 72h e 48h antes; 50% entre 48h e 24h antes; 75% até 24h antes; 100% no dia do STD (exceto feriados oficiais).' },
-  { cia:'Air Europa', texto:'Sem taxa de no-show. Taxas: AWC USD 5,00, BIC USD 25,00 (por MAWB, ou USD 3,00 por HAWB), CBC USD 10,00 (destinos na Europa, exceto Espanha).' },
-  { cia:'Azul', texto:'Não aceita AWB PP Collect. Sem taxa de no-show. Taxas: AWC USD 15,00, SOC USD 0,05/kg (conexão), CCC USD 10,00 (+ USD 5,00 por HAWB). Taxa CCA USD 50 só quando solicitada correção de peso (basta responder o e-mail do Pré-alerta).' },
+  { cia:'Air Europa', texto:'Sem taxa de no-show.' },
+  { cia:'Azul', texto:'Não aceita AWB PP Collect. Sem taxa de no-show.' },
   { cia:'British Airways', texto:'No-show de 100% para cargas +300kg que não foram canceladas em até 6 horas antes da saída do voo. Offline Booking Fee: reservas fora dos canais digitais custam €50 por AWB (antes €30) — recomendado usar a plataforma online. Política Booked vs Delivered: tolerância de ±10% entre peso reservado e entregue; diferenças fora desse limite podem gerar cobrança.' },
   { cia:'Cargolux', texto:'Taxa de no-show acima de 20 toneladas (em vários bookings ou em um só). Cancelamentos com menos de 1 working day antes do STD: 25% (embarques ad-hoc) ou 50% (CV select) do frete cobrado; entre 1-3 working days: valores intermediários; mais de 3 working days: sem cobrança.' },
   { cia:'Air China', texto:'Sem taxa de no-show.' },
@@ -1121,6 +1121,18 @@ async function mergeSeedNoShow(){
 }
 async function loadNoShowCache(){
   noShowCache = await getNoShowNotes();
+  // One-time cleanup: earlier seed texts had CIA fees mixed into the no-show note; now that
+  // fees live in their own structured system, replace any note still containing that old
+  // mixed text with the clean seed version (matched by CIA).
+  let cleaned = false;
+  const FEE_MARKER = /Taxas gerais:|Taxas:\s*AWC|Taxa de CC USD/i;
+  noShowCache.forEach(n => {
+    if (FEE_MARKER.test(n.texto)){
+      const seed = SEED_NOSHOW.find(s => s.cia === n.cia);
+      if (seed){ n.texto = seed.texto; cleaned = true; }
+    }
+  });
+  if (cleaned) await setNoShowNotes(noShowCache);
   await mergeSeedNoShow();
 }
 
@@ -1650,7 +1662,8 @@ function openQuoteBuilder(){
       </div>
 
       <div class="new-exp-actions">
-        <button id="qbGenerate">Gerar PDF</button>
+        <button id="qbPreview" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">👁 Pré-visualizar</button>
+        <button id="qbGenerate">Gerar PDF e enviar</button>
         <span class="fs-status" id="qbStatus" style="margin-left:8px;"></span>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
       </div>
@@ -1737,62 +1750,100 @@ function openQuoteBuilder(){
       statusEl.textContent = cliente !== 'Cliente' ? `"${cliente}" não está no seu cadastro — cotação não foi salva lá (só o PDF é gerado).` : '';
     }
 
-    generateQuotePDF({ cliente, ref, validade, rates: selectedRates });
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true });
+    if (showQuotePDF(html)) closeModal();
+  };
+
+  document.getElementById('qbPreview').onclick = () => {
+    const selectedIds = [...document.querySelectorAll('.qb-check:checked')].map(el => el.dataset.id);
+    if (!selectedIds.length){ alert('Selecione ao menos uma tarifa.'); return; }
+    const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
+    const ref = document.getElementById('qbRef').value.trim();
+    const validade = document.getElementById('qbValidade').value.trim() || '30 dias';
+    const desembacoPadrao = parseFloat(document.getElementById('qbDesembaraco').value) || 0;
+    const armazenagemPadrao = parseFloat(document.getElementById('qbArmazenagem').value) || 0;
+
+    const selectedRates = selectedIds.map(id => {
+      const r = ratesCache.find(x => x.id === id);
+      const profitInput = document.querySelector(`.qb-profit[data-id="${id}"]`);
+      const noTaxInput = document.querySelector(`.qb-notax[data-id="${id}"]`);
+      const profit = parseFloat(profitInput.value) || 0;
+      const removeTax = noTaxInput.checked;
+      const tarifaVenda = r.tarifaBase + profit + armazenagemPadrao;
+      return {
+        ...r,
+        tarifaVenda,
+        taxasCiaVenda: removeTax ? 0 : r.taxasCia,
+        desembaraco: desembacoPadrao,
+        armazenagem: armazenagemPadrao
+      };
+    });
+
+    // Preview never saves a cotação or touches Agendor — it just shows what the PDF would look
+    // like, and doesn't auto-trigger the print dialog. The modal stays open so she can adjust.
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false });
+    showQuotePDF(html);
   };
 }
 
-// Pulls the weight-tier label (+500KG, Q1000, +3 TONS, etc.) out of the condicao text,
-// returns { faixa, faixaSortKey, obs } — obs is everything else, cleaned up (day-of-week,
-// frequency, transit), with "Produto: X" and any stray "NN" token removed (product gets its
-// own dedicated field/row elsewhere, so it shouldn't also repeat inside the observations).
+// Pulls the weight-tier label out of the condicao text, normalizing Q300 / +300KG / 300KG
+// (all mean the same 300kg tier) into one canonical key so they share a single column —
+// tons (+3 TONS etc.) stay as their own distinct tier but sort correctly by kg-equivalent.
+// Returns { faixaKey, faixaLabel, faixaSortKey, obs } — obs is everything else, cleaned up
+// (day-of-week, frequency, transit), with "Produto: X" and any stray "NN" token removed.
 function parseCondicao(condicao){
-  if (!condicao) return { faixa: '', faixaSortKey: 0, obs: '' };
-  const m = condicao.match(/Faixa\s+([+\w]+(?:\s?TONS?)?)/i);
-  const faixa = m ? m[1].toUpperCase().replace(/\s+/g,' ') : '';
-  const numMatch = faixa.match(/(\d+)/);
-  let faixaSortKey = numMatch ? parseInt(numMatch[1], 10) : 0;
-  if (/TON/i.test(faixa)) faixaSortKey *= 1000; // tons sort after plain kg numbers
-  let obs = condicao.replace(/Faixa\s+[+\w]+(?:\s?TONS?)?/i, '')
+  if (!condicao) return { faixaKey: '', faixaLabel: '', faixaSortKey: 0, obs: '' };
+  const m = condicao.match(/Faixa\s+(Q|\+)?\s*([\d.,]+)\s?(TONS?)?/i);
+  let faixaKey = '', faixaLabel = '', faixaSortKey = 0;
+  if (m){
+    const num = parseInt(m[2].replace(/[.,]/g, ''), 10);
+    const isTons = !!m[3];
+    // 1000kg = 1 ton, so convert tons to their kg-equivalent — this merges "+1 TON" and
+    // "+1000KG" (and "+3 TONS"/"+3000KG", etc.) into the same column instead of duplicating it.
+    const kgValue = isTons ? num * 1000 : num;
+    faixaKey = `${kgValue}KG`;
+    faixaLabel = `+${kgValue.toLocaleString('pt-BR')}KG`;
+    faixaSortKey = kgValue;
+  }
+  let obs = condicao.replace(/Faixa\s+(Q|\+)?\s*[\d.,]+\s?(TONS?)?/i, '')
                     .replace(/Produto:\s*[^·]+·?\s*/i, '')
                     .replace(/\bNN\b/g, '')
                     .replace(/(^\s*·\s*)|(\s*·\s*$)/g, '')
                     .replace(/\s*·\s*·\s*/g, ' · ')
                     .trim();
-  return { faixa, faixaSortKey, obs };
+  return { faixaKey, faixaLabel, faixaSortKey, obs };
 }
 
-function generateQuotePDF({ cliente, ref, validade, rates }){
+function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
   const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
   rates.forEach(r => { (groups[r.tipo] || (groups[r.tipo] = [])).push(r); });
-
-  const ciasInQuote = [...new Set(rates.map(r => r.cia))];
-  const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
 
   function tableFor(rows){
     if (!rows.length) return '';
     // group same route + same observations together, spreading weight tiers into columns
     const groupsMap = {};
-    const faixaSet = new Map(); // faixa label -> sort key, for consistent column ordering
+    const faixaSet = new Map(); // faixaKey -> { label, sortKey }, for consistent column ordering
     rows.forEach(r => {
-      const { faixa, faixaSortKey, obs } = parseCondicao(r.condicao);
+      const { faixaKey, faixaLabel, faixaSortKey, obs } = parseCondicao(r.condicao);
       const key = [r.cia, r.origem, r.conexao, r.destino, obs].join('|');
       if (!groupsMap[key]) groupsMap[key] = { r, obs, faixas: {} };
-      groupsMap[key].faixas[faixa || 'ÚNICA'] = r.tarifaVenda;
-      if (faixa) faixaSet.set(faixa, faixaSortKey);
-      else faixaSet.set('ÚNICA', 0);
+      const colKey = faixaKey || 'ÚNICA';
+      groupsMap[key].faixas[colKey] = r.tarifaVenda;
+      faixaSet.set(colKey, { label: faixaKey ? faixaLabel : '', sortKey: faixaSortKey });
     });
-    const faixaCols = [...faixaSet.entries()].sort((a,b) => a[1]-b[1]).map(e => e[0]);
-    const faixaHeaders = faixaCols.map(f => `<th>TARIFA ${f === 'ÚNICA' ? '' : f}<br>USD/kg</th>`).join('');
+    const faixaCols = [...faixaSet.entries()].sort((a,b) => a[1].sortKey - b[1].sortKey).map(e => e[0]);
+    const faixaHeaders = faixaCols.map(f => `<th>TARIFA ${faixaSet.get(f).label}<br>USD/kg</th>`).join('');
 
     const bodyRows = Object.values(groupsMap).map(g => {
       const r = g.r;
       const faixaCells = faixaCols.map(f => g.faixas[f] != null ? `<td>USD ${g.faixas[f].toFixed(2)}</td>` : `<td>—</td>`).join('');
+      const minToDoorText = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? `Peso mínimo: ${Number(r.pesoMinimoToDoor).toLocaleString('pt-BR')}kg` : '';
+      const obsCombined = [g.obs, minToDoorText].filter(Boolean).join(' · ');
       return `<tr>
         <td>${r.cia}</td><td>${r.origem}</td><td>${r.conexao||'—'}</td><td>${r.destino}</td>
         ${faixaCells}
-        <td class="pq-obs">${g.obs || '—'}</td>
-        <td>${r.taxasCiaVenda?('USD '+r.taxasCiaVenda.toFixed(2)):'—'}</td>
+        <td class="pq-obs">${obsCombined || '—'}</td>
         <td>${r.desembaraco?('USD '+r.desembaraco.toFixed(2)):'—'}</td>
         <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
       </tr>`;
@@ -1802,16 +1853,20 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
       <colgroup>
         <col style="width:11%"><col style="width:7%"><col style="width:7%"><col style="width:7%">
         ${faixaCols.map(() => `<col style="width:${34/faixaCols.length}%">`).join('')}
-        <col style="width:14%"><col style="width:9%"><col style="width:9%"><col style="width:9%">
+        <col style="width:20%"><col style="width:9%"><col style="width:9%">
       </colgroup>
       <thead><tr>
         <th>CIA</th><th>ORIGEM</th><th>CONEXÃO</th><th>DESTINO</th>
         ${faixaHeaders}
-        <th>OBSERVAÇÕES</th><th>TAXAS DA CIA<br>P/AWB</th><th>DESEMBARAÇO<br>P/AWB</th><th>ARMAZENAGEM<br>USD/kg</th>
+        <th>OBSERVAÇÕES</th><th>DESEMBARAÇO<br>P/AWB</th><th>ARMAZENAGEM<br>USD/kg</th>
       </tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>`;
   }
+
+  const ciasInQuote = [...new Set(rates.map(r => r.cia))];
+  const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
+  const relevantFees = ciaFeesCache.filter(f => ciasInQuote.includes(f.cia));
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
   <title>Proposta - ${cliente}</title>
@@ -1826,6 +1881,7 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
     .pq-title{ color:#F47920; font-size:32px; font-weight:bold; margin:0 0 14px; }
     .pq-meta{ display:flex; justify-content:space-between; font-size:12px; margin-bottom:12px; }
     .pq-intro{ font-size:11px; line-height:1.5; margin-bottom:14px; }
+    .pq-fee-hint{ font-size:10px; font-style:italic; color:#555; margin-bottom:10px; }
     table.pq-table{ width:100%; border-collapse:collapse; font-size:6.5px; margin-bottom:12px; table-layout:fixed; }
     table.pq-table th{ background:#2A5F75; color:#fff; padding:4px 3px; text-align:left; font-size:6px; line-height:1.2; word-wrap:break-word; }
     table.pq-table td{ padding:4px 3px; border-bottom:1px solid #E0E0E0; word-wrap:break-word; vertical-align:top; }
@@ -1850,8 +1906,18 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
       <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>Validade: ${validade}</b></div>
     </div>
     <div class="pq-intro">Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${cliente}</b>.</div>
+    ${relevantFees.length ? `<div class="pq-fee-hint">As taxas da companhia aérea (CIA) estão detalhadas na seção "Taxas das Companhias", nas observações abaixo.</div>` : ''}
     ${groups['To Door'].length ? `<div class="pq-section-label">Opção To Door</div>${tableFor(groups['To Door'])}` : ''}
     ${groups['Aeroporto'].length ? `<div class="pq-section-label">Opções aeroporto</div>${tableFor(groups['Aeroporto'])}` : ''}
+    ${relevantFees.length ? `
+      <div class="pq-section-label">Taxas das Companhias</div>
+      <div class="pq-notes" style="margin-top:0;">
+        ${ciasInQuote.filter(cia => relevantFees.some(f => f.cia === cia)).map(cia => {
+          const feesForCia = relevantFees.filter(f => f.cia === cia);
+          return `<b>${cia}:</b> ${feesForCia.map(f => `<b>${f.nome}</b> USD ${Number(f.valor).toFixed(2)}${f.obs ? ' ('+f.obs+')' : ''}`).join('; ')}`;
+        }).join('<br>')}
+      </div>
+    ` : ''}
     ${relevantNoShow.length ? `
       <div class="pq-section-label">Condições de No-Show</div>
       <div class="pq-notes" style="margin-top:0;">
@@ -1881,17 +1947,21 @@ function generateQuotePDF({ cliente, ref, validade, rates }){
     <b>FILIAL: RECIFE, PERNAMBUCO - AEROPORTO</b>Telefone: +55 81 3322.4277 · e-mail: air.ops.rec@hevile.com.br
   </div>
 
-  <script>window.onload = () => { window.print(); };<\/script>
+  <script>window.onload = () => { ${autoprint ? 'window.print();' : ''} };<\/script>
   </body></html>`;
 
+  return html;
+}
+
+function showQuotePDF(html){
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const w = window.open(url, '_blank');
   if (!w){
-    alert('O navegador bloqueou a abertura da cotação (bloqueador de pop-up). Permita pop-ups para este site nas configurações do navegador e clique em "Gerar PDF" de novo.');
-    return;
+    alert('O navegador bloqueou a abertura da cotação (bloqueador de pop-up). Permita pop-ups para este site nas configurações do navegador e tente de novo.');
+    return false;
   }
-  closeModal();
+  return true;
 }
 
 // in-memory cache: exporter name -> list of referrals [{id, importer, season, feedback, notes}]
@@ -2556,8 +2626,7 @@ async function initQuotesPane(d, key){
     await setQuotes(key, quotes);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    const skippedNoChange = syncToAgendor && editingQuoteId && !statusChanged;
-    if (syncToAgendor && !skippedNoChange && getAgendorToken() && getSheetsUrl()){
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncQuoteToAgendor(d, quote, statusChanged);
       await setQuotes(key, quotes);
@@ -2568,8 +2637,6 @@ async function initQuotesPane(d, key){
       }
     } else if (!syncToAgendor && editingQuoteId){
       syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
-    } else if (skippedNoChange){
-      syncStatus.textContent += ' · Status não mudou — nada novo enviado pro Agendor';
     }
 
     renderQuoteList();
@@ -2682,8 +2749,7 @@ async function initHistoricoPane(d, key){
     await setReferrals(key, log);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    const skippedNoChange = syncToAgendor && editingId && !feedbackChanged;
-    if (syncToAgendor && !skippedNoChange && getAgendorToken() && getSheetsUrl()){
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       const agResult = await syncReferralToAgendor(d, entry);
       await setReferrals(key, log); // persist agendorDealId/agendorOrgId picked up on entry/d
@@ -2694,8 +2760,6 @@ async function initHistoricoPane(d, key){
       }
     } else if (!syncToAgendor && editingId){
       syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
-    } else if (skippedNoChange){
-      syncStatus.textContent += ' · Nada mudou no feedback/notas — nada novo enviado pro Agendor';
     }
 
     renderLogList();
