@@ -1084,6 +1084,23 @@ async function loadRatesCache(){
     }
   });
   if (ratesCache.length !== before || notationFixed) await setRates(ratesCache);
+
+  // Repair pass: if a saved rate lost its weight-tier tag (e.g. from an earlier edit that
+  // accidentally stripped it), and a SEED_RATES entry matches the same route/price, borrow
+  // that seed's condicao text back — otherwise the rate shows as an indistinguishable
+  // "Tarifa única" alongside its sibling tiers.
+  let healed = false;
+  ratesCache.forEach(r => {
+    const hasFaixa = /Faixa\s*:?\s*(Q|\+)?\s*[\d.,]+/i.test(r.condicao || '') || /[\d.,]+\s*(KG|TONS?)\b/i.test(r.condicao || '');
+    if (!hasFaixa){
+      const seed = SEED_RATES.find(s => s.cia === r.cia && s.origem === r.origem && s.destino === r.destino &&
+        (s.conexao || '') === (r.conexao || '') && Math.abs(s.tarifaBase - r.tarifaBase) < 0.001 &&
+        /Faixa/i.test(s.condicao || ''));
+      if (seed){ r.condicao = seed.condicao; healed = true; }
+    }
+  });
+  if (healed) await setRates(ratesCache);
+
   await mergeSeedRates();
   if (currentNav === 'rates') renderRatesView();
 }
@@ -1102,6 +1119,7 @@ let noShowCache = [];
 
 const SEED_NOSHOW = [
   { cia:'LATAM', texto:'Sem observação específica de no-show registrada.' },
+  { cia:'Delta', texto:'Sem observação específica de no-show registrada.' },
   { cia:'American Airlines', texto:'NO SHOW: USD 300,00 — sem cancelar até a hora do embarque. Reservas devem ser feitas na opção Confirmed. Não faz collect direto.' },
   { cia:'Air Canada', texto:'Taxa de no-show no valor total da carga se não cancelar em até 72 horas antes do embarque.' },
   { cia:'United', texto:'Sem observação específica de no-show registrada.' },
@@ -1158,6 +1176,7 @@ async function setCiaFees(arr){
 let ciaFeesCache = [];
 
 const SEED_CIA_FEES = [
+  { cia:'Delta', nome:'AWC', valor:10.00, obs:'' },
   { cia:'American Airlines', nome:'CCC', valor:7.50, obs:'Direto — caso tenha HAWB sem transmissão de e-AWB' },
   { cia:'American Airlines', nome:'CGC', valor:3.00, obs:'Caso tenha HAWB com transmissão de e-AWB' },
   { cia:'American Airlines', nome:'CCA', valor:50.00, obs:'' },
@@ -1234,7 +1253,6 @@ function renderCiaFeesView(){
           `).join('')}
         </div>
       `).join('') || '<div class="empty">Nenhuma taxa cadastrada ainda.</div>'}
-      <div id="ciaFeeFormWrap"></div>
       <button id="addCiaFeeBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Nova taxa</button>
     </div>
   `;
@@ -1247,16 +1265,20 @@ function renderCiaFeesView(){
       if (!confirm('Remover essa taxa?')) return;
       ciaFeesCache = ciaFeesCache.filter(f => f.id !== btn.dataset.id);
       await setCiaFees(ciaFeesCache);
-      renderCiaFeesView();
       if (currentNav === 'rates') renderRatesView();
+      document.getElementById('ciaFeesWrap').style.display = 'block';
+      renderCiaFeesView();
     };
   });
 }
 
 function openCiaFeeForm(fee){
-  const formWrap = document.getElementById('ciaFeeFormWrap');
-  formWrap.innerHTML = `
-    <div class="new-exp-form" style="margin-top:10px;">
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${fee ? 'Editar taxa' : 'Nova taxa'}</h2>
+    <div class="new-exp-form">
       <label>CIA</label>
       <input type="text" id="cfeeCia" value="${fee?.cia || ''}" placeholder="ex: American Airlines">
       <div class="cf-row">
@@ -1267,17 +1289,17 @@ function openCiaFeeForm(fee){
       <input type="text" id="cfeeObs" value="${fee?.obs || ''}" placeholder="ex: por HAWB, só quando solicitado...">
       <div class="new-exp-actions">
         <button id="cfeeSave">Salvar</button>
-        <button class="cancel" id="cfeeCancel">Cancelar</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
       </div>
     </div>
   `;
-  document.getElementById('cfeeCancel').onclick = () => { formWrap.innerHTML = ''; };
+  overlay.classList.add('visible');
   document.getElementById('cfeeSave').onclick = async () => {
     const cia = document.getElementById('cfeeCia').value.trim();
     const nome = document.getElementById('cfeeNome').value.trim();
     const valor = parseFloat(document.getElementById('cfeeValor').value) || 0;
     const obs = document.getElementById('cfeeObs').value.trim();
-    if (!cia || !nome) return;
+    if (!cia || !nome){ alert('Preencha ao menos CIA e Nome da taxa.'); return; }
     if (fee){
       const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
       ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs };
@@ -1285,8 +1307,10 @@ function openCiaFeeForm(fee){
       ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs });
     }
     await setCiaFees(ciaFeesCache);
-    renderCiaFeesView();
+    closeModal();
     if (currentNav === 'rates') renderRatesView();
+    document.getElementById('ciaFeesWrap').style.display = 'block';
+    renderCiaFeesView();
   };
 }
 
@@ -1306,7 +1330,6 @@ function renderNoShowView(){
           <div class="le-notes">${n.texto}</div>
         </div>
       `).join('') || '<div class="empty">Nenhuma observação cadastrada ainda.</div>'}
-      <div id="noShowFormWrap"></div>
       <button id="addNoShowBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Nova observação</button>
     </div>
   `;
@@ -1325,24 +1348,27 @@ function renderNoShowView(){
 }
 
 function openNoShowForm(note){
-  const formWrap = document.getElementById('noShowFormWrap');
-  formWrap.innerHTML = `
-    <div class="new-exp-form" style="margin-top:10px;">
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${note ? 'Editar observação' : 'Nova observação'}</h2>
+    <div class="new-exp-form">
       <label>CIA</label>
       <input type="text" id="nsCia" value="${note?.cia || ''}" placeholder="ex: American Airlines">
       <label>Observação</label>
       <textarea id="nsTexto" placeholder="Descreva a política de no-show...">${note?.texto || ''}</textarea>
       <div class="new-exp-actions">
         <button id="nsSave">Salvar</button>
-        <button class="cancel" id="nsCancel">Cancelar</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
       </div>
     </div>
   `;
-  document.getElementById('nsCancel').onclick = () => { formWrap.innerHTML = ''; };
+  overlay.classList.add('visible');
   document.getElementById('nsSave').onclick = async () => {
     const cia = document.getElementById('nsCia').value.trim();
     const texto = document.getElementById('nsTexto').value.trim();
-    if (!cia || !texto) return;
+    if (!cia || !texto){ alert('Preencha CIA e Observação.'); return; }
     if (note){
       const idx = noShowCache.findIndex(n => n.id === note.id);
       noShowCache[idx] = { ...noShowCache[idx], cia, texto };
@@ -1350,6 +1376,8 @@ function openNoShowForm(note){
       noShowCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, texto });
     }
     await setNoShowNotes(noShowCache);
+    closeModal();
+    document.getElementById('noShowWrap').style.display = 'block';
     renderNoShowView();
   };
 }
@@ -1372,9 +1400,9 @@ function renderRatesView(){
       ? `<span class="importer-tag" style="background:var(--orange);">TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
       : '';
     const tarifasHtml = group.map(r => {
-      const { faixa } = parseCondicao(r.condicao);
+      const { faixaLabel } = parseCondicao(r.condicao);
       return `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
-        <span style="font-size:12px; color:var(--muted);">${faixa || 'Tarifa única'}</span>
+        <span style="font-size:12px; color:var(--muted);">${faixaLabel || 'Tarifa única'}</span>
         <span style="display:flex; align-items:center; gap:8px;">
           <b style="color:var(--orange);">USD ${Number(r.tarifaBase).toFixed(2)}/kg</b>
           <button class="rate-edit" data-id="${r.id}" title="Editar" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;font-size:12px;">✎</button>
@@ -1509,9 +1537,11 @@ function openRateForm(rate){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
   const effectiveProduto = rate ? getEffectiveProduto(rate) : '';
-  const cleanCondicao = rate
-    ? (rate.condicao || '').replace(/Produto:\s*[^·]+·?\s*/i, '').replace(/^\s*·\s*|\s*·\s*$/g, '').trim()
-    : '';
+  const parsed = rate ? parseCondicao(rate.condicao) : { faixaKey: '', obs: '' };
+  const faixaNum = parsed.faixaKey ? parseInt(parsed.faixaKey, 10) : '';
+  const isTonsFaixa = /TONS/i.test(parsed.faixaKey || '');
+  const feesForCia = rate ? ciaFeesCache.filter(f => f.cia === rate.cia) : [];
+
   modal.innerHTML = `
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>${rate ? 'Editar tarifa' : 'Nova tarifa'}</h2>
@@ -1534,12 +1564,25 @@ function openRateForm(rate){
       <div class="cf-row">
         <input type="text" id="rfProduto" placeholder="Produto (ex: Gengibre, Fruta, Mamão...)" value="${effectiveProduto}">
       </div>
+      <label style="margin-top:10px;">Tarifa e faixa de peso</label>
       <div class="cf-row">
         <input type="number" step="0.01" id="rfTarifa" placeholder="Tarifa USD/kg (ex: 1.15)" value="${rate?.tarifaBase||''}">
-        <input type="text" id="rfCondicao" placeholder="Condição (ex: mínimo de 6.000kg)" value="${cleanCondicao}" style="flex:1.4;">
+        <input type="number" step="1" id="rfFaixaNum" placeholder="Faixa de peso (ex: 500)" value="${faixaNum}" style="flex:0.7;">
+        <select id="rfFaixaUnidade" style="flex:0 0 100px;">
+          <option value="KG" ${!isTonsFaixa?'selected':''}>KG</option>
+          <option value="TONS" ${isTonsFaixa?'selected':''}>TONS</option>
+        </select>
       </div>
-      <div class="cf-row">
-        <input type="number" step="0.01" id="rfTaxasCia" placeholder="Taxas da CIA (USD, opcional)" value="${rate?.taxasCia||''}">
+      <div style="font-size:11px; color:var(--muted); margin:2px 0 4px;">Deixe a faixa em branco se essa tarifa não tiver peso mínimo/faixa específica.</div>
+      <label>Observações (dia da semana, frequência, transit time, etc.)</label>
+      <input type="text" id="rfObs" placeholder="ex: Seg a Sex, Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
+      <label style="margin-top:10px;">Taxas da CIA</label>
+      <div style="font-size:12px; background:#F7F7F7; border-radius:7px; padding:8px 10px;">
+        ${rate && feesForCia.length
+          ? `As taxas de <b>${rate.cia}</b> já cadastradas: ${feesForCia.map(f => `<b>${f.nome}</b> USD ${Number(f.valor).toFixed(2)}`).join(', ')}. Editáveis na seção <b>💰 Taxas por CIA</b> (aparecem em todas as tarifas dessa companhia, não só nessa).`
+          : `Sem taxas nomeadas cadastradas ainda pra <b>${rate?.cia || 'essa CIA'}</b>. Cadastre na seção <b>💰 Taxas por CIA</b> na aba Tarifas.`}
+      </div>
+      <div class="cf-row" style="margin-top:8px;">
         <input type="number" step="0.01" id="rfDesembaraco" placeholder="Desembaraço/Handling (USD)" value="${rate?.desembaraco||''}">
         <input type="number" step="0.001" id="rfArmazenagem" placeholder="Armazenagem (USD/kg)" value="${rate?.armazenagem||''}">
       </div>
@@ -1566,8 +1609,9 @@ function openRateForm(rate){
     const destino = document.getElementById('rfDestino').value.trim().toUpperCase();
     const produto = document.getElementById('rfProduto').value.trim();
     const tarifaBase = parseFloat(document.getElementById('rfTarifa').value);
-    const condicao = document.getElementById('rfCondicao').value.trim();
-    const taxasCia = parseFloat(document.getElementById('rfTaxasCia').value) || 0;
+    const faixaNumVal = document.getElementById('rfFaixaNum').value.trim();
+    const faixaUnidade = document.getElementById('rfFaixaUnidade').value;
+    const obsText = document.getElementById('rfObs').value.trim();
     const desembaraco = parseFloat(document.getElementById('rfDesembaraco').value) || 0;
     const armazenagem = parseFloat(document.getElementById('rfArmazenagem').value) || 0;
     const validade = document.getElementById('rfValidade').value.trim();
@@ -1576,6 +1620,14 @@ function openRateForm(rate){
       alert('Preencha ao menos CIA, Origem, Destino e Tarifa.');
       return;
     }
+    // Rebuild condicao cleanly from the separated fields, instead of hand-editing one
+    // combined string — this is what kept losing the weight-tier tag by accident before.
+    const parts = [];
+    if (produto) parts.push(`Produto: ${produto}`);
+    if (obsText) parts.push(obsText);
+    if (faixaNumVal) parts.push(`Faixa +${faixaNumVal}${faixaUnidade === 'TONS' ? ' TONS' : 'KG'}`);
+    const condicao = parts.join(' · ');
+    const taxasCia = rate ? rate.taxasCia : 0; // legacy fallback field, real fees live in ciaFeesCache now
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
@@ -1802,11 +1854,19 @@ function openQuoteBuilder(){
 // (day-of-week, frequency, transit), with "Produto: X" and any stray "NN" token removed.
 function parseCondicao(condicao){
   if (!condicao) return { faixaKey: '', faixaLabel: '', faixaSortKey: 0, obs: '' };
-  const m = condicao.match(/Faixa\s+(Q|\+)?\s*([\d.,]+)\s?(TONS?)?/i);
+  let m = condicao.match(/Faixa\s*:?\s*(Q|\+)?\s*([\d.,]+)\s*(TONS?|KG)?/i);
+  let matchedText = m ? m[0] : '';
+  if (!m){
+    // Fallback: no "Faixa" word found, but maybe there's still a bare weight number
+    // (e.g. "500KG" or "+1000KG" on its own) somewhere in the text — catch that too,
+    // so a rate never silently collapses into an indistinguishable "Tarifa única".
+    m = condicao.match(/(Q|\+)?\s*([\d.,]+)\s*(KG|TONS?)\b/i);
+    matchedText = m ? m[0] : '';
+  }
   let faixaKey = '', faixaLabel = '', faixaSortKey = 0;
   if (m){
     const num = parseInt(m[2].replace(/[.,]/g, ''), 10);
-    const isTons = !!m[3];
+    const isTons = !!(m[3] && /TON/i.test(m[3]));
     // 1000kg = 1 ton, so convert tons to their kg-equivalent — this merges "+1 TON" and
     // "+1000KG" (and "+3 TONS"/"+3000KG", etc.) into the same column instead of duplicating it.
     const kgValue = isTons ? num * 1000 : num;
@@ -1814,7 +1874,7 @@ function parseCondicao(condicao){
     faixaLabel = `+${kgValue.toLocaleString('pt-BR')}KG`;
     faixaSortKey = kgValue;
   }
-  let obs = condicao.replace(/Faixa\s+(Q|\+)?\s*[\d.,]+\s?(TONS?)?/i, '')
+  let obs = condicao.replace(matchedText, '')
                     .replace(/Produto:\s*[^·]+·?\s*/i, '')
                     .replace(/\bNN\b/g, '')
                     .replace(/(^\s*·\s*)|(\s*·\s*$)/g, '')
