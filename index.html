@@ -2961,16 +2961,20 @@ async function initHistoricoPane(d, key){
     await setFeedback(key, feedbackEl.value);
     statusEl.textContent = 'Salvo ✓';
 
-    if (getAgendorToken() && getSheetsUrl()){
+    if (getAgendorToken() && getSheetsUrl() && feedbackEl.value.trim()){
       statusEl.textContent += ' · Enviando pro Agendor…';
-      d.description = feedbackEl.value;
-      const pushResult = await agendorPushOrg(d);
-      const orgId = extractOrgId(pushResult);
-      if (pushResult.status && pushResult.status >= 200 && pushResult.status < 300){
+      let orgId = d.agendorOrgId;
+      if (!orgId){
+        const pushResult = await agendorPushOrg(d);
+        orgId = extractOrgId(pushResult);
         if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
-        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Notas da empresa atualizadas no Agendor ✓');
+      }
+      if (!orgId){
+        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Agendor: não consegui identificar a empresa lá');
       } else {
-        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Agendor: ' + JSON.stringify(pushResult));
+        const taskResult = await agendorApiCall('agendorCreateTask', { organizationId: orgId, text: feedbackEl.value.trim() });
+        const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
+        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : 'Agendor: ' + JSON.stringify(taskResult));
       }
     }
 
