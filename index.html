@@ -1396,9 +1396,10 @@ function renderRatesView(){
   function rateCardGroup(group){
     const first = group[0];
     const produto = getEffectiveProduto(first);
+    const groupIds = group.map(r => r.id).join(',');
     const tipoTag = first.tipo === 'To Door'
-      ? `<span class="importer-tag" style="background:var(--orange);">TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
-      : '';
+      ? `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra Aeroporto" style="background:var(--orange); font-size:12px; padding:4px 10px; cursor:pointer;">🚚 TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
+      : `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra To Door" style="background:#5A7A94; font-size:12px; padding:4px 10px; cursor:pointer;">✈ AEROPORTO</span>`;
     const tarifasHtml = group.map(r => {
       const { faixaLabel } = parseCondicao(r.condicao);
       return `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
@@ -1415,6 +1416,9 @@ function renderRatesView(){
     const feesHtml = feesForCia.length
       ? feesForCia.map(f => `<div class="rate-row"><span class="rate-label">${f.nome}</span><span class="rate-val orange">USD ${Number(f.valor).toFixed(2)}${f.obs ? `<br><span style="font-weight:normal; font-size:10.5px; color:var(--muted);">${f.obs}</span>` : ''}</span></div>`).join('')
       : (first.taxasCia ? `<div class="rate-row"><span class="rate-label">TAXAS DA CIA</span><span class="rate-val orange">USD ${Number(first.taxasCia).toFixed(2)}</span></div>` : '');
+    const diasHtml = (first.diasSemana && first.diasSemana.length)
+      ? `<div class="rate-row"><span class="rate-label">DIAS VÁLIDOS</span><span class="rate-val" style="text-align:right;">${first.diasSemana.join(', ')}</span></div>`
+      : '';
 
     return `<div class="rate-card">
       <div class="rate-card-head">
@@ -1427,6 +1431,7 @@ function renderRatesView(){
         <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${first.origem}</span></div>
         <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
         <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
+        ${diasHtml}
         ${obsSet.length ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
         ${feesHtml}
         ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
@@ -1467,6 +1472,7 @@ function renderRatesView(){
 
   function renderList(filterText){
     const wrap = document.getElementById('ratesListWrap');
+    const currentlyOpen = new Set([...wrap.querySelectorAll('.rate-dest-group[open]')].map(el => el.dataset.dest));
     const f = (filterText || '').trim().toLowerCase();
     const filtered = !f ? ratesCache : ratesCache.filter(r =>
       [r.cia, r.origem, r.conexao, r.destino, r.produto, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
@@ -1482,8 +1488,9 @@ function renderRatesView(){
 
     wrap.innerHTML = destinos.map(dest => {
       const groups = groupByRoute(byDestino[dest]);
+      const shouldOpen = f || currentlyOpen.has(dest);
       return `
-      <details class="rate-dest-group" ${f ? 'open' : ''}>
+      <details class="rate-dest-group" data-dest="${dest.replace(/"/g,'&quot;')}" ${shouldOpen ? 'open' : ''}>
         <summary class="rate-dest-header">Destino: ${dest} <span class="rate-dest-count">${byDestino[dest].length}</span></summary>
         <div class="rate-card-grid">${groups.map(rateCardGroup).join('')}</div>
       </details>
@@ -1497,6 +1504,17 @@ function renderRatesView(){
       btn.onclick = async () => {
         if (!confirm('Remover essa tarifa?')) return;
         ratesCache = ratesCache.filter(r => r.id !== btn.dataset.id);
+        await setRates(ratesCache);
+        renderList(document.getElementById('ratesSearch').value);
+      };
+    });
+    wrap.querySelectorAll('.rate-tipo-toggle').forEach(tag => {
+      tag.onclick = async () => {
+        const ids = tag.dataset.ids.split(',');
+        ids.forEach(id => {
+          const r = ratesCache.find(x => x.id === id);
+          if (r) r.tipo = r.tipo === 'To Door' ? 'Aeroporto' : 'To Door';
+        });
         await setRates(ratesCache);
         renderList(document.getElementById('ratesSearch').value);
       };
@@ -1572,8 +1590,18 @@ function openRateForm(rate){
         </select>
       </div>
       <div style="font-size:11px; color:var(--muted); margin:2px 0 4px;">Deixe a faixa em branco se essa tarifa não tiver peso mínimo/faixa específica.</div>
-      <label>Observações (dia da semana, frequência, transit time, etc.)</label>
-      <input type="text" id="rfObs" placeholder="ex: Seg a Sex, Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
+      <label>Dias da semana válidos</label>
+      <div id="rfDiasWrap" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+        ${['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(dia => {
+          const checked = !rate?.diasSemana || rate.diasSemana.length === 0 || rate.diasSemana.includes(dia);
+          return `<label class="variety-chip${checked?' selected':''}" style="cursor:pointer; ${checked?'border-color:var(--teal); background:#E8F2EF; color:var(--ink); font-weight:600;':''}">
+            <input type="checkbox" class="rf-dia" value="${dia}" ${checked?'checked':''} style="display:none;"> ${dia}
+          </label>`;
+        }).join('')}
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin:2px 0 8px;">Todos marcados = vale todos os dias. Desmarque os que não valem (ex: só Seg a Sex).</div>
+      <label>Observações (frequência, transit time, etc.)</label>
+      <input type="text" id="rfObs" placeholder="ex: Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
       <label style="margin-top:10px;">Taxas da CIA</label>
       <div style="font-size:12px; background:#F7F7F7; border-radius:7px; padding:8px 10px;">
         ${rate && feesForCia.length
@@ -1597,6 +1625,16 @@ function openRateForm(rate){
   document.getElementById('rfTipo').onchange = (e) => {
     document.getElementById('rfToDoorRow').style.display = e.target.value === 'To Door' ? 'flex' : 'none';
   };
+  document.querySelectorAll('.rf-dia').forEach(cb => {
+    cb.closest('label').onclick = (e) => {
+      e.preventDefault();
+      cb.checked = !cb.checked;
+      cb.closest('label').classList.toggle('selected', cb.checked);
+      cb.closest('label').style.cssText = cb.checked
+        ? 'cursor:pointer; border-color:var(--teal); background:#E8F2EF; color:var(--ink); font-weight:600;'
+        : 'cursor:pointer;';
+    };
+  });
   document.getElementById('rfSave').onclick = async () => {
     const saveBtn = document.getElementById('rfSave');
     if (saveBtn.disabled) return;
@@ -1614,6 +1652,9 @@ function openRateForm(rate){
     const armazenagem = parseFloat(document.getElementById('rfArmazenagem').value) || 0;
     const validade = document.getElementById('rfValidade').value.trim();
     const pesoMinimoToDoor = tipo === 'To Door' ? (parseFloat(document.getElementById('rfPesoMinToDoor').value) || 0) : 0;
+    const allDias = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+    const checkedDias = [...document.querySelectorAll('.rf-dia:checked')].map(cb => cb.value);
+    const diasSemana = checkedDias.length === allDias.length ? [] : checkedDias; // empty = every day
     if (!cia || !origem || !destino || isNaN(tarifaBase)){
       alert('Preencha ao menos CIA, Origem, Destino e Tarifa.');
       return;
@@ -1629,9 +1670,9 @@ function openRateForm(rate){
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
-      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor };
+      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana };
     } else {
-      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor });
+      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana });
     }
     await setRates(ratesCache);
     editingRateId = null;
@@ -1906,7 +1947,8 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
       const r = g.r;
       const faixaCells = faixaCols.map(f => g.faixas[f] != null ? `<td>USD ${g.faixas[f].toFixed(2)}</td>` : `<td>—</td>`).join('');
       const minToDoorText = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? `Peso mínimo: ${Number(r.pesoMinimoToDoor).toLocaleString('pt-BR')}kg` : '';
-      const obsCombined = [g.obs, minToDoorText].filter(Boolean).join(' · ');
+      const diasText = (r.diasSemana && r.diasSemana.length) ? `Válido: ${r.diasSemana.join(', ')}` : '';
+      const obsCombined = [g.obs, diasText, minToDoorText].filter(Boolean).join(' · ');
       return `<tr>
         <td>${r.cia}</td><td>${r.origem}</td><td>${r.conexao||'—'}</td><td>${r.destino}</td>
         ${faixaCells}
