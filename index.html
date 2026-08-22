@@ -661,7 +661,9 @@ async function syncReferralToAgendor(d, entry){
     if (!dealId){
       const dealResult = await agendorApiCall('agendorCreateDeal', {
         organizationId: orgId,
-        title: `${entry.tipo || 'Indicação'}: ${entry.importer} (${entry.season})`,
+        title: entry.importer
+          ? `${entry.tipo || 'Indicação'}: ${entry.importer} (${entry.season})`
+          : `${entry.tipo || 'Indicação'}: ${entry.titulo || 'sem título'} (${entry.season})`,
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
@@ -2506,7 +2508,11 @@ function openModal(d, initialTab){
       <h4 id="referralFormTitle">Registrar indicação</h4>
       <div class="contact-form">
         <div class="cf-row">
-          <input type="text" id="cfImporter" placeholder="Nome do importador / cliente" list="cfImporterList" style="flex:1.4;">
+          <input type="text" id="cfTitulo" placeholder="Título da indicação (ex: pedido de comprador de manga na Europa)" style="flex:1;">
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin:-4px 0 8px;">Use isso pra já registrar um pedido de indicação mesmo antes de saber quem é o importador — preenche o importador depois, quando souber.</div>
+        <div class="cf-row">
+          <input type="text" id="cfImporter" placeholder="Nome do importador / cliente (opcional por enquanto)" list="cfImporterList" style="flex:1.4;">
           <datalist id="cfImporterList">
             ${IMPORTERS.map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
           </datalist>
@@ -2935,15 +2941,19 @@ async function initHistoricoPane(d, key){
     const sorted = [...log].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season));
     logList.innerHTML = sorted.map(e => {
       const resolvedKey = e.importerKey || (IMPORTERS.find(imp => imp.name.toLowerCase() === (e.importer||'').toLowerCase())?.name) || null;
-      const importerLabel = resolvedKey
-        ? `<span class="le-importer-link" data-key="${resolvedKey.replace(/"/g,'&quot;')}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Abrir cadastro do importador">🔗 ${e.importer}</span>`
-        : `<b>${e.importer}</b>`;
+      const importerLabel = e.importer
+        ? (resolvedKey
+            ? `<span class="le-importer-link" data-key="${resolvedKey.replace(/"/g,'&quot;')}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Abrir cadastro do importador">🔗 ${e.importer}</span>`
+            : `<b>${e.importer}</b>`)
+        : `<span style="color:var(--muted); font-style:italic;">⏳ importador ainda não definido</span>`;
+      const titleLine = e.titulo ? `<div style="font-weight:bold; font-size:13px; margin-bottom:2px;">${e.titulo}</div>` : '';
       return `
       <div class="log-entry" data-id="${e.id}">
         <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
           <button class="le-edit" data-id="${e.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
           <button class="le-del" data-id="${e.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
         </div>
+        ${titleLine}
         <div class="le-top"><span>${e.tipo === 'Cotação' ? '💲' : '📋'} ${FEEDBACK_ICON[e.feedback] || ''} ${importerLabel} · ${e.season}</span></div>
         <div class="le-notes">${(e.notes || '').replace(/</g,'&lt;')}</div>
       </div>
@@ -2971,6 +2981,7 @@ async function initHistoricoPane(d, key){
         const entry = log.find(e => e.id === btn.dataset.id);
         if (!entry) return;
         editingId = entry.id;
+        document.getElementById('cfTitulo').value = entry.titulo || '';
         document.getElementById('cfImporter').value = entry.importer;
         document.getElementById('cfSeason').value = entry.season;
         document.getElementById('cfFeedback').value = entry.feedback;
@@ -2988,6 +2999,7 @@ async function initHistoricoPane(d, key){
 
   function resetForm(){
     editingId = null;
+    document.getElementById('cfTitulo').value = '';
     document.getElementById('cfImporter').value = '';
     document.getElementById('cfSeason').value = `Safra ${new Date().getFullYear()}`;
     document.getElementById('cfFeedback').value = 'Positive';
@@ -3016,12 +3028,16 @@ async function initHistoricoPane(d, key){
 
   async function saveReferral(syncToAgendor){
     const tipo = 'Indicação';
+    const titulo = document.getElementById('cfTitulo').value.trim();
     const importer = document.getElementById('cfImporter').value.trim();
     const season = document.getElementById('cfSeason').value.trim();
     const feedback = document.getElementById('cfFeedback').value;
     const notes = document.getElementById('cfNotes').value.trim();
-    if (!importer || !season){ return; }
-    const matchedImporter = IMPORTERS.find(imp => imp.name.toLowerCase() === importer.toLowerCase());
+    if (!titulo && !importer){
+      alert('Preencha ao menos o título da indicação ou o nome do importador.');
+      return;
+    }
+    const matchedImporter = importer ? IMPORTERS.find(imp => imp.name.toLowerCase() === importer.toLowerCase()) : null;
     const importerKey = matchedImporter ? exporterKey(matchedImporter) : null;
 
     let entry, feedbackChanged = false;
@@ -3029,11 +3045,11 @@ async function initHistoricoPane(d, key){
       const idx = log.findIndex(e => e.id === editingId);
       if (idx !== -1){
         feedbackChanged = log[idx].feedback !== feedback || log[idx].notes !== notes;
-        log[idx] = { ...log[idx], tipo, importer, importerKey, season, feedback, notes };
+        log[idx] = { ...log[idx], tipo, titulo, importer, importerKey, season, feedback, notes };
         entry = log[idx];
       }
     } else {
-      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, importer, importerKey, season, feedback, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, titulo, importer, importerKey, season, feedback, notes };
       log.push(entry);
     }
 
