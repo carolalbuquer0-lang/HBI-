@@ -1429,8 +1429,6 @@ function renderRatesView(){
         <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
         ${obsSet.length ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
         ${feesHtml}
-        <div class="rate-row"><span class="rate-label">DESEMBARAÇO ORIGEM</span><span class="rate-val orange">${first.desembaraco ? 'USD ' + Number(first.desembaraco).toFixed(2) : '—'}</span></div>
-        <div class="rate-row"><span class="rate-label">ARMAZENAGEM</span><span class="rate-val orange">USD ${Number(first.armazenagem || 0).toFixed(3)}/kg</span></div>
         ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
       </div>
     </div>`;
@@ -2439,6 +2437,8 @@ function openModal(d, initialTab){
             <option value="Solicitado CIA">📨 Solicitado CIA</option>
             <option value="Criação de cotação">📝 Criação de cotação</option>
             <option value="Cotação enviada">✅ Cotação enviada</option>
+            <option value="Cotação aprovada">✔ Cotação aprovada</option>
+            <option value="Cotação negada">✕ Cotação negada</option>
           </select>
         </div>
         <div class="cf-row" style="align-items:flex-start;">
@@ -2686,7 +2686,7 @@ function initVoiceButtons(root){
   (root || document).querySelectorAll('.voice-btn').forEach(attachVoiceButton);
 }
 
-const QUOTE_STATUS_ICON = { 'Solicitado CIA': '📨', 'Criação de cotação': '📝', 'Cotação enviada': '✅' };
+const QUOTE_STATUS_ICON = { 'Solicitado CIA': '📨', 'Criação de cotação': '📝', 'Cotação enviada': '✅', 'Cotação aprovada': '✔', 'Cotação negada': '✕' };
 
 async function syncQuoteToAgendor(d, quote, statusChanged){
   if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
