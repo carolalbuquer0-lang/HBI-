@@ -2501,7 +2501,10 @@ function openModal(d, initialTab){
       <h4 id="referralFormTitle">Registrar indicação</h4>
       <div class="contact-form">
         <div class="cf-row">
-          <input type="text" id="cfImporter" placeholder="Nome do importador / cliente" style="flex:1.4;">
+          <input type="text" id="cfImporter" placeholder="Nome do importador / cliente" list="cfImporterList" style="flex:1.4;">
+          <datalist id="cfImporterList">
+            ${IMPORTERS.map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
+          </datalist>
           <input type="text" id="cfSeason" placeholder="Safra (ex: Safra 2025)" value="Safra ${new Date().getFullYear()}" style="flex:0 0 150px;">
           <select id="cfFeedback">
             <option value="Positive">✅ Positivo</option>
@@ -2509,6 +2512,7 @@ function openModal(d, initialTab){
             <option value="Neutral">➖ Neutro</option>
           </select>
         </div>
+        <div id="cfImporterCheck" style="font-size:11.5px; margin:-4px 0 6px;"></div>
         <div class="cf-row" style="align-items:flex-start;">
           <textarea id="cfNotes" placeholder="Detalhes: o que aconteceu, por que gostaram ou não..."></textarea>
           <button type="button" class="voice-btn" data-target="cfNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
@@ -2895,16 +2899,29 @@ async function initHistoricoPane(d, key){
       return;
     }
     const sorted = [...log].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season));
-    logList.innerHTML = sorted.map(e => `
+    logList.innerHTML = sorted.map(e => {
+      const resolvedKey = e.importerKey || (IMPORTERS.find(imp => imp.name.toLowerCase() === (e.importer||'').toLowerCase())?.name) || null;
+      const importerLabel = resolvedKey
+        ? `<span class="le-importer-link" data-key="${resolvedKey.replace(/"/g,'&quot;')}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Abrir cadastro do importador">🔗 ${e.importer}</span>`
+        : `<b>${e.importer}</b>`;
+      return `
       <div class="log-entry" data-id="${e.id}">
         <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
           <button class="le-edit" data-id="${e.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
           <button class="le-del" data-id="${e.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
         </div>
-        <div class="le-top"><span>${e.tipo === 'Cotação' ? '💲' : '📋'} ${FEEDBACK_ICON[e.feedback] || ''} <b>${e.importer}</b> · ${e.season}</span></div>
+        <div class="le-top"><span>${e.tipo === 'Cotação' ? '💲' : '📋'} ${FEEDBACK_ICON[e.feedback] || ''} ${importerLabel} · ${e.season}</span></div>
         <div class="le-notes">${(e.notes || '').replace(/</g,'&lt;')}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+    logList.querySelectorAll('.le-importer-link').forEach(link => {
+      link.onclick = (ev) => {
+        ev.stopPropagation();
+        const imp = IMPORTERS.find(x => exporterKey(x) === link.dataset.key);
+        if (imp) openModal(imp);
+      };
+    });
     logList.querySelectorAll('.log-entry').forEach(entry => { entry.style.position = 'relative'; });
     logList.querySelectorAll('.le-del').forEach(btn => {
       btn.onclick = async () => {
@@ -2929,6 +2946,7 @@ async function initHistoricoPane(d, key){
         document.getElementById('cfCorrigir').style.display = 'inline-block';
         document.getElementById('cfAtualizar').style.display = 'inline-block';
         document.getElementById('cfCancelEdit').style.display = 'inline-block';
+        checkImporterLink();
         document.querySelector('.modal-pane[data-pane="historico"]').scrollIntoView({behavior:'smooth', block:'start'});
       };
     });
@@ -2945,9 +2963,22 @@ async function initHistoricoPane(d, key){
     document.getElementById('cfCorrigir').style.display = 'none';
     document.getElementById('cfAtualizar').style.display = 'none';
     document.getElementById('cfCancelEdit').style.display = 'none';
+    document.getElementById('cfImporterCheck').innerHTML = '';
   }
 
   document.getElementById('cfCancelEdit').onclick = resetForm;
+
+  function checkImporterLink(){
+    const typed = document.getElementById('cfImporter').value.trim();
+    const checkEl = document.getElementById('cfImporterCheck');
+    if (!typed){ checkEl.innerHTML = ''; return; }
+    const match = IMPORTERS.find(imp => imp.name.toLowerCase() === typed.toLowerCase());
+    checkEl.innerHTML = match
+      ? `<span style="color:#4F6E45;">🔗 Vinculado ao cadastro de <b>${match.name}</b></span>`
+      : `<span style="color:#B3413B;">⚠ Esse importador ainda não está cadastrado — considere cadastrar primeiro em "+ Novo importador" na aba Importadores, senão a indicação fica sem vínculo.</span>`;
+  }
+  document.getElementById('cfImporter').addEventListener('input', checkImporterLink);
+  checkImporterLink();
 
   async function saveReferral(syncToAgendor){
     const tipo = 'Indicação';
@@ -2956,17 +2987,19 @@ async function initHistoricoPane(d, key){
     const feedback = document.getElementById('cfFeedback').value;
     const notes = document.getElementById('cfNotes').value.trim();
     if (!importer || !season){ return; }
+    const matchedImporter = IMPORTERS.find(imp => imp.name.toLowerCase() === importer.toLowerCase());
+    const importerKey = matchedImporter ? exporterKey(matchedImporter) : null;
 
     let entry, feedbackChanged = false;
     if (editingId){
       const idx = log.findIndex(e => e.id === editingId);
       if (idx !== -1){
         feedbackChanged = log[idx].feedback !== feedback || log[idx].notes !== notes;
-        log[idx] = { ...log[idx], tipo, importer, season, feedback, notes };
+        log[idx] = { ...log[idx], tipo, importer, importerKey, season, feedback, notes };
         entry = log[idx];
       }
     } else {
-      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, importer, season, feedback, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, importer, importerKey, season, feedback, notes };
       log.push(entry);
     }
 
