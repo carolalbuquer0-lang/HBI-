@@ -2448,6 +2448,11 @@ function openModal(d, initialTab){
         <button id="agendorPushBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">📇 Enviar para o Agendor</button>
         <span class="fs-status" id="agendorPushStatus" style="margin-left:8px;"></span>
       </div>
+      ${EXPORTERS.includes(d) ? `
+        <div style="margin-top:10px;">
+          <button id="convertToImporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Importador</button>
+        </div>
+      ` : ''}
       ${d.tier === 'Manually added' ? `
         <div style="margin-top:10px;">
           <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover exportador</button>
@@ -2644,6 +2649,35 @@ function openModal(d, initialTab){
       } catch(err){
         statusEl.textContent = 'Falhou: ' + err.message;
       }
+    };
+  }
+
+  const convertToImporterBtn = document.getElementById('convertToImporterBtn');
+  if (convertToImporterBtn){
+    convertToImporterBtn.onclick = async () => {
+      if (!confirm(`Converter "${d.trade}" de exportador para importador?\n\nAs indicações, cotações e outros dados já registrados continuam ligados normalmente, já que o nome não muda.`)) return;
+      const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
+      if (idx !== -1) EXPORTERS.splice(idx, 1);
+      // remove from custom exporters storage too, if it was one
+      const customExp = await getCustomExporters();
+      await setCustomExporters(customExp.filter(x => exporterKey(x) !== key));
+
+      const importerEntry = {
+        name: d.name, trade: d.trade, display: d.display || d.trade, site: d.site || null,
+        phone: d.phone || '', email: d.email || '', active: true, shipments: d.shipments || 0,
+        weight: d.weight || 0, products: [...(d.all_fruits || [])], all_fruits: [...(d.all_fruits || [])],
+        destinations: d.destinations || [], source: d.source || 'Convertido de exportador',
+        editable_fruits: true, variety_confirmed: d.variety_confirmed || {}, custom: true
+      };
+      IMPORTERS.push(importerEntry);
+      const customImp = await getCustomImporters();
+      customImp.push(importerEntry);
+      await setCustomImporters(customImp);
+
+      closeModal();
+      renderStats();
+      render();
+      if (currentNav === 'importers') renderImportersView();
     };
   }
 
@@ -3419,7 +3453,7 @@ function unifiedImporterCard(item){
         ${market.exporters_not_hevile.map(e => `<span class="pill" style="background:#B5502E;">${e}</span>`).join('')}
       </div>` : '';
     return `<div class="card" data-key="${exporterKey(imp).replace(/"/g,'&quot;')}">
-      <div class="name">${imp.name}</div>
+      <div class="name">${imp.trade || imp.name}</div>
       <div class="meta-line"><span>${imp.shipments} embarques</span><span>${Math.round(imp.weight).toLocaleString()} kg</span></div>
       <div class="site">${imp.destinations.join(', ')}</div>
       <div class="pills">${pills}</div>
@@ -3481,8 +3515,9 @@ function renderImportersView(){
     const f = (filterText || '').trim().toLowerCase();
     const filtered = !f ? unified : unified.filter(item => {
       const name = item.kind === 'importer' ? item.data.name : item.data.importer;
+      const trade = item.kind === 'importer' ? (item.data.trade || '') : '';
       const locations = item.kind === 'importer' ? (item.data.destinations || []) : (item.data.countries || []);
-      return [name, ...locations].join(' ').toLowerCase().includes(f);
+      return [name, trade, ...locations].join(' ').toLowerCase().includes(f);
     });
     wrap.innerHTML = `<div class="grid cs-grid">${filtered.map(unifiedImporterCard).join('') || '<div class="empty">Nenhum importador encontrado com esse filtro.</div>'}</div>`;
     wrap.querySelectorAll('.card[data-key]').forEach(card => {
