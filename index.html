@@ -2455,9 +2455,9 @@ function openModal(d, initialTab){
           <button id="convertToImporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Importador</button>
         </div>
       ` : ''}
-      ${d.tier === 'Manually added' ? `
+      ${(d.tier === 'Manually added' || (IMPORTERS.includes(d) && d.custom)) ? `
         <div style="margin-top:10px;">
-          <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover exportador</button>
+          <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}</button>
         </div>
       ` : ''}
     </div>
@@ -3562,6 +3562,8 @@ function renderImportersView(){
     });
     wrap.querySelectorAll('.card[data-market-name]').forEach(card => {
       card.onclick = async () => {
+        const existing = IMPORTERS.find(imp => imp.name.toLowerCase() === card.dataset.marketName.toLowerCase());
+        if (existing){ openModal(existing); return; }
         const marketItem = unified.find(item => item.kind === 'market-only' && item.data.importer === card.dataset.marketName);
         if (!marketItem) return;
         const r = marketItem.data;
