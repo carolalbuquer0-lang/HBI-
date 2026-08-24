@@ -3092,31 +3092,16 @@ async function initHistoricoPane(d, key){
       if (!orgId){
         const pushResult = await agendorPushOrg(d);
         orgId = extractOrgId(pushResult);
-        if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId, agendorNotesDealId: d.agendorNotesDealId }); }
+        if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
       }
       if (!orgId){
         statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Agendor: não consegui identificar a empresa lá');
       } else {
-        // Tasks in Agendor attach to a deal, not directly to an organization — so notes get
-        // a standing "Notas gerais" deal per company, created once and reused from then on.
-        let notesDealId = d.agendorNotesDealId;
-        if (!notesDealId){
-          const dealResult = await agendorApiCall('agendorCreateDeal', {
-            organizationId: orgId, title: `Notas gerais: ${d.trade}`, dealStage: 1
-          });
-          notesDealId = extractDealId(dealResult);
-          if (notesDealId){
-            d.agendorNotesDealId = notesDealId;
-            await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId, agendorNotesDealId: notesDealId });
-          }
-        }
-        if (!notesDealId){
-          statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Agendor: não consegui criar o negócio de notas');
-        } else {
-          const taskResult = await agendorApiCall('agendorCreateTask', { dealId: notesDealId, text: feedbackEl.value.trim() });
-          const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
-          statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : 'Agendor: ' + JSON.stringify(taskResult));
-        }
+        // Nota direto no histórico da empresa, sem criar negócio — requer a ação
+        // "agendorCreateOrgTask" no Apps Script (ver snippet_apps_script.gs).
+        const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: feedbackEl.value.trim() });
+        const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
+        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : 'Agendor: ' + JSON.stringify(taskResult));
       }
     }
 
