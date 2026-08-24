@@ -3482,11 +3482,12 @@ function unifiedImporterCard(item){
     const otherChips = r.exporters_not_hevile.map(e => `<span class="pill" style="background:#B5502E;">${e}</span>`).join('');
     const fruitChips = r.products.map(f => `<span class="pill" style="background:${fruitColor(f)}">${ptFruit(f)}</span>`).join('');
     const newBadge = r.new_importer ? `<span class="importer-tag" style="background:#8A3A2E;">FORA DO NOSSO HISTÓRICO</span>` : '';
-    return `<div class="card" style="cursor:default;">
+    return `<div class="card" data-market-name="${r.importer.replace(/"/g,'&quot;')}" style="cursor:pointer;">
       <div class="name">${r.importer} ${newBadge}</div>
       <div class="meta-line"><span>${r.n_events} eventos (LPCO/DU-E)</span><span>${r.countries.slice(0,2).join(', ')}</span></div>
       <div class="pills" style="margin-bottom:6px;">${fruitChips}</div>
       <div class="pills">${hevileChips}${otherChips}</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:6px; font-style:italic;">Toque pra cadastrar e abrir o perfil</div>
     </div>`;
   }
 }
@@ -3540,6 +3541,26 @@ function renderImportersView(){
       card.onclick = () => {
         const d = IMPORTERS.find(x => exporterKey(x) === card.dataset.key);
         if (d) openModal(d);
+      };
+    });
+    wrap.querySelectorAll('.card[data-market-name]').forEach(card => {
+      card.onclick = async () => {
+        const marketItem = unified.find(item => item.kind === 'market-only' && item.data.importer === card.dataset.marketName);
+        if (!marketItem) return;
+        const r = marketItem.data;
+        const newEntry = {
+          name: r.importer, trade: r.importer, display: r.importer, site: null, phone: '', email: '',
+          active: true, shipments: 0, weight: 0, products: [...r.products], all_fruits: [...r.products],
+          destinations: r.countries || [], source: 'Inteligência de mercado (LPCO/DU-E)',
+          editable_fruits: true, variety_confirmed: {}, custom: true
+        };
+        IMPORTERS.push(newEntry);
+        const customImp = await getCustomImporters();
+        customImp.push(newEntry);
+        await setCustomImporters(customImp);
+        renderStats();
+        renderImportersView();
+        openModal(newEntry);
       };
     });
   }
