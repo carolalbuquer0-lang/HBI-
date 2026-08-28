@@ -147,9 +147,23 @@
   footer{text-align:center; padding:26px; color:var(--muted); font-size:12px; background:#fff; border-top:1px solid var(--line);}
   footer a{color:var(--teal-deep);}
 
+  .swipe-hint{display:none; font-weight:normal; text-transform:none; letter-spacing:normal; color:var(--muted); font-size:11px;}
   @media (max-width: 760px){
     .layout{grid-template-columns:1fr;}
     .sidebar{position:static; max-height:none; border-right:none; border-bottom:1px solid var(--line);}
+    .alerts-wrap{position:relative;}
+    .alerts-wrap::after{
+      content:''; position:absolute; top:14px; bottom:14px; right:0; width:28px; pointer-events:none;
+      background:linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.95));
+    }
+    .alert-card{min-width:150px;}
+    .cf-row{flex-wrap:wrap;}
+    .nav-toggle{flex-wrap:wrap;}
+    .main-header{flex-wrap:wrap; gap:10px;}
+    .main-header > div:last-child{flex-wrap:wrap;}
+    .rate-card-grid{grid-template-columns:1fr;}
+    .grid.cs-grid{grid-template-columns:1fr;}
+    .swipe-hint{display:inline;}
   }
 
   /* Upcoming seasons */
@@ -315,7 +329,7 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 
 <div class="alerts-wrap">
   <div class="alerts-head">
-    <h3>Próximas safras</h3>
+    <h3>Próximas safras <span class="swipe-hint">· arraste pro lado →</span></h3>
     <span class="toggle" id="toggleAllAlerts">Ver todas</span>
   </div>
   <div class="alerts-row" id="alertsRow"></div>
@@ -640,6 +654,17 @@ function extractDealId(dealResult){
   const b = dealResult.body;
   return b.id || (b.data && b.data.id) || (b.deal && b.deal.id) || null;
 }
+// Turns a raw {status, body} result from the Agendor proxy into something readable, instead
+// of dumping raw HTML/JSON error pages (e.g. nginx's 429 page) straight into the UI.
+function friendlyAgendorError(result){
+  const status = result && result.status;
+  if (status === 429) return 'O Agendor está limitando as requisições no momento (muitas chamadas em pouco tempo). Espere uns 30 segundos e tente de novo.';
+  if (status === 401 || status === 403) return 'O Agendor recusou o acesso — confira se o token nas configurações ainda está certo.';
+  if (status >= 500) return 'O Agendor está com instabilidade no momento (erro no servidor deles). Tente de novo em alguns instantes.';
+  if (result && result.body && result.body.errors) return 'Agendor: ' + result.body.errors.join(', ');
+  if (result && result.body && typeof result.body === 'object' && result.body.message) return 'Agendor: ' + result.body.message;
+  return 'Agendor: não consegui completar essa ação (' + (status || 'erro desconhecido') + ').';
+}
 
 const FEEDBACK_LABEL_PT = { 'Positive': 'Positivo', 'Negative': 'Negativo', 'Neutral': 'Neutro' };
 
@@ -654,7 +679,7 @@ async function syncReferralToAgendor(d, entry){
       const pushResult = await agendorPushOrg(d);
       orgId = extractOrgId(pushResult);
       if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
-      if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor. Resposta: ' + JSON.stringify(pushResult) };
+      if (!orgId) return { ok: false, error: friendlyAgendorError(pushResult) };
     }
 
     let dealId = entry.agendorDealId;
@@ -667,7 +692,7 @@ async function syncReferralToAgendor(d, entry){
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
-      if (!dealId) return { ok: false, error: 'Não consegui criar o negócio. Resposta: ' + JSON.stringify(dealResult) };
+      if (!dealId) return { ok: false, error: friendlyAgendorError(dealResult) };
       entry.agendorDealId = dealId;
     }
 
@@ -675,7 +700,7 @@ async function syncReferralToAgendor(d, entry){
     const taskText = `Feedback: ${feedbackLabel}${entry.notes ? ' — ' + entry.notes : ''}`;
     const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
-      return { ok: false, error: 'Negócio criado, mas a tarefa/histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
+      return { ok: false, error: friendlyAgendorError(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
     }
 
     return { ok: true, agendorOrgId: orgId, agendorDealId: dealId };
@@ -2455,6 +2480,19 @@ function openModal(d, initialTab){
           <button id="convertToImporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Importador</button>
         </div>
       ` : ''}
+      ${IMPORTERS.includes(d) ? `
+        <div style="margin-top:10px; background:#F7F7F7; border-radius:8px; padding:10px 12px;">
+          <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:bold;">🔗 Esse importador já é o mesmo que outro cadastro?</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="mergeDupInput" list="allImportersDatalist" placeholder="Nome do cadastro correto…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
+            <datalist id="allImportersDatalist">
+              ${IMPORTERS.filter(imp => imp !== d).map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
+            </datalist>
+            <button id="mergeDupBtn" type="button" style="background:var(--teal-deep); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">Juntar</button>
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
+        </div>
+      ` : ''}
       ${(d.tier === 'Manually added' || (IMPORTERS.includes(d) && d.custom)) ? `
         <div style="margin-top:10px;">
           <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}</button>
@@ -2687,6 +2725,50 @@ function openModal(d, initialTab){
     };
   }
 
+  const mergeDupBtn = document.getElementById('mergeDupBtn');
+  if (mergeDupBtn){
+    mergeDupBtn.onclick = async () => {
+      const typed = document.getElementById('mergeDupInput').value.trim();
+      if (!typed) return;
+      const target = IMPORTERS.find(imp => imp !== d && imp.name.toLowerCase() === typed.toLowerCase());
+      if (!target){ alert('Não achei esse nome no cadastro. Confira a grafia (ou escolha da lista de sugestões).'); return; }
+      if (!confirm(`Juntar "${d.trade}" com "${target.trade}"?\n\nAs frutas, contato e histórico de "${d.trade}" somam no cadastro de "${target.trade}", e "${d.trade}" é removido. Isso não pode ser desfeito.`)) return;
+
+      const targetKey = exporterKey(target);
+      const mergedFruits = [...new Set([...(target.all_fruits || []), ...(d.all_fruits || [])])];
+      target.all_fruits = mergedFruits;
+      target.products = [...mergedFruits];
+      await setProspectFruitOverrides(targetKey, mergedFruits);
+
+      const mergedPhone = target.phone || d.phone || '';
+      const mergedEmail = target.email || d.email || '';
+      if (mergedPhone || mergedEmail){
+        target.phone = mergedPhone;
+        target.email = mergedEmail;
+        await setContactOverride(targetKey, { phone: mergedPhone, email: mergedEmail, agendorOrgId: target.agendorOrgId });
+      }
+      if (!target.site && d.site) target.site = d.site;
+      target.shipments = (target.shipments || 0) + (d.shipments || 0);
+      target.weight = (target.weight || 0) + (d.weight || 0);
+      target.destinations = [...new Set([...(target.destinations || []), ...(d.destinations || [])])];
+      await setStatsOverride(targetKey, { shipments: target.shipments, weight: target.weight, destinations: target.destinations });
+
+      // Teach the matcher this alias permanently, so future market-data imports and the
+      // weekly DUE import recognize "d.name" as the same company from now on.
+      await addExporterAlias(d.name, targetKey);
+
+      const idx = IMPORTERS.findIndex(x => exporterKey(x) === key);
+      if (idx !== -1) IMPORTERS.splice(idx, 1);
+      const customImp = await getCustomImporters();
+      await setCustomImporters(customImp.filter(x => exporterKey(x) !== key));
+
+      closeModal();
+      renderStats();
+      render();
+      if (currentNav === 'importers') renderImportersView();
+    };
+  }
+
   const removeExporterBtn = document.getElementById('removeExporterBtn');
   if (removeExporterBtn){
     removeExporterBtn.onclick = async () => {
@@ -2782,7 +2864,7 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
       const pushResult = await agendorPushOrg(d);
       orgId = extractOrgId(pushResult);
       if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
-      if (!orgId) return { ok: false, error: 'Não consegui identificar a empresa no Agendor. Resposta: ' + JSON.stringify(pushResult) };
+      if (!orgId) return { ok: false, error: friendlyAgendorError(pushResult) };
     }
 
     let dealId = quote.agendorDealId;
@@ -2793,7 +2875,7 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
-      if (!dealId) return { ok: false, error: 'Não consegui criar a cotação. Resposta: ' + JSON.stringify(dealResult) };
+      if (!dealId) return { ok: false, error: friendlyAgendorError(dealResult) };
       quote.agendorDealId = dealId;
     }
 
@@ -2802,7 +2884,7 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
       : `${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`;
     const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
-      return { ok: false, error: 'Cotação criada, mas o histórico falhou. Resposta: ' + JSON.stringify(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
+      return { ok: false, error: friendlyAgendorError(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
     }
 
     return { ok: true, agendorOrgId: orgId, agendorDealId: dealId };
@@ -3089,19 +3171,20 @@ async function initHistoricoPane(d, key){
     if (getAgendorToken() && getSheetsUrl() && feedbackEl.value.trim()){
       statusEl.textContent += ' · Enviando pro Agendor…';
       let orgId = d.agendorOrgId;
+      let pushResult = null;
       if (!orgId){
-        const pushResult = await agendorPushOrg(d);
+        pushResult = await agendorPushOrg(d);
         orgId = extractOrgId(pushResult);
         if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
       }
       if (!orgId){
-        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', 'Agendor: não consegui identificar a empresa lá');
+        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', friendlyAgendorError(pushResult));
       } else {
         // Nota direto no histórico da empresa, sem criar negócio — requer a ação
-        // "agendorCreateOrgTask" no Apps Script (ver snippet_apps_script.gs).
+        // "agendorCreateOrgTask" no Apps Script (Hevile_AppsScript_Code.gs).
         const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: feedbackEl.value.trim() });
         const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
-        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : 'Agendor: ' + JSON.stringify(taskResult));
+        statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : friendlyAgendorError(taskResult));
       }
     }
 
@@ -3407,8 +3490,16 @@ function buildUnifiedImporters(){
     if (exporterAliases[nk]) return normalizeName(exporterAliases[nk]);
     return nk;
   }
+  // An importer that's been merged into another (via "🔗 Já é o mesmo que...") has an alias
+  // pointing to a DIFFERENT company — hide the merged-away one so it doesn't reappear after
+  // reload (this matters for entries baked into the static dataset, which can't be deleted
+  // outright the way custom/manually-added ones can).
+  const activeImporters = IMPORTERS.filter(imp => {
+    const aliasTarget = exporterAliases[normalizeName(imp.name)];
+    return !aliasTarget || normalizeName(aliasTarget) === normalizeName(imp.name);
+  });
   const importerKeyByNorm = {};
-  IMPORTERS.forEach(imp => { importerKeyByNorm[normalizeName(imp.name)] = imp; });
+  activeImporters.forEach(imp => { importerKeyByNorm[normalizeName(imp.name)] = imp; });
 
   const marketGroups = {}; // resolved key -> array of MARKET rows that belong to it
   MARKET.forEach(r => {
@@ -3440,7 +3531,7 @@ function buildUnifiedImporters(){
   }
 
   const usedMarketKeys = new Set();
-  const merged = IMPORTERS.map(imp => {
+  const merged = activeImporters.map(imp => {
     const rk = normalizeName(imp.name);
     const rows = marketGroups[rk];
     if (rows) usedMarketKeys.add(rk);
@@ -3647,6 +3738,23 @@ async function loadProspectFruitOverrides(){
     try{
       const extra = JSON.parse(value);
       d.all_fruits = [...new Set([...d.all_fruits, ...extra])];
+    } catch(e){ /* skip */ }
+  });
+}
+async function setStatsOverride(key, stats){
+  await backendSet('hevile_importer_stats:' + key, JSON.stringify(stats));
+}
+async function loadStatsOverrides(){
+  const entries = await backendListValues('hevile_importer_stats:');
+  entries.forEach(({key, value}) => {
+    const expKey = key.replace('hevile_importer_stats:', '');
+    const d = IMPORTERS.find(x => exporterKey(x) === expKey);
+    if (!d) return;
+    try{
+      const s = JSON.parse(value);
+      if (typeof s.shipments === 'number') d.shipments = s.shipments;
+      if (typeof s.weight === 'number') d.weight = s.weight;
+      if (Array.isArray(s.destinations)) d.destinations = [...new Set([...(d.destinations||[]), ...s.destinations])];
     } catch(e){ /* skip */ }
   });
 }
@@ -4140,6 +4248,7 @@ loadCustomExporters();
 loadCustomImporters();
 loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadContactOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+loadStatsOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadVarietyOverrides();
 
 // One-time fix: a few exporter names had small typos ("A" added / suffix mismatch) versus
