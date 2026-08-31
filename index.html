@@ -2358,7 +2358,11 @@ function renderCards(){
   const grid = document.getElementById('cardGrid');
   const empty = document.getElementById('emptyState');
   grid.innerHTML = '';
-  let list = EXPORTERS.filter(d => matchesFruit(d) && matchesSearch(d));
+  let list = EXPORTERS.filter(d => {
+    const aliasTarget = exporterAliases[normalizeName(d.name)];
+    return !aliasTarget || normalizeName(aliasTarget) === normalizeName(d.name);
+  });
+  list = list.filter(d => matchesFruit(d) && matchesSearch(d));
   if (onlyProspects) list = list.filter(d => isProspect(d));
   list.sort((a,b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)) || b.shipments - a.shipments);
 
@@ -2489,6 +2493,19 @@ function openModal(d, initialTab){
               ${IMPORTERS.filter(imp => imp !== d).map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
             </datalist>
             <button id="mergeDupBtn" type="button" style="background:var(--teal-deep); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">Juntar</button>
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
+        </div>
+      ` : ''}
+      ${EXPORTERS.includes(d) ? `
+        <div style="margin-top:10px; background:#F7F7F7; border-radius:8px; padding:10px 12px;">
+          <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:bold;">🔗 Esse exportador já é o mesmo que outro cadastro?</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="mergeDupExpInput" list="allExportersDatalistMerge" placeholder="Nome do cadastro correto…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
+            <datalist id="allExportersDatalistMerge">
+              ${EXPORTERS.filter(exp => exp !== d).map(exp => `<option value="${exp.trade.replace(/"/g,'&quot;')}">`).join('')}
+            </datalist>
+            <button id="mergeDupExpBtn" type="button" style="background:var(--teal-deep); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">Juntar</button>
           </div>
           <div style="font-size:11px; color:var(--muted); margin-top:4px;">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
         </div>
@@ -2766,6 +2783,47 @@ function openModal(d, initialTab){
       renderStats();
       render();
       if (currentNav === 'importers') renderImportersView();
+    };
+  }
+
+  const mergeDupExpBtn = document.getElementById('mergeDupExpBtn');
+  if (mergeDupExpBtn){
+    mergeDupExpBtn.onclick = async () => {
+      const typed = document.getElementById('mergeDupExpInput').value.trim();
+      if (!typed) return;
+      const target = EXPORTERS.find(exp => exp !== d && exp.trade.toLowerCase() === typed.toLowerCase());
+      if (!target){ alert('Não achei esse nome no cadastro. Confira a grafia (ou escolha da lista de sugestões).'); return; }
+      if (!confirm(`Juntar "${d.trade}" com "${target.trade}"?\n\nAs frutas, contato e embarques de "${d.trade}" somam no cadastro de "${target.trade}", e "${d.trade}" é removido. Isso não pode ser desfeito.`)) return;
+
+      const targetKey = exporterKey(target);
+      const mergedFruits = [...new Set([...(target.all_fruits || []), ...(d.all_fruits || [])])];
+      target.all_fruits = mergedFruits;
+      await setProspectFruitOverrides(targetKey, mergedFruits);
+
+      const mergedPhone = target.phone || d.phone || '';
+      const mergedEmail = target.email || d.email || '';
+      if (mergedPhone || mergedEmail){
+        target.phone = mergedPhone;
+        target.email = mergedEmail;
+        await setContactOverride(targetKey, { phone: mergedPhone, email: mergedEmail, agendorOrgId: target.agendorOrgId });
+      }
+      if (!target.site && d.site) target.site = d.site;
+      target.shipments = (target.shipments || 0) + (d.shipments || 0);
+      await setStatsOverride(targetKey, { shipments: target.shipments });
+      if (d.active) target.active = true;
+
+      // Teach the matcher this alias permanently, so future market-data imports and the
+      // weekly DUE import recognize "d.name" as the same company from now on.
+      await addExporterAlias(d.name, targetKey);
+
+      const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
+      if (idx !== -1) EXPORTERS.splice(idx, 1);
+      const customExp = await getCustomExporters();
+      await setCustomExporters(customExp.filter(x => exporterKey(x) !== key));
+
+      closeModal();
+      renderStats();
+      render();
     };
   }
 
@@ -3748,7 +3806,7 @@ async function loadStatsOverrides(){
   const entries = await backendListValues('hevile_importer_stats:');
   entries.forEach(({key, value}) => {
     const expKey = key.replace('hevile_importer_stats:', '');
-    const d = IMPORTERS.find(x => exporterKey(x) === expKey);
+    const d = IMPORTERS.find(x => exporterKey(x) === expKey) || EXPORTERS.find(x => exporterKey(x) === expKey);
     if (!d) return;
     try{
       const s = JSON.parse(value);
@@ -4242,7 +4300,7 @@ loadReferralsCache();
 loadQuotesCache();
 loadRatesCache();
 loadNoShowCache();
-loadExporterAliases();
+loadExporterAliases().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadCiaFeesCache();
 loadCustomExporters();
 loadCustomImporters();
