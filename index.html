@@ -2132,6 +2132,18 @@ async function loadQuotesCache(){
   });
 }
 
+let firstContactsCache = {};
+async function loadFirstContactsCache(){
+  firstContactsCache = {};
+  const entries = await backendListValues('hevile_firstcontact:');
+  entries.forEach(({key, value}) => {
+    try{
+      const arr = JSON.parse(value);
+      if (arr && arr.length) firstContactsCache[key.replace('hevile_firstcontact:', '')] = arr;
+    } catch(e){ /* skip corrupted entry */ }
+  });
+}
+
 const FEEDBACK_ICON = { 'Positive': '✅', 'Negative': '❌', 'Neutral': '➖' };
 
 function lastReferralOf(key){
@@ -2449,9 +2461,10 @@ function openModal(d, initialTab){
     <span class="site-link">${siteHtml}</span>
 
     <div class="modal-tabs">
-      <div class="modal-tab${initialTab==='historico'||initialTab==='frutas'||initialTab==='cotacoes'?'':' active'}" data-tab="perfil">Perfil</div>
+      <div class="modal-tab${initialTab==='perfil'||initialTab==='frutas'||initialTab==='cotacoes'||initialTab==='historico'||initialTab==='primeirocontato'?'':' active'}" data-tab="perfil">Perfil</div>
       <div class="modal-tab${initialTab==='frutas'?' active':''}" data-tab="frutas">Frutas</div>
       <div class="modal-tab${initialTab==='cotacoes'?' active':''}" data-tab="cotacoes">Cotações</div>
+      <div class="modal-tab${initialTab==='primeirocontato'?' active':''}" data-tab="primeirocontato">Primeiro Contato</div>
       <div class="modal-tab${initialTab==='historico'?' active':''}" data-tab="historico">Indicações e feedback</div>
     </div>
 
@@ -2464,6 +2477,9 @@ function openModal(d, initialTab){
       <div class="cf-row" style="margin-bottom:6px;">
         <input type="text" id="contactPhone" value="${d.phone || ''}" placeholder="Telefone" style="flex:1;">
         <input type="text" id="contactEmail" value="${d.email || ''}" placeholder="E-mail" style="flex:1.4;">
+      </div>
+      <div class="cf-row" style="margin-bottom:6px;">
+        <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:1;">
         <button id="contactSaveBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">Salvar</button>
       </div>
       <span class="fs-status" id="contactSaveStatus"></span>
@@ -2557,6 +2573,33 @@ function openModal(d, initialTab){
       </div>
       <h4>Cotações registradas</h4>
       <div id="quoteList"><div class="log-empty">Carregando…</div></div>
+    </div>
+
+    <div class="modal-pane${initialTab==='primeirocontato'?' active':''}" data-pane="primeirocontato">
+      <h4 id="fcFormTitle">Registrar primeiro contato</h4>
+      <div class="contact-form">
+        <div class="cf-row">
+          <input type="text" id="fcEmailUsado" placeholder="E-mail geral usado (ex: sales@empresa.com)" style="flex:1.4;">
+          <select id="fcStatus" style="flex:0 0 190px;">
+            <option value="Contato enviado">📨 Contato enviado</option>
+            <option value="Aguardando resposta">⏳ Aguardando resposta</option>
+            <option value="Respondeu com dados">✅ Respondeu com dados</option>
+            <option value="Sem resposta">✕ Sem resposta</option>
+          </select>
+        </div>
+        <div class="cf-row" style="align-items:flex-start;">
+          <textarea id="fcNotes" placeholder="Detalhes: o que foi pedido, quem respondeu, próximos passos..."></textarea>
+          <button type="button" class="voice-btn" data-target="fcNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
+        </div>
+        <button id="fcSave">Salvar</button>
+        <button id="fcCorrigir" type="button" style="display:none; background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">✎ Corrigir (sem histórico novo)</button>
+        <button id="fcAtualizar" type="button" style="display:none;">↻ Atualizar (nova etapa)</button>
+        <button id="fcCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
+        <span class="fs-status" id="fcSyncStatus"></span>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:6px;">Isso vai pro Agendor como nota direto no histórico do cliente — não cria negócio.</div>
+      <h4 style="margin-top:16px;">Contatos registrados</h4>
+      <div id="fcList"><div class="log-empty">Carregando…</div></div>
     </div>
 
     <div class="modal-pane${initialTab==='historico'?' active':''}" data-pane="historico">
@@ -2679,11 +2722,13 @@ function openModal(d, initialTab){
     contactSaveBtn.onclick = async () => {
       const phone = document.getElementById('contactPhone').value.trim();
       const email = document.getElementById('contactEmail').value.trim();
+      const site = document.getElementById('contactSite').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
       d.phone = phone;
       d.email = email;
+      d.site = site || null;
       const st = document.getElementById('contactSaveStatus');
       st.textContent = 'Salvando…';
-      await setContactOverride(key, { phone, email });
+      await setContactOverride(key, { phone, email, site: d.site, agendorOrgId: d.agendorOrgId });
       st.textContent = 'Salvo ✓';
       renderCards();
       if (currentNav === 'importers') renderImportersView();
@@ -2851,6 +2896,7 @@ function openModal(d, initialTab){
   }
 
   initQuotesPane(d, key);
+  initPrimeiroContatoPane(d, key);
   initHistoricoPane(d, key);
 }
 
@@ -2913,6 +2959,7 @@ function initVoiceButtons(root){
 }
 
 const QUOTE_STATUS_ICON = { 'Solicitado CIA': '📨', 'Criação de cotação': '📝', 'Cotação enviada': '✅', 'Cotação aprovada': '✔', 'Cotação negada': '✕' };
+const FC_STATUS_ICON = { 'Contato enviado': '📨', 'Aguardando resposta': '⏳', 'Respondeu com dados': '✅', 'Sem resposta': '✕' };
 
 async function syncQuoteToAgendor(d, quote, statusChanged){
   if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
@@ -3058,6 +3105,136 @@ async function initQuotesPane(d, key){
   document.getElementById('qtSave').onclick = () => saveQuote(true);
   document.getElementById('qtAtualizar').onclick = () => saveQuote(true);
   document.getElementById('qtCorrigir').onclick = () => saveQuote(false);
+}
+
+async function getFirstContacts(key){
+  try{
+    const v = await backendGet('hevile_firstcontact:' + key);
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setFirstContacts(key, arr){
+  await backendSet('hevile_firstcontact:' + key, JSON.stringify(arr));
+}
+
+async function initPrimeiroContatoPane(d, key){
+  const fcListEl = document.getElementById('fcList');
+  let contacts = await getFirstContacts(key);
+  let editingFcId = null;
+  let savingFc = false;
+  renderFcList();
+
+  function renderFcList(){
+    if (!contacts.length){
+      fcListEl.innerHTML = '<div class="log-empty">Nenhum primeiro contato registrado ainda.</div>';
+      return;
+    }
+    const sorted = [...contacts].sort((a,b) => (b.ts||0) - (a.ts||0));
+    fcListEl.innerHTML = sorted.map(c => `
+      <div class="log-entry" data-id="${c.id}" style="position:relative;">
+        <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+          <button class="fc-edit" data-id="${c.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
+          <button class="fc-del" data-id="${c.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
+        </div>
+        <div class="le-top"><span>${FC_STATUS_ICON[c.status] || ''} <b>${c.emailUsado || 'E-mail geral'}</b> · ${c.status}</span></div>
+        <div class="le-notes">${(c.notes || '').replace(/</g,'&lt;')}</div>
+      </div>
+    `).join('');
+    fcListEl.querySelectorAll('.fc-del').forEach(btn => {
+      btn.onclick = async () => {
+        contacts = contacts.filter(c => c.id !== btn.dataset.id);
+        await setFirstContacts(key, contacts);
+        firstContactsCache[key] = contacts;
+        renderFcList();
+      };
+    });
+    fcListEl.querySelectorAll('.fc-edit').forEach(btn => {
+      btn.onclick = () => {
+        const c = contacts.find(x => x.id === btn.dataset.id);
+        if (!c) return;
+        editingFcId = c.id;
+        document.getElementById('fcEmailUsado').value = c.emailUsado || '';
+        document.getElementById('fcStatus').value = c.status;
+        document.getElementById('fcNotes').value = c.notes || '';
+        document.getElementById('fcFormTitle').textContent = 'Editando primeiro contato';
+        document.getElementById('fcSave').style.display = 'none';
+        document.getElementById('fcCorrigir').style.display = 'inline-block';
+        document.getElementById('fcAtualizar').style.display = 'inline-block';
+        document.getElementById('fcCancelEdit').style.display = 'inline-block';
+      };
+    });
+  }
+
+  function resetFcForm(){
+    editingFcId = null;
+    document.getElementById('fcEmailUsado').value = '';
+    document.getElementById('fcStatus').value = 'Contato enviado';
+    document.getElementById('fcNotes').value = '';
+    document.getElementById('fcFormTitle').textContent = 'Registrar primeiro contato';
+    document.getElementById('fcSave').style.display = 'inline-block';
+    document.getElementById('fcCorrigir').style.display = 'none';
+    document.getElementById('fcAtualizar').style.display = 'none';
+    document.getElementById('fcCancelEdit').style.display = 'none';
+  }
+  document.getElementById('fcCancelEdit').onclick = resetFcForm;
+
+  async function saveFc(syncToAgendor){
+    if (savingFc) return;
+    savingFc = true;
+    const emailUsado = document.getElementById('fcEmailUsado').value.trim();
+    const status = document.getElementById('fcStatus').value;
+    const notes = document.getElementById('fcNotes').value.trim();
+    if (!emailUsado && !notes){ savingFc = false; return; }
+
+    let entry, statusChanged = false;
+    if (editingFcId){
+      const idx = contacts.findIndex(c => c.id === editingFcId);
+      if (idx !== -1){
+        statusChanged = contacts[idx].status !== status;
+        contacts[idx] = { ...contacts[idx], emailUsado, status, notes };
+        entry = contacts[idx];
+      }
+    } else {
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), emailUsado, status, notes };
+      contacts.push(entry);
+    }
+
+    const syncStatus = document.getElementById('fcSyncStatus');
+    syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
+    await setFirstContacts(key, contacts);
+    syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
+
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
+      syncStatus.textContent += ' · Enviando pro Agendor…';
+      let orgId = d.agendorOrgId;
+      if (!orgId){
+        const pushResult = await agendorPushOrg(d);
+        orgId = extractOrgId(pushResult);
+        if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, site: d.site, agendorOrgId: orgId }); }
+        if (!orgId){
+          syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', friendlyAgendorError(pushResult));
+        }
+      }
+      if (orgId){
+        const label = entry.emailUsado ? `Primeiro contato (${entry.emailUsado})` : 'Primeiro contato';
+        const taskText = `${label}: ${entry.status}${entry.notes ? ' — ' + entry.notes : ''}`;
+        const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: taskText });
+        const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : friendlyAgendorError(taskResult));
+      }
+    } else if (!syncToAgendor && editingFcId){
+      syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
+    }
+
+    renderFcList();
+    resetFcForm();
+    firstContactsCache[key] = contacts;
+    savingFc = false;
+  }
+
+  document.getElementById('fcSave').onclick = () => saveFc(true);
+  document.getElementById('fcAtualizar').onclick = () => saveFc(true);
+  document.getElementById('fcCorrigir').onclick = () => saveFc(false);
 }
 
 async function initHistoricoPane(d, key){
@@ -3782,6 +3959,7 @@ async function loadContactOverrides(){
       const c = JSON.parse(value);
       if (c.phone) d.phone = c.phone;
       if (c.email) d.email = c.email;
+      if (c.site) d.site = c.site;
       if (c.agendorOrgId) d.agendorOrgId = c.agendorOrgId;
       if (c.agendorNotesDealId) d.agendorNotesDealId = c.agendorNotesDealId;
     } catch(e){ /* skip */ }
@@ -3836,20 +4014,29 @@ function buildClienteGroups(){
 
 let clienteGroupsCache = [];
 
+let quotesViewMode = 'cotacoes'; // cotacoes | primeirocontato
+
 function renderQuotesView(){
   const el = document.getElementById('quotesView');
   clienteGroupsCache = buildClienteGroups();
   el.innerHTML = `
+    <div class="nav-toggle" style="margin-bottom:12px;">
+      <button id="qvModeCotacoes" class="${quotesViewMode==='cotacoes'?'active':''}">Cotações</button>
+      <button id="qvModePrimeiroContato" class="${quotesViewMode==='primeirocontato'?'active':''}">Primeiro Contato</button>
+    </div>
     <div style="display:flex; gap:8px; margin-bottom:16px;">
       <input id="clienteSearch" type="text" placeholder="Buscar por cliente…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
       <button id="refreshQuotesCloudBtn" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">🔄 Atualizar da nuvem</button>
     </div>
     <div id="clienteGroups"></div>`;
+  document.getElementById('qvModeCotacoes').onclick = () => { quotesViewMode = 'cotacoes'; renderQuotesView(); };
+  document.getElementById('qvModePrimeiroContato').onclick = () => { quotesViewMode = 'primeirocontato'; renderQuotesView(); };
   document.getElementById('clienteSearch').addEventListener('input', e => renderClienteGroups(e.target.value.trim().toLowerCase()));
   document.getElementById('refreshQuotesCloudBtn').addEventListener('click', async () => {
     const btn = document.getElementById('refreshQuotesCloudBtn');
     btn.textContent = 'Atualizando…';
     await loadQuotesCache();
+    await loadFirstContactsCache();
     clienteGroupsCache = buildClienteGroups();
     renderClienteGroups(document.getElementById('clienteSearch').value.trim().toLowerCase());
     btn.textContent = '🔄 Atualizar da nuvem';
@@ -3857,8 +4044,44 @@ function renderQuotesView(){
   renderClienteGroups('');
 }
 
+function buildFirstContactCompanyGroups(){
+  const groups = [];
+  Object.entries(firstContactsCache).forEach(([key, arr]) => {
+    if (!arr || !arr.length) return;
+    const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    groups.push({ display: d.trade, key, items: [...arr].sort((a,b) => (b.ts||0) - (a.ts||0)) });
+  });
+  return groups.sort((a,b) => a.display.localeCompare(b.display));
+}
+
 function renderClienteGroups(filter){
   const wrap = document.getElementById('clienteGroups');
+
+  if (quotesViewMode === 'primeirocontato'){
+    const groups = buildFirstContactCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
+    if (!groups.length){
+      wrap.innerHTML = '<div class="empty">Nenhum primeiro contato encontrado. Abra um exportador ou importador e use a aba "Primeiro Contato" pra registrar o primeiro.</div>';
+      return;
+    }
+    wrap.innerHTML = groups.map(g => {
+      const rows = g.items.map(c => `<div class="history-row" data-exp="${g.key}">
+        <div>
+          <div class="hr-name">${FC_STATUS_ICON[c.status] || ''} ${c.emailUsado || 'E-mail geral'}</div>
+          <div class="hr-feedback">${c.status}${c.notes ? ' · ' + c.notes.replace(/\n/g,' ') : ''}</div>
+        </div>
+      </div>`).join('');
+      return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+    }).join('');
+    wrap.querySelectorAll('.history-row').forEach(row => {
+      row.onclick = () => {
+        const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+        if (d) openModal(d, 'primeirocontato');
+      };
+    });
+    return;
+  }
+
   const groups = clienteGroupsCache.filter(g => !filter || g.display.toLowerCase().includes(filter));
   if (!groups.length){
     wrap.innerHTML = '<div class="empty">Nenhuma cotação encontrada. Abra um exportador ou importador e use a aba "Cotações" pra registrar a primeira.</div>';
@@ -4298,6 +4521,7 @@ render();
 renderAlerts();
 loadReferralsCache();
 loadQuotesCache();
+loadFirstContactsCache();
 loadRatesCache();
 loadNoShowCache();
 loadExporterAliases().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
