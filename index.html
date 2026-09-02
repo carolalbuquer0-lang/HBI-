@@ -2225,6 +2225,7 @@ document.getElementById('fruitSearch').addEventListener('input', e => {
 function matchesSearch(d){
   if (!searchTerm) return true;
   return d.trade.toLowerCase().includes(searchTerm) ||
+    (d.name || '').toLowerCase().includes(searchTerm) ||
     (d.address || '').toLowerCase().includes(searchTerm);
 }
 
