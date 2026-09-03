@@ -3245,6 +3245,15 @@ async function initHistoricoPane(d, key){
   let editingId = null;
   initVoiceButtons();
 
+  // When registering a referral from an EXPORTER's profile, the "other party" is an
+  // importer (who was this exporter recommended to). From an IMPORTER's profile, it's the
+  // reverse: the "other party" is an exporter (who was recommended TO this importer).
+  const isImporterProfile = IMPORTERS.includes(d);
+  const otherPartyList = isImporterProfile ? EXPORTERS : IMPORTERS;
+  const otherPartyLabel = isImporterProfile ? 'exportador' : 'importador';
+  document.getElementById('cfImporter').placeholder = `Nome do ${otherPartyLabel} / cliente (opcional por enquanto)`;
+  document.getElementById('cfImporterList').innerHTML = otherPartyList.map(x => `<option value="${x.trade.replace(/"/g,'&quot;')}">`).join('');
+
   let log = await getReferrals(key);
   renderLogList();
 
@@ -3258,12 +3267,14 @@ async function initHistoricoPane(d, key){
     }
     const sorted = [...log].sort((a,b) => seasonSortValue(b.season) - seasonSortValue(a.season));
     logList.innerHTML = sorted.map(e => {
-      const resolvedKey = e.importerKey || (IMPORTERS.find(imp => imp.name.toLowerCase() === (e.importer||'').toLowerCase())?.name) || null;
+      const resolvedEntry = (e.importerKey && otherPartyList.find(x => exporterKey(x) === e.importerKey))
+        || otherPartyList.find(x => x.trade.toLowerCase() === (e.importer||'').toLowerCase())
+        || null;
       const importerLabel = e.importer
-        ? (resolvedKey
-            ? `<span class="le-importer-link" data-key="${resolvedKey.replace(/"/g,'&quot;')}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Abrir cadastro do importador">🔗 ${e.importer}</span>`
+        ? (resolvedEntry
+            ? `<span class="le-importer-link" data-key="${exporterKey(resolvedEntry).replace(/"/g,'&quot;')}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Abrir cadastro do ${otherPartyLabel}">🔗 ${e.importer}</span>`
             : `<b>${e.importer}</b>`)
-        : `<span style="color:var(--muted); font-style:italic;">⏳ importador ainda não definido</span>`;
+        : `<span style="color:var(--muted); font-style:italic;">⏳ ${otherPartyLabel} ainda não definido</span>`;
       const titleLine = e.titulo ? `<div style="font-weight:bold; font-size:13px; margin-bottom:2px;">${e.titulo}</div>` : '';
       return `
       <div class="log-entry" data-id="${e.id}">
@@ -3280,8 +3291,8 @@ async function initHistoricoPane(d, key){
     logList.querySelectorAll('.le-importer-link').forEach(link => {
       link.onclick = (ev) => {
         ev.stopPropagation();
-        const imp = IMPORTERS.find(x => exporterKey(x) === link.dataset.key);
-        if (imp) openModal(imp);
+        const other = otherPartyList.find(x => exporterKey(x) === link.dataset.key);
+        if (other) openModal(other);
       };
     });
     logList.querySelectorAll('.log-entry').forEach(entry => { entry.style.position = 'relative'; });
@@ -3336,10 +3347,10 @@ async function initHistoricoPane(d, key){
     const typed = document.getElementById('cfImporter').value.trim();
     const checkEl = document.getElementById('cfImporterCheck');
     if (!typed){ checkEl.innerHTML = ''; return; }
-    const match = IMPORTERS.find(imp => imp.name.toLowerCase() === typed.toLowerCase());
+    const match = otherPartyList.find(x => x.trade.toLowerCase() === typed.toLowerCase());
     checkEl.innerHTML = match
-      ? `<span style="color:#4F6E45;">🔗 Vinculado ao cadastro de <b>${match.name}</b></span>`
-      : `<span style="color:#B3413B;">⚠ Esse importador ainda não está cadastrado — considere cadastrar primeiro em "+ Novo importador" na aba Importadores, senão a indicação fica sem vínculo.</span>`;
+      ? `<span style="color:#4F6E45;">🔗 Vinculado ao cadastro de <b>${match.trade}</b></span>`
+      : `<span style="color:#B3413B;">⚠ Esse ${otherPartyLabel} ainda não está cadastrado — considere cadastrar primeiro${isImporterProfile ? '' : ' em "+ Novo importador" na aba Importadores'}, senão a indicação fica sem vínculo.</span>`;
   }
   document.getElementById('cfImporter').addEventListener('input', checkImporterLink);
   checkImporterLink();
@@ -3352,10 +3363,10 @@ async function initHistoricoPane(d, key){
     const feedback = document.getElementById('cfFeedback').value;
     const notes = document.getElementById('cfNotes').value.trim();
     if (!titulo && !importer){
-      alert('Preencha ao menos o título da indicação ou o nome do importador.');
+      alert(`Preencha ao menos o título da indicação ou o nome do ${otherPartyLabel}.`);
       return;
     }
-    const matchedImporter = importer ? IMPORTERS.find(imp => imp.name.toLowerCase() === importer.toLowerCase()) : null;
+    const matchedImporter = importer ? otherPartyList.find(x => x.trade.toLowerCase() === importer.toLowerCase()) : null;
     const importerKey = matchedImporter ? exporterKey(matchedImporter) : null;
 
     let entry, feedbackChanged = false;
