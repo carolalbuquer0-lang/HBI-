@@ -1300,6 +1300,286 @@ async function loadCiaFeesCache(){
 
 let editingRateId = null;
 
+// ---- Contatos das CIAs (nome, cargo, telefone, e-mail por companhia aérea) ----
+let ciaContactsCache = [];
+async function getCiaContacts(){
+  try{
+    const v = await backendGet('hevile_cia_contacts');
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setCiaContacts(arr){
+  await backendSet('hevile_cia_contacts', JSON.stringify(arr));
+}
+async function loadCiaContactsCache(){
+  ciaContactsCache = await getCiaContacts();
+}
+
+function renderCiaContactsView(){
+  const wrap = document.getElementById('ciaContactsWrap');
+  const byCia = {};
+  ciaContactsCache.forEach(c => { (byCia[c.cia] || (byCia[c.cia] = [])).push(c); });
+  const cias = Object.keys(byCia).sort();
+
+  wrap.innerHTML = `
+    <div style="background:#EEF0F5; border:1px solid #C9D2E0; border-radius:10px; padding:16px;">
+      <h4 style="margin:0 0 10px;">Contatos das CIAs</h4>
+      ${cias.map(cia => `
+        <div style="margin-bottom:12px;">
+          <b style="font-size:12.5px;">${cia}</b>
+          ${byCia[cia].map(c => `
+            <div class="log-entry" data-id="${c.id}" style="position:relative; background:#fff; margin-top:6px;">
+              <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+                <button class="cc-edit" data-id="${c.id}" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;text-decoration:underline;font-size:11.5px;">editar</button>
+                <button class="cc-del" data-id="${c.id}" style="background:none;border:none;color:#B3413B;cursor:pointer;text-decoration:underline;font-size:11.5px;">remover</button>
+              </div>
+              <div class="le-top"><span><b>${c.nome}</b>${c.cargo ? ' — ' + c.cargo : ''}</span></div>
+              <div class="le-notes">${[c.telefone ? '📞 ' + c.telefone : '', c.email ? '✉ ' + c.email : ''].filter(Boolean).join(' · ')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('') || '<div class="empty">Nenhum contato cadastrado ainda.</div>'}
+      <button id="addCiaContactBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Novo contato</button>
+    </div>
+  `;
+  document.getElementById('addCiaContactBtn').onclick = () => openCiaContactForm(null);
+  wrap.querySelectorAll('.cc-edit').forEach(btn => {
+    btn.onclick = () => openCiaContactForm(ciaContactsCache.find(c => c.id === btn.dataset.id));
+  });
+  wrap.querySelectorAll('.cc-del').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Remover esse contato?')) return;
+      ciaContactsCache = ciaContactsCache.filter(c => c.id !== btn.dataset.id);
+      await setCiaContacts(ciaContactsCache);
+      document.getElementById('ciaContactsWrap').style.display = 'block';
+      renderCiaContactsView();
+    };
+  });
+}
+
+function openCiaContactForm(contact){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${contact ? 'Editar contato' : 'Novo contato'}</h2>
+    <div class="new-exp-form">
+      <label>CIA</label>
+      <input type="text" id="ccCia" value="${contact?.cia || ''}" placeholder="ex: American Airlines" list="allCiasDatalist">
+      <datalist id="allCiasDatalist">
+        ${[...new Set(ratesCache.map(r => r.cia))].sort().map(c => `<option value="${c.replace(/"/g,'&quot;')}">`).join('')}
+      </datalist>
+      <div class="cf-row">
+        <div style="flex:1;"><label>Nome</label><input type="text" id="ccNome" value="${contact?.nome || ''}" placeholder="ex: João Silva"></div>
+        <div style="flex:1;"><label>Cargo (opcional)</label><input type="text" id="ccCargo" value="${contact?.cargo || ''}" placeholder="ex: Cargo Sales"></div>
+      </div>
+      <div class="cf-row">
+        <div style="flex:1;"><label>Telefone</label><input type="text" id="ccTelefone" value="${contact?.telefone || ''}"></div>
+        <div style="flex:1;"><label>E-mail</label><input type="text" id="ccEmail" value="${contact?.email || ''}"></div>
+      </div>
+      <div class="new-exp-actions">
+        <button id="ccSave">Salvar</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  document.getElementById('ccSave').onclick = async () => {
+    const cia = document.getElementById('ccCia').value.trim();
+    const nome = document.getElementById('ccNome').value.trim();
+    const cargo = document.getElementById('ccCargo').value.trim();
+    const telefone = document.getElementById('ccTelefone').value.trim();
+    const email = document.getElementById('ccEmail').value.trim();
+    if (!cia || !nome){ alert('Preencha ao menos CIA e Nome.'); return; }
+    if (contact){
+      const idx = ciaContactsCache.findIndex(c => c.id === contact.id);
+      ciaContactsCache[idx] = { ...ciaContactsCache[idx], cia, nome, cargo, telefone, email };
+    } else {
+      ciaContactsCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, cargo, telefone, email });
+    }
+    await setCiaContacts(ciaContactsCache);
+    closeModal();
+    document.getElementById('ciaContactsWrap').style.display = 'block';
+    renderCiaContactsView();
+  };
+}
+
+// ---- Reuniões com CIAs — mesma ideia da "Reunião em Feira", mas pra companhia aérea em vez
+// de cliente, e nunca sincroniza com o Agendor (não é relacionamento comercial de cliente). ----
+let ciaMeetingsCache = [];
+async function getCiaMeetings(){
+  try{
+    const v = await backendGet('hevile_cia_meetings');
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setCiaMeetings(arr){
+  await backendSet('hevile_cia_meetings', JSON.stringify(arr));
+}
+async function loadCiaMeetingsCache(){
+  ciaMeetingsCache = await getCiaMeetings();
+}
+
+const CM_STATUS_ICON = { 'Contato feito': '📨', 'Aguardando resposta': '⏳', 'Reunião marcada': '📅', 'Realizada': '✅' };
+
+function renderCiaMeetingsView(){
+  const wrap = document.getElementById('ciaMeetingsWrap');
+  wrap.innerHTML = `
+    <div style="background:#F2EEF5; border:1px solid #D8C9E0; border-radius:10px; padding:16px;">
+      <h4 style="margin:0 0 10px;">Reuniões com CIAs <span style="font-weight:normal; font-size:11px; color:var(--muted);">(não sincroniza com o Agendor)</span></h4>
+      <div id="ciaMeetingsCalendar"></div>
+      <h4 style="margin-top:16px;">Reuniões registradas</h4>
+      <div id="ciaMeetingsList"></div>
+      <button id="addCiaMeetingBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Nova reunião</button>
+    </div>
+  `;
+  document.getElementById('addCiaMeetingBtn').onclick = () => openCiaMeetingForm(null);
+  renderCiaMeetingsCalendarAndList();
+}
+
+function renderCiaMeetingsCalendarAndList(){
+  document.getElementById('ciaMeetingsCalendar').innerHTML = renderCiaMeetingsCalendarHtml();
+  wireCiaMeetingsCalendarNav();
+
+  const listEl = document.getElementById('ciaMeetingsList');
+  const sorted = [...ciaMeetingsCache].sort((a,b) => (b.ts||0) - (a.ts||0));
+  if (!sorted.length){
+    listEl.innerHTML = '<div class="log-empty">Nenhuma reunião com CIA registrada ainda.</div>';
+    return;
+  }
+  listEl.innerHTML = sorted.map(m => `
+    <div class="log-entry" data-id="${m.id}" style="position:relative;">
+      <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+        <button class="cm-edit" data-id="${m.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
+        <button class="cm-del" data-id="${m.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
+      </div>
+      <div class="le-top"><span>${CM_STATUS_ICON[m.status] || ''} <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${feiraColor(m.cia)}; margin-right:4px;"></span><b>${m.cia}</b> · ${m.status}${m.dataDia ? ' · ' + formatBRDate(m.dataDia) : ''}${m.data ? ' · ' + m.data : ''}</span></div>
+      <div class="le-notes">${(m.notes || '').replace(/</g,'&lt;')}</div>
+    </div>
+  `).join('');
+  listEl.querySelectorAll('.cm-del').forEach(btn => {
+    btn.onclick = async () => {
+      ciaMeetingsCache = ciaMeetingsCache.filter(m => m.id !== btn.dataset.id);
+      await setCiaMeetings(ciaMeetingsCache);
+      renderCiaMeetingsCalendarAndList();
+    };
+  });
+  listEl.querySelectorAll('.cm-edit').forEach(btn => {
+    btn.onclick = () => openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === btn.dataset.id));
+  });
+}
+
+function renderCiaMeetingsCalendarHtml(){
+  const scheduled = ciaMeetingsCache.filter(m => m.status === 'Reunião marcada' && m.dataDia);
+  const firstOfMonth = new Date(feiraCalYear, feiraCalMonth, 1);
+  const startWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(feiraCalYear, feiraCalMonth + 1, 0).getDate();
+
+  const byDay = {};
+  scheduled.forEach(m => {
+    const [y,mo,d] = m.dataDia.split('-').map(Number);
+    if (y === feiraCalYear && (mo-1) === feiraCalMonth) (byDay[d] || (byDay[d] = [])).push(m);
+  });
+
+  let cells = '';
+  for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
+  for (let day = 1; day <= daysInMonth; day++){
+    const dayEvents = byDay[day] || [];
+    const dots = dayEvents.slice(0,4).map(m => {
+      const timeLabel = m.data ? `<b>${m.data}</b> ` : '';
+      return `<div class="feira-cal-event" style="background:${feiraColor(m.cia)}22; border-left:3px solid ${feiraColor(m.cia)};" data-id="${m.id}" title="${m.cia}${m.data ? ' — ' + m.data : ''}">${timeLabel}${m.cia}</div>`;
+    }).join('');
+    const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
+    cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
+      <div class="feira-cal-daynum">${day}</div>
+      ${dots}${more}
+    </div>`;
+  }
+  return `
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <button id="ciaCalPrev" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">‹</button>
+        <b style="font-size:14px;">${MES_NOMES[feiraCalMonth]} ${feiraCalYear}</b>
+        <button id="ciaCalNext" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">›</button>
+      </div>
+      <div class="feira-cal-grid feira-cal-header">${DIA_SEMANA_LETRAS.map(l => `<div class="feira-cal-cell head">${l}</div>`).join('')}</div>
+      <div class="feira-cal-grid">${cells}</div>
+    </div>
+  `;
+}
+
+function wireCiaMeetingsCalendarNav(){
+  const prevBtn = document.getElementById('ciaCalPrev');
+  const nextBtn = document.getElementById('ciaCalNext');
+  if (prevBtn) prevBtn.onclick = () => { feiraCalMonth--; if (feiraCalMonth < 0){ feiraCalMonth = 11; feiraCalYear--; } renderCiaMeetingsCalendarAndList(); };
+  if (nextBtn) nextBtn.onclick = () => { feiraCalMonth++; if (feiraCalMonth > 11){ feiraCalMonth = 0; feiraCalYear++; } renderCiaMeetingsCalendarAndList(); };
+  document.querySelectorAll('#ciaMeetingsCalendar .feira-cal-event').forEach(ev => {
+    ev.onclick = () => openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === ev.dataset.id));
+  });
+}
+
+function openCiaMeetingForm(meeting){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>${meeting ? 'Editar reunião com CIA' : 'Nova reunião com CIA'}</h2>
+    <div class="new-exp-form">
+      <label>CIA</label>
+      <input type="text" id="cmCia" value="${meeting?.cia || ''}" placeholder="ex: LATAM" list="allCiasDatalist2">
+      <datalist id="allCiasDatalist2">
+        ${[...new Set(ratesCache.map(r => r.cia))].sort().map(c => `<option value="${c.replace(/"/g,'&quot;')}">`).join('')}
+      </datalist>
+      <div class="cf-row">
+        <select id="cmStatus" style="flex:0 0 190px;">
+          <option value="Contato feito">📨 Contato feito</option>
+          <option value="Aguardando resposta">⏳ Aguardando resposta</option>
+          <option value="Reunião marcada">📅 Reunião marcada</option>
+          <option value="Realizada">✅ Realizada</option>
+        </select>
+      </div>
+      <div class="cf-row" id="cmDataRow" style="display:none;">
+        <input type="date" id="cmDataDia" style="flex:0 0 170px;">
+        <input type="text" id="cmData" placeholder="Horário / local (ex: 15h, online)" style="flex:1;">
+      </div>
+      <label>Observações</label>
+      <textarea id="cmNotes" placeholder="Assunto, com quem, próximos passos...">${meeting?.notes || ''}</textarea>
+      <div class="new-exp-actions">
+        <button id="cmSave">Salvar</button>
+        <button class="cancel" onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  if (meeting){
+    document.getElementById('cmStatus').value = meeting.status;
+    document.getElementById('cmDataDia').value = meeting.dataDia || '';
+    document.getElementById('cmData').value = meeting.data || '';
+    document.getElementById('cmDataRow').style.display = meeting.status === 'Reunião marcada' ? 'flex' : 'none';
+  }
+  document.getElementById('cmStatus').addEventListener('change', (e) => {
+    document.getElementById('cmDataRow').style.display = e.target.value === 'Reunião marcada' ? 'flex' : 'none';
+  });
+  document.getElementById('cmSave').onclick = async () => {
+    const cia = document.getElementById('cmCia').value.trim();
+    const status = document.getElementById('cmStatus').value;
+    const dataDia = document.getElementById('cmDataDia').value;
+    const data = document.getElementById('cmData').value.trim();
+    const notes = document.getElementById('cmNotes').value.trim();
+    if (!cia){ alert('Preencha ao menos a CIA.'); return; }
+    if (meeting){
+      const idx = ciaMeetingsCache.findIndex(m => m.id === meeting.id);
+      ciaMeetingsCache[idx] = { ...ciaMeetingsCache[idx], cia, status, dataDia, data, notes };
+    } else {
+      ciaMeetingsCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), cia, status, dataDia, data, notes });
+    }
+    await setCiaMeetings(ciaMeetingsCache);
+    closeModal();
+    document.getElementById('ciaMeetingsWrap').style.display = 'block';
+    renderCiaMeetingsView();
+  };
+}
+
 function renderCiaFeesView(){
   const wrap = document.getElementById('ciaFeesWrap');
   const byCia = {};
@@ -1517,10 +1797,14 @@ function renderRatesView(){
       <button id="openQuoteBuilderBtn" style="background:var(--teal); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💲 Gerar cotação de venda</button>
       <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">⚠ Observações de no-show</button>
       <button id="toggleCiaFeesBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💰 Taxas por CIA</button>
+      <button id="toggleCiaContactsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📇 Contatos das CIAs</button>
+      <button id="toggleCiaMeetingsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📅 Reuniões com CIAs</button>
       <button id="findDupRatesBtn" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">🔍 Encontrar duplicadas</button>
     </div>
     <div id="noShowWrap" style="display:none; margin-bottom:22px;"></div>
     <div id="ciaFeesWrap" style="display:none; margin-bottom:22px;"></div>
+    <div id="ciaContactsWrap" style="display:none; margin-bottom:22px;"></div>
+    <div id="ciaMeetingsWrap" style="display:none; margin-bottom:22px;"></div>
     <div style="display:flex; gap:14px; margin-bottom:10px;">
       <span id="ratesToggleAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Expandir todos</span>
       <span id="ratesCollapseAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Recolher todos</span>
@@ -1617,6 +1901,20 @@ function renderRatesView(){
     if (showing){ wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     renderCiaFeesView();
+  };
+  document.getElementById('toggleCiaContactsBtn').onclick = () => {
+    const wrap = document.getElementById('ciaContactsWrap');
+    const showing = wrap.style.display !== 'none';
+    if (showing){ wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    renderCiaContactsView();
+  };
+  document.getElementById('toggleCiaMeetingsBtn').onclick = () => {
+    const wrap = document.getElementById('ciaMeetingsWrap');
+    const showing = wrap.style.display !== 'none';
+    if (showing){ wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    renderCiaMeetingsView();
   };
   document.getElementById('findDupRatesBtn').onclick = () => openDuplicateRatesReview();
 }
@@ -5220,6 +5518,8 @@ loadReferralsCache();
 loadQuotesCache();
 loadFirstContactsCache();
 loadFeirasCache();
+loadCiaContactsCache();
+loadCiaMeetingsCache();
 loadRatesCache();
 loadNoShowCache();
 loadExporterAliases().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
