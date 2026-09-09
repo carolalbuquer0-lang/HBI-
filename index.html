@@ -4681,12 +4681,12 @@ function wireFeiraCalendarNav(){
   if (prevBtn) prevBtn.onclick = () => {
     feiraCalMonth--;
     if (feiraCalMonth < 0){ feiraCalMonth = 11; feiraCalYear--; }
-    renderClienteGroups(document.getElementById('clienteSearch') ? document.getElementById('clienteSearch').value.trim().toLowerCase() : '');
+    renderFbGroups(document.getElementById('fbSearch') ? document.getElementById('fbSearch').value.trim().toLowerCase() : '');
   };
   if (nextBtn) nextBtn.onclick = () => {
     feiraCalMonth++;
     if (feiraCalMonth > 11){ feiraCalMonth = 0; feiraCalYear++; }
-    renderClienteGroups(document.getElementById('clienteSearch') ? document.getElementById('clienteSearch').value.trim().toLowerCase() : '');
+    renderFbGroups(document.getElementById('fbSearch') ? document.getElementById('fbSearch').value.trim().toLowerCase() : '');
   };
   document.querySelectorAll('.feira-cal-event').forEach(ev => {
     ev.onclick = () => {
