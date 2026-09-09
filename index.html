@@ -47,9 +47,6 @@
     background:#fff; border-right:1px solid var(--line); padding:20px; overflow-y:auto; max-height:calc(100vh - 40px); position:sticky; top:0;
   }
   .sidebar h3{font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px;}
-  #search{
-    width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; margin-bottom:16px;
-  }
   .fruit-chip{
     display:flex; flex-direction:column; align-items:stretch; gap:1px;
     padding:7px 10px; border-radius:8px; margin-bottom:4px; cursor:pointer; font-size:13px;
@@ -110,16 +107,21 @@
   .fruit-info-panel .row{font-size:13px; color:var(--muted); margin-bottom:3px;}
   .fruit-info-panel .row b{color:var(--ink);}
 
-  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:12px;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(270px,1fr)); gap:12px;}
   .card{
     background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;
-    transition:box-shadow .15s, transform .15s;
+    transition:box-shadow .15s, transform .15s; display:flex; flex-direction:column;
   }
   .card:hover{box-shadow:0 6px 16px rgba(0,0,0,0.08); transform:translateY(-1px);}
-  .card .name{font-weight:bold; font-size:14px; margin-bottom:2px;}
-  .card .site{font-size:11.5px; color:var(--teal-deep); margin-bottom:8px;}
+  .card-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; margin-bottom:2px;}
+  .card .name{font-weight:bold; font-size:14px; line-height:1.3; overflow-wrap:anywhere;}
+  .card-tags{display:flex; gap:4px; flex-wrap:wrap;}
+  .card .site{font-size:11.5px; color:var(--teal-deep); margin-bottom:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .card .meta-line{margin-bottom:8px;}
   .card .pills{display:flex; flex-wrap:wrap; gap:5px;}
   .pill{font-size:10.5px; padding:3px 8px; border-radius:999px; color:#fff;}
+  .pill-more{background:#E4E4E4; color:var(--muted);}
+  .card-foot{margin-top:10px; padding-top:10px; border-top:1px solid var(--line);}
   .badge-confirmed{
     display:inline-block; font-size:9.5px; background:#E9F3EE; color:#2E6B39; padding:2px 6px; border-radius:5px; margin-left:6px; font-weight:bold;
   }
@@ -243,6 +245,21 @@
   .history-row .hr-name{font-weight:bold; font-size:13.5px;}
   .history-row .hr-feedback{font-size:12px; color:var(--muted); max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .history-row .hr-when{font-size:11.5px; color:var(--teal-deep); flex-shrink:0; text-align:right;}
+
+  /* Reunião em feira — calendar */
+  .feira-cal-grid{display:grid; grid-template-columns:repeat(7, 1fr); gap:3px;}
+  .feira-cal-header{margin-bottom:3px;}
+  .feira-cal-cell{min-height:56px; border-radius:6px; padding:4px; background:#FAFAFA; overflow:hidden;}
+  .feira-cal-cell.empty{background:transparent;}
+  .feira-cal-cell.head{min-height:auto; text-align:center; font-size:11px; font-weight:bold; color:var(--muted); background:transparent; padding:2px;}
+  .feira-cal-cell.has-events{background:#F2F6F4;}
+  .feira-cal-daynum{font-size:11px; color:var(--muted); margin-bottom:2px;}
+  .feira-cal-event{font-size:9.5px; padding:1px 4px; border-radius:3px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;}
+  .feira-cal-more{font-size:9.5px; color:var(--muted); padding-left:4px;}
+  @media (max-width:760px){
+    .feira-cal-cell{min-height:44px;}
+    .feira-cal-event{font-size:8.5px;}
+  }
   .nav-toggle{display:flex; gap:8px; margin-bottom:16px;}
   .nav-toggle button{
     background:#fff; border:1px solid var(--line); padding:7px 14px; border-radius:8px; font-size:12.5px; cursor:pointer; color:var(--muted);
@@ -340,12 +357,10 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 <div class="layout">
   <div class="sidebar">
     <h3>Filtrar por fruta</h3>
-    <input id="fruitSearch" type="text" placeholder="Buscar fruta…" style="width:100%; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; margin-bottom:10px;" />
+    <input id="fruitSearch" type="text" placeholder="Buscar fruta ou variedade…" style="width:100%; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; margin-bottom:10px;" />
     <div class="clear-btn" id="clearFilter" style="display:none;">&times; Limpar filtro de fruta</div>
     <div id="fruitList"></div>
     <div class="clear-btn" id="toggleFruitList" style="margin-top:6px;"></div>
-    <h3 style="margin-top:20px;">Buscar exportador</h3>
-    <input id="search" type="text" placeholder="Nome, cidade, estado…" />
   </div>
 
   <div class="main">
@@ -371,6 +386,7 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
     </div>
 
     <div class="fruit-info-panel" id="fruitInfoPanel"></div>
+    <input id="search" type="text" placeholder="🔍 Buscar por nome, cidade ou estado…" style="width:100%; padding:9px 14px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; margin-bottom:14px; box-sizing:border-box;" />
     <div id="exportersToolbar" style="display:flex; gap:8px; margin-bottom:10px;"></div>
 
     <div class="grid" id="cardGrid"></div>
@@ -462,6 +478,19 @@ function fruitColor(fruit){
   for (let i=0;i<fruit.length;i++) h = (h * 31 + fruit.charCodeAt(i)) >>> 0;
   const palette = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E'];
   return palette[h % palette.length];
+}
+
+function formatBRDate(isoDate){
+  if (!isoDate) return '';
+  const [y,m,d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+const FEIRA_PALETTE = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E','#C2703D','#4B7A5E'];
+function feiraColor(nome){
+  const n = (nome || 'Feira').trim().toUpperCase();
+  let h = 0;
+  for (let i=0;i<n.length;i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+  return FEIRA_PALETTE[h % FEIRA_PALETTE.length];
 }
 
 /* ---------- Upcoming seasons (day countdown — private view only) ---------- */
@@ -2204,7 +2233,10 @@ function renderFruitList(){
   fruits = [...fruits].sort((a,b) => fruitCount(b) - fruitCount(a));
 
   if (fruitSearchTerm){
-    fruits = fruits.filter(f => ptFruit(f).toLowerCase().includes(fruitSearchTerm) || f.toLowerCase().includes(fruitSearchTerm));
+    fruits = fruits.filter(f => {
+      const varieties = (FRUIT_GUIDE[f] && FRUIT_GUIDE[f].varieties) ? FRUIT_GUIDE[f].varieties.toLowerCase() : '';
+      return ptFruit(f).toLowerCase().includes(fruitSearchTerm) || f.toLowerCase().includes(fruitSearchTerm) || varieties.includes(fruitSearchTerm);
+    });
   }
 
   const showAll = fruitListExpanded || !!fruitSearchTerm;
@@ -2410,15 +2442,18 @@ function renderCards(){
   list.forEach(d => {
     const card = document.createElement('div');
     card.className = 'card';
-    const pills = d.all_fruits.map(f => {
+    const MAX_PILLS = 6;
+    const visiblePills = d.all_fruits.slice(0, MAX_PILLS).map(f => {
       const c = fruitColor(f);
       const confirmed = d.variety_confirmed && d.variety_confirmed[f];
       return `<span class="pill" style="background:${c}">${ptFruit(f)}${confirmed ? ' ✓' : ''}</span>`;
     }).join('');
+    const extraCount = d.all_fruits.length - MAX_PILLS;
+    const pills = visiblePills + (extraCount > 0 ? `<span class="pill pill-more">+${extraCount}</span>` : '');
     const lastRef = lastReferralOf(exporterKey(d));
     let contactBadge;
     if (d.tier === 'Prospect'){
-      contactBadge = `<div class="meta-line">${d.phone ? `<span>📞 ${d.phone}</span>` : ''}${d.email ? `<span>✉ ${d.email}</span>` : ''}</div>`;
+      contactBadge = (d.phone || d.email) ? `<div class="meta-line">${d.phone ? `<span>📞 ${d.phone}</span>` : ''}${d.email ? `<span>✉ ${d.email}</span>` : ''}</div>` : '';
     } else if (lastRef){
       const icon = FEEDBACK_ICON[lastRef.feedback] || '';
       contactBadge = `<span class="last-contact">${icon} ${lastRef.importer} · ${lastRef.season}</span>`;
@@ -2426,11 +2461,14 @@ function renderCards(){
       contactBadge = `<span class="last-contact none">Sem indicação registrada</span>`;
     }
     card.innerHTML = `
-      <div class="name">${d.trade}${d.tier === 'Prospect' ? ' <span class="prospect-tag">PROSPECT</span>' : ''}${d.role === 'Importer' ? ' <span class="importer-tag">IMPORTADOR</span>' : ''}</div>
-      <div class="site">${d.site ? d.site : ''}</div>
+      <div class="card-head">
+        <div class="name">${d.trade}</div>
+        ${d.tier === 'Prospect' || d.role === 'Importer' ? `<div class="card-tags">${d.tier === 'Prospect' ? '<span class="prospect-tag">PROSPECT</span>' : ''}${d.role === 'Importer' ? '<span class="importer-tag">IMPORTADOR</span>' : ''}</div>` : ''}
+      </div>
+      ${d.site ? `<div class="site">${d.site}</div>` : ''}
       <div class="meta-line"><span class="tier-tag">${ptTier(d.tier)}</span><span>${d.shipments} embarques</span></div>
       <div class="pills">${pills}</div>
-      ${contactBadge}
+      ${contactBadge ? `<div class="card-foot">${contactBadge}</div>` : ''}
     `;
     card.onclick = () => openModal(d);
     grid.appendChild(card);
@@ -2646,7 +2684,8 @@ function openModal(d, initialTab){
           </select>
         </div>
         <div class="cf-row" id="frDataRow" style="display:none;">
-          <input type="text" id="frData" placeholder="Data e horário da reunião (ex: 14/10, 15h no estande X)" style="flex:1;">
+          <input type="date" id="frDataDia" style="flex:0 0 170px;">
+          <input type="text" id="frData" placeholder="Horário / local (ex: 15h, estande 42)" style="flex:1;">
         </div>
         <div class="cf-row" style="align-items:flex-start;">
           <textarea id="frNotes" placeholder="Detalhes: com quem falou, local do estande, próximos passos..."></textarea>
@@ -3390,7 +3429,7 @@ async function initFeiraPane(d, key){
           <button class="fr-edit" data-id="${f.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
           <button class="fr-del" data-id="${f.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
         </div>
-        <div class="le-top"><span>${FR_STATUS_ICON[f.status] || ''} <b>${f.feira || 'Feira'}</b> · ${f.status}${f.data ? ' · ' + f.data : ''}</span></div>
+        <div class="le-top"><span>${FR_STATUS_ICON[f.status] || ''} <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${feiraColor(f.feira)}; margin-right:4px;"></span><b>${f.feira || 'Feira'}</b> · ${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}</span></div>
         <div class="le-notes">${(f.notes || '').replace(/</g,'&lt;')}</div>
       </div>
     `).join('');
@@ -3408,6 +3447,7 @@ async function initFeiraPane(d, key){
         editingFrId = f.id;
         document.getElementById('frFeira').value = f.feira || '';
         document.getElementById('frStatus').value = f.status;
+        document.getElementById('frDataDia').value = f.dataDia || '';
         document.getElementById('frData').value = f.data || '';
         document.getElementById('frDataRow').style.display = f.status === 'Reunião marcada' ? 'flex' : 'none';
         document.getElementById('frNotes').value = f.notes || '';
@@ -3424,6 +3464,7 @@ async function initFeiraPane(d, key){
     editingFrId = null;
     document.getElementById('frFeira').value = '';
     document.getElementById('frStatus').value = 'Contato feito';
+    document.getElementById('frDataDia').value = '';
     document.getElementById('frData').value = '';
     document.getElementById('frDataRow').style.display = 'none';
     document.getElementById('frNotes').value = '';
@@ -3440,6 +3481,7 @@ async function initFeiraPane(d, key){
     savingFr = true;
     const feira = document.getElementById('frFeira').value.trim();
     const status = document.getElementById('frStatus').value;
+    const dataDia = document.getElementById('frDataDia').value;
     const data = document.getElementById('frData').value.trim();
     const notes = document.getElementById('frNotes').value.trim();
     if (!feira && !notes){ savingFr = false; return; }
@@ -3448,11 +3490,11 @@ async function initFeiraPane(d, key){
     if (editingFrId){
       const idx = feiras.findIndex(f => f.id === editingFrId);
       if (idx !== -1){
-        feiras[idx] = { ...feiras[idx], feira, status, data, notes };
+        feiras[idx] = { ...feiras[idx], feira, status, dataDia, data, notes };
         entry = feiras[idx];
       }
     } else {
-      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), feira, status, data, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), feira, status, dataDia, data, notes };
       feiras.push(entry);
     }
 
@@ -3474,7 +3516,8 @@ async function initFeiraPane(d, key){
       }
       if (orgId){
         const label = entry.feira ? `Reunião em feira (${entry.feira})` : 'Reunião em feira';
-        const taskText = `${label}: ${entry.status}${entry.data ? ' — ' + entry.data : ''}${entry.notes ? ' — ' + entry.notes : ''}`;
+        const dateLabel = entry.dataDia ? formatBRDate(entry.dataDia) + (entry.data ? ' — ' + entry.data : '') : entry.data;
+        const taskText = `${label}: ${entry.status}${dateLabel ? ' — ' + dateLabel : ''}${entry.notes ? ' — ' + entry.notes : ''}`;
         const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: taskText });
         const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
         syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : friendlyAgendorError(taskResult));
@@ -3734,6 +3777,7 @@ function setNav(which){
   const histOn = which === 'history';
   document.getElementById('cardGrid').style.display = gridOn ? 'grid' : 'none';
   document.getElementById('fruitInfoPanel').style.display = gridOn ? '' : 'none';
+  document.getElementById('search').style.display = gridOn ? 'block' : 'none';
   document.getElementById('exportersToolbar').style.display = gridOn ? 'flex' : 'none';
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('historyView').style.display = histOn ? 'block' : 'none';
@@ -4149,10 +4193,13 @@ function buildUnifiedImporters(){
 }
 
 function unifiedImporterCard(item){
+  const MAX_PILLS = 6;
   if (item.kind === 'importer'){
     const imp = item.data;
     const market = item.market;
-    const pills = imp.products.map(pf => `<span class="pill" style="background:${fruitColor(pf)}">${ptFruit(pf)}</span>`).join('') || `<span class="pill" style="background:#B3B3B3;">Nenhuma fruta adicionada ainda</span>`;
+    const visible = imp.products.slice(0, MAX_PILLS).map(pf => `<span class="pill" style="background:${fruitColor(pf)}">${ptFruit(pf)}</span>`).join('');
+    const extra = imp.products.length - MAX_PILLS;
+    const pills = (visible + (extra > 0 ? `<span class="pill pill-more">+${extra}</span>` : '')) || `<span class="pill" style="background:#B3B3B3;">Nenhuma fruta adicionada ainda</span>`;
     const lastRef = lastReferralOf(exporterKey(imp));
     const feedbackBadge = lastRef
       ? `<span class="last-contact">${FEEDBACK_ICON[lastRef.feedback] || ''} ${lastRef.importer} · ${lastRef.season}</span>`
@@ -4163,11 +4210,10 @@ function unifiedImporterCard(item){
       </div>` : '';
     return `<div class="card" data-key="${exporterKey(imp).replace(/"/g,'&quot;')}">
       <div class="name">${imp.trade || imp.name}</div>
+      ${imp.destinations.length ? `<div class="site">${imp.destinations.join(', ')}</div>` : ''}
       <div class="meta-line"><span>${imp.shipments} embarques</span><span>${Math.round(imp.weight).toLocaleString()} kg</span></div>
-      <div class="site">${imp.destinations.join(', ')}</div>
       <div class="pills">${pills}</div>
-      ${feedbackBadge}
-      ${marketBadges}
+      <div class="card-foot">${feedbackBadge}${marketBadges}</div>
     </div>`;
   } else {
     const r = item.data;
@@ -4380,6 +4426,8 @@ function buildClienteGroups(){
 let clienteGroupsCache = [];
 
 let quotesViewMode = 'cotacoes'; // cotacoes | primeirocontato | feira
+let feiraCalMonth = new Date().getMonth();
+let feiraCalYear = new Date().getFullYear();
 
 function renderQuotesView(){
   const el = document.getElementById('quotesView');
@@ -4434,24 +4482,118 @@ function buildFeiraCompanyGroups(){
   return groups.sort((a,b) => a.display.localeCompare(b.display));
 }
 
+const MES_NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const DIA_SEMANA_LETRAS = ['D','S','T','Q','Q','S','S'];
+
+function getAllScheduledFeiraEvents(){
+  const events = [];
+  Object.entries(feirasCache).forEach(([key, arr]) => {
+    const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    (arr || []).forEach(f => {
+      if (f.status === 'Reunião marcada' && f.dataDia){
+        events.push({ ...f, companyKey: key, companyName: d.trade });
+      }
+    });
+  });
+  return events;
+}
+
+function renderFeiraCalendarHtml(){
+  const events = getAllScheduledFeiraEvents();
+  const firstOfMonth = new Date(feiraCalYear, feiraCalMonth, 1);
+  const startWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(feiraCalYear, feiraCalMonth + 1, 0).getDate();
+
+  const byDay = {};
+  events.forEach(e => {
+    const [y,m,d] = e.dataDia.split('-').map(Number);
+    if (y === feiraCalYear && (m-1) === feiraCalMonth){
+      (byDay[d] || (byDay[d] = [])).push(e);
+    }
+  });
+
+  // legend: unique fair names in this month
+  const fairsThisMonth = [...new Set(events.filter(e => {
+    const [y,m] = e.dataDia.split('-').map(Number);
+    return y === feiraCalYear && (m-1) === feiraCalMonth;
+  }).map(e => e.feira || 'Feira'))];
+
+  let cells = '';
+  for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
+  for (let day = 1; day <= daysInMonth; day++){
+    const dayEvents = byDay[day] || [];
+    const dots = dayEvents.slice(0,4).map(e => `<div class="feira-cal-event" style="background:${feiraColor(e.feira)}22; border-left:3px solid ${feiraColor(e.feira)};" data-key="${e.companyKey.replace(/"/g,'&quot;')}" title="${e.feira || 'Feira'} — ${e.companyName}">${e.companyName}</div>`).join('');
+    const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
+    cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
+      <div class="feira-cal-daynum">${day}</div>
+      ${dots}${more}
+    </div>`;
+  }
+
+  const legend = fairsThisMonth.length ? `<div style="display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 4px;">
+    ${fairsThisMonth.map(nome => `<span style="font-size:11.5px; display:flex; align-items:center; gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${feiraColor(nome)};display:inline-block;"></span>${nome}</span>`).join('')}
+  </div>` : '';
+
+  return `
+    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:20px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <button id="feiraCalPrev" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">‹</button>
+        <b style="font-size:14px;">${MES_NOMES[feiraCalMonth]} ${feiraCalYear}</b>
+        <button id="feiraCalNext" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">›</button>
+      </div>
+      <div class="feira-cal-grid feira-cal-header">
+        ${DIA_SEMANA_LETRAS.map(l => `<div class="feira-cal-cell head">${l}</div>`).join('')}
+      </div>
+      <div class="feira-cal-grid">${cells}</div>
+      ${legend}
+    </div>
+  `;
+}
+
+function wireFeiraCalendarNav(){
+  const prevBtn = document.getElementById('feiraCalPrev');
+  const nextBtn = document.getElementById('feiraCalNext');
+  if (prevBtn) prevBtn.onclick = () => {
+    feiraCalMonth--;
+    if (feiraCalMonth < 0){ feiraCalMonth = 11; feiraCalYear--; }
+    renderClienteGroups(document.getElementById('clienteSearch') ? document.getElementById('clienteSearch').value.trim().toLowerCase() : '');
+  };
+  if (nextBtn) nextBtn.onclick = () => {
+    feiraCalMonth++;
+    if (feiraCalMonth > 11){ feiraCalMonth = 0; feiraCalYear++; }
+    renderClienteGroups(document.getElementById('clienteSearch') ? document.getElementById('clienteSearch').value.trim().toLowerCase() : '');
+  };
+  document.querySelectorAll('.feira-cal-event').forEach(ev => {
+    ev.onclick = () => {
+      const d = EXPORTERS.find(x => exporterKey(x) === ev.dataset.key) || IMPORTERS.find(x => exporterKey(x) === ev.dataset.key);
+      if (d) openModal(d, 'feira');
+    };
+  });
+}
+
 function renderClienteGroups(filter){
   const wrap = document.getElementById('clienteGroups');
 
   if (quotesViewMode === 'feira'){
     const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
+    const calendarHtml = renderFeiraCalendarHtml();
     if (!groups.length){
-      wrap.innerHTML = '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
+      wrap.innerHTML = calendarHtml + '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
+      wireFeiraCalendarNav();
       return;
     }
-    wrap.innerHTML = groups.map(g => {
+    const rowsHtml = groups.map(g => {
       const rows = g.items.map(f => `<div class="history-row" data-exp="${g.key}">
         <div>
           <div class="hr-name">${FR_STATUS_ICON[f.status] || ''} ${f.feira || 'Feira'}</div>
-          <div class="hr-feedback">${f.status}${f.data ? ' · ' + f.data : ''}${f.notes ? ' · ' + f.notes.replace(/\n/g,' ') : ''}</div>
+          <div class="hr-feedback">${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}${f.notes ? ' · ' + f.notes.replace(/\n/g,' ') : ''}</div>
         </div>
       </div>`).join('');
       return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
     }).join('');
+    wrap.innerHTML = calendarHtml + rowsHtml;
+    wireFeiraCalendarNav();
     wrap.querySelectorAll('.history-row').forEach(row => {
       row.onclick = () => {
         const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
