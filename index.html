@@ -1504,6 +1504,7 @@ function renderRatesView(){
       <button id="openQuoteBuilderBtn" style="background:var(--teal); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💲 Gerar cotação de venda</button>
       <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">⚠ Observações de no-show</button>
       <button id="toggleCiaFeesBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💰 Taxas por CIA</button>
+      <button id="findDupRatesBtn" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">🔍 Encontrar duplicadas</button>
     </div>
     <div id="noShowWrap" style="display:none; margin-bottom:22px;"></div>
     <div id="ciaFeesWrap" style="display:none; margin-bottom:22px;"></div>
@@ -1604,6 +1605,65 @@ function renderRatesView(){
     wrap.style.display = 'block';
     renderCiaFeesView();
   };
+  document.getElementById('findDupRatesBtn').onclick = () => openDuplicateRatesReview();
+}
+
+function findDuplicateRateGroups(){
+  // Two rates count as duplicates when they'd mean the exact same thing on a quote: same
+  // CIA/type/route/weight-tier/price. Small text differences (spacing, case) are normalized
+  // away so near-duplicates from manual re-entry are still caught.
+  const norm = (s) => (s || '').toString().trim().toUpperCase().replace(/\s+/g, ' ');
+  const groups = {};
+  ratesCache.forEach(r => {
+    const { faixaKey } = parseCondicao(r.condicao);
+    const key = [norm(r.cia), norm(r.tipo), norm(r.origem), norm(r.conexao), norm(r.destino), faixaKey || 'UNICA', Number(r.tarifaBase).toFixed(2)].join('|');
+    (groups[key] || (groups[key] = [])).push(r);
+  });
+  return Object.values(groups).filter(g => g.length > 1);
+}
+
+function openDuplicateRatesReview(){
+  const dupGroups = findDuplicateRateGroups();
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const totalExtra = dupGroups.reduce((sum, g) => sum + (g.length - 1), 0);
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Tarifas duplicadas</h2>
+    <p style="font-size:13px; color:var(--muted);">${dupGroups.length ? `Encontrei ${dupGroups.length} grupo(s) com o mesmo CIA/rota/faixa/preço (${totalExtra} tarifa(s) a mais que o necessário). Já deixei uma marcada como "manter" em cada grupo — desmarque/marque conforme quiser, e remove o resto.` : 'Nenhuma tarifa duplicada encontrada — tudo certo por aqui.'}</p>
+    <div style="max-height:420px; overflow-y:auto;">
+      ${dupGroups.map((g, gi) => `
+        <div style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px;">
+          <div style="font-size:12.5px; font-weight:bold; margin-bottom:6px;">${g[0].cia} · ${g[0].origem}${g[0].conexao ? ' → ' + g[0].conexao : ''} → ${g[0].destino} · USD ${Number(g[0].tarifaBase).toFixed(2)}/kg</div>
+          ${g.map((r, ri) => `
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; padding:4px 0; ${ri > 0 ? 'color:#B3413B;' : ''}">
+              <input type="checkbox" class="dup-del-check" data-gi="${gi}" data-id="${r.id}" ${ri > 0 ? 'checked' : ''}>
+              Remover esta cópia — ${r.tipo}${r.validade ? ' · válido ' + r.validade : ''} ${ri === 0 ? '<b style="color:#2E6B39; margin-left:4px;">(sugestão: manter)</b>' : ''}
+            </label>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+    ${dupGroups.length ? `<div class="new-exp-actions">
+      <button id="dupRatesConfirm">Remover selecionadas</button>
+      <button class="cancel" onclick="closeModal()">Cancelar</button>
+    </div>` : `<div class="new-exp-actions"><button class="cancel" onclick="closeModal()">Fechar</button></div>`}
+    <span class="fs-status" id="dupRatesStatus" style="display:block; margin-top:8px;"></span>
+  `;
+  overlay.classList.add('visible');
+
+  const confirmBtn = document.getElementById('dupRatesConfirm');
+  if (confirmBtn){
+    confirmBtn.onclick = async () => {
+      confirmBtn.disabled = true;
+      const idsToRemove = new Set([...document.querySelectorAll('.dup-del-check:checked')].map(el => el.dataset.id));
+      ratesCache = ratesCache.filter(r => !idsToRemove.has(r.id));
+      await setRates(ratesCache);
+      document.getElementById('dupRatesStatus').textContent = `${idsToRemove.size} tarifa(s) removida(s) ✓`;
+      if (currentNav === 'rates') renderRatesView();
+      setTimeout(closeModal, 1000);
+    };
+  }
 }
 
 function openRateForm(rate){
@@ -1819,6 +1879,16 @@ function openQuoteBuilder(){
         </div>
       </div>
 
+      <div class="cf-row" style="margin-top:10px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px;">
+          Idioma do PDF:
+          <select id="qbLang" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px;">
+            <option value="pt">🇧🇷 Português</option>
+            <option value="en">🇺🇸 English</option>
+          </select>
+        </label>
+      </div>
+
       <div class="new-exp-actions">
         <button id="qbPreview" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">👁 Pré-visualizar</button>
         <button id="qbGenerate">Gerar PDF e enviar</button>
@@ -1908,7 +1978,8 @@ function openQuoteBuilder(){
       statusEl.textContent = cliente !== 'Cliente' ? `"${cliente}" não está no seu cadastro — cotação não foi salva lá (só o PDF é gerado).` : '';
     }
 
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true });
+    const lang = document.getElementById('qbLang').value;
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true, lang });
     if (showQuotePDF(html)) closeModal();
   };
 
@@ -1939,7 +2010,8 @@ function openQuoteBuilder(){
 
     // Preview never saves a cotação or touches Agendor — it just shows what the PDF would look
     // like, and doesn't auto-trigger the print dialog. The modal stays open so she can adjust.
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false });
+    const lang = document.getElementById('qbLang').value;
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false, lang });
     showQuotePDF(html);
   };
 }
@@ -1980,8 +2052,44 @@ function parseCondicao(condicao){
   return { faixaKey, faixaLabel, faixaSortKey, obs };
 }
 
-function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
-  const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+const PDF_I18N = {
+  pt: {
+    htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
+    proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
+    feeHint: 'As taxas da companhia aérea (CIA) estão detalhadas na seção "Taxas das Companhias", nas observações abaixo.',
+    toDoor: 'Opção To Door', aeroporto: 'Opções aeroporto',
+    thCia: 'CIA', thOrigem: 'ORIGEM', thConexao: 'CONEXÃO', thDestino: 'DESTINO', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
+    thObs: 'OBSERVAÇÕES', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
+    pesoMinimo: (v) => `Peso mínimo: ${v}kg`, valido: (v) => `Válido: ${v}`,
+    taxasCias: 'Taxas das Companhias', condicoesNoShow: 'Condições de No-Show',
+    notesTitle: 'Notes:', notesFx: 'Taxa de câmbio apenas para fins de referência.',
+    notesPtax: 'Para valores em moeda estrangeira será considerado o Ptax do dia anterior ao faturamento, acrescido de spread cambial negociado comercialmente.',
+    termsTitle: 'Termos e Condições:',
+    terms: 'Esta Proposta é baseada nas informações fornecidas por V.Sas. Qualquer alteração, seja de dimensões, peso, embalagem ou datas poderão influenciar nas condições ofertadas. // As tarifas dessa proposta não são validas para cargas perigosas, perecíveis e valiosas, salvo se referido serviço for objeto da proposta. // Esta proposta está sujeita a disponibilidade de espaço e equipamento. // A presente oferta está baseada nas tarifas e custos vigentes fornecidos pelas companhias aéreas, marítimas e transportadoras, podendo sofrer alterações até a data do efetivo embarque. A Hevile se reserva no direito de alterar os preços e condições das propostas em havendo inclusão ou alteração de impostos, tarifas e taxas portuárias ou alfandegárias, ou ainda reajuste de preços por parte das companhias de transporte, passando a vigorar de imediato as novas tarifas para os embarques que sucederem aos aumentos dos preços. A Hevile atuando na forma de agenciadora de transporte internacional, gerencia e coordena a movimentação de cargas utilizando-se de terceiros subcontratados. Neste sentido, todas as despesas incorridas com serviços subcontratados serão integralmente repassadas à contratante. // O transit time informado é estimado. A Hevile não se responsabiliza por atrasos na entrega das mercadorias decorrentes dos cronogramas de embarque das companhias aéreas, marítimas e rodoviárias. // O valor do frete não contempla o ad valorem destinado à cobertura/indenização do valor da carga em caso de sinistro, perda, furto, roubo ou avaria. Sugerimos a nossos clientes a contratação do seguro de transporte. // O pagamento do valor do frete e demais taxas será faturado à vista e será convertido em moeda corrente nacional pela cotação do valor de mercado da moeda estrangeira na data do faturamento pela taxa PTAX acrescido de 5%. // Ressaltamos que todas as operações da Hevile Logística e Consultoria Internacional Ltda. são regidas pelas Condições Gerais de Negócios registradas no 2º Cartório Oficial de Registro de Títulos e Documentos de Recife sob o nº 470079, disponível através de nossa equipe, mediante solicitação.',
+    footerH2: 'ENTREGAMOS<br><b>A MELHOR CONEXÃO<br>COM VOCÊ TAMBÉM.</b><br>FALE COM A HEVILE.',
+    tel: 'Telefone', email: 'e-mail', filial: 'FILIAL',
+  },
+  en: {
+    htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
+    proposta: 'PROPOSAL', validadeLabel: 'Valid until', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
+    feeHint: 'Airline (CIA) fees are detailed in the "Airline Fees" section, in the notes below.',
+    toDoor: 'To Door Option', aeroporto: 'Airport Options',
+    thCia: 'AIRLINE', thOrigem: 'ORIGIN', thConexao: 'CONNECTION', thDestino: 'DESTINATION', thTarifa: 'RATE', thUsdKg: 'USD/kg',
+    thObs: 'NOTES', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
+    pesoMinimo: (v) => `Minimum weight: ${v}kg`, valido: (v) => `Valid: ${v}`,
+    taxasCias: 'Airline Fees', condicoesNoShow: 'No-Show Conditions',
+    notesTitle: 'Notes:', notesFx: 'Exchange rate for reference purposes only.',
+    notesPtax: 'For amounts in foreign currency, the PTAX rate from the day before invoicing will be used, plus a commercially negotiated exchange spread.',
+    termsTitle: 'Terms and Conditions:',
+    terms: 'This Proposal is based on the information provided by your company. Any change in dimensions, weight, packaging, or dates may affect the conditions offered. // The rates in this proposal are not valid for dangerous, perishable, or valuable cargo, unless such service is the specific subject of the proposal. // This proposal is subject to space and equipment availability. // This offer is based on the rates and costs currently provided by airlines, shipping lines, and carriers, and may change up to the date of actual shipment. Hevile reserves the right to change prices and conditions in the event of the inclusion or change of taxes, port or customs fees, or price adjustments by transport companies, with the new rates taking immediate effect for shipments following such increases. Hevile, acting as an international freight forwarder, manages and coordinates cargo movement using subcontracted third parties. Accordingly, all expenses incurred with subcontracted services will be fully passed on to the client. // The transit time provided is an estimate. Hevile is not responsible for delivery delays resulting from the shipping schedules of airlines, shipping lines, or trucking companies. // The freight amount does not include ad valorem insurance covering the cargo value in case of loss, theft, or damage. We recommend our clients take out cargo insurance. // Payment of freight and other fees will be invoiced in full and converted into local currency based on the market exchange rate on the invoicing date, using the PTAX rate plus 5%. // Please note that all operations of Hevile Logística e Consultoria Internacional Ltda. are governed by the General Business Terms registered with the 2nd Official Registry of Deeds and Documents of Recife under no. 470079, available from our team upon request.',
+    footerH2: 'WE DELIVER<br><b>THE BEST CONNECTION<br>WITH YOU TOO.</b><br>TALK TO HEVILE.',
+    tel: 'Phone', email: 'email', filial: 'BRANCH',
+  },
+};
+
+function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang }){
+  const L = PDF_I18N[lang] || PDF_I18N.pt;
+  const todayStr = new Date().toLocaleDateString(L.dateLocale, { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
   rates.forEach(r => { (groups[r.tipo] || (groups[r.tipo] = [])).push(r); });
 
@@ -1999,13 +2107,13 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
       faixaSet.set(colKey, { label: faixaKey ? faixaLabel : '', sortKey: faixaSortKey });
     });
     const faixaCols = [...faixaSet.entries()].sort((a,b) => a[1].sortKey - b[1].sortKey).map(e => e[0]);
-    const faixaHeaders = faixaCols.map(f => `<th>TARIFA ${faixaSet.get(f).label}<br>USD/kg</th>`).join('');
+    const faixaHeaders = faixaCols.map(f => `<th>${L.thTarifa} ${faixaSet.get(f).label}<br>${L.thUsdKg}</th>`).join('');
 
     const bodyRows = Object.values(groupsMap).map(g => {
       const r = g.r;
       const faixaCells = faixaCols.map(f => g.faixas[f] != null ? `<td>USD ${g.faixas[f].toFixed(2)}</td>` : `<td>—</td>`).join('');
-      const minToDoorText = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? `Peso mínimo: ${Number(r.pesoMinimoToDoor).toLocaleString('pt-BR')}kg` : '';
-      const diasText = (r.diasSemana && r.diasSemana.length) ? `Válido: ${r.diasSemana.join(', ')}` : '';
+      const minToDoorText = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? L.pesoMinimo(Number(r.pesoMinimoToDoor).toLocaleString(L.dateLocale)) : '';
+      const diasText = (r.diasSemana && r.diasSemana.length) ? L.valido(r.diasSemana.join(', ')) : '';
       const obsCombined = [g.obs, diasText, minToDoorText].filter(Boolean).join(' · ');
       return `<tr>
         <td>${r.cia}</td><td>${r.origem}</td><td>${r.conexao||'—'}</td><td>${r.destino}</td>
@@ -2023,9 +2131,9 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
         <col style="width:20%"><col style="width:9%"><col style="width:9%">
       </colgroup>
       <thead><tr>
-        <th>CIA</th><th>ORIGEM</th><th>CONEXÃO</th><th>DESTINO</th>
+        <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thConexao}</th><th>${L.thDestino}</th>
         ${faixaHeaders}
-        <th>OBSERVAÇÕES</th><th>DESEMBARAÇO<br>P/AWB</th><th>ARMAZENAGEM<br>USD/kg</th>
+        <th>${L.thObs}</th><th>${L.thDesembaraco}<br>${L.thPawb}</th><th>${L.thArmazenagem}<br>USD/kg</th>
       </tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>`;
@@ -2035,8 +2143,8 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
   const relevantFees = ciaFeesCache.filter(f => ciasInQuote.includes(f.cia));
 
-  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-  <title>Proposta - ${cliente}</title>
+  const html = `<!DOCTYPE html><html lang="${L.htmlLang}"><head><meta charset="UTF-8">
+  <title>${L.title(cliente)}</title>
   <style>
     @page { size: A4; margin: 0; }
     *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
@@ -2067,17 +2175,17 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
   </div>
 
   <div class="pq-page">
-    <div class="pq-title">PROPOSTA</div>
+    <div class="pq-title">${L.proposta}</div>
     <div class="pq-meta">
       <div>${todayStr};</div>
-      <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>Validade: ${validade}</b></div>
+      <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div>
     </div>
-    <div class="pq-intro">Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${cliente}</b>.</div>
-    ${relevantFees.length ? `<div class="pq-fee-hint">As taxas da companhia aérea (CIA) estão detalhadas na seção "Taxas das Companhias", nas observações abaixo.</div>` : ''}
-    ${groups['To Door'].length ? `<div class="pq-section-label">Opção To Door</div>${tableFor(groups['To Door'])}` : ''}
-    ${groups['Aeroporto'].length ? `<div class="pq-section-label">Opções aeroporto</div>${tableFor(groups['Aeroporto'])}` : ''}
+    <div class="pq-intro">${L.intro(cliente)}</div>
+    ${relevantFees.length ? `<div class="pq-fee-hint">${L.feeHint}</div>` : ''}
+    ${groups['To Door'].length ? `<div class="pq-section-label">${L.toDoor}</div>${tableFor(groups['To Door'])}` : ''}
+    ${groups['Aeroporto'].length ? `<div class="pq-section-label">${L.aeroporto}</div>${tableFor(groups['Aeroporto'])}` : ''}
     ${relevantFees.length ? `
-      <div class="pq-section-label">Taxas das Companhias</div>
+      <div class="pq-section-label">${L.taxasCias}</div>
       <div class="pq-notes" style="margin-top:0;">
         ${ciasInQuote.filter(cia => relevantFees.some(f => f.cia === cia)).map(cia => {
           const feesForCia = relevantFees.filter(f => f.cia === cia);
@@ -2086,32 +2194,32 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint }){
       </div>
     ` : ''}
     ${relevantNoShow.length ? `
-      <div class="pq-section-label">Condições de No-Show</div>
+      <div class="pq-section-label">${L.condicoesNoShow}</div>
       <div class="pq-notes" style="margin-top:0;">
         ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br><br>')}
       </div>
     ` : ''}
     <div class="pq-notes">
-      Notes:<br>
-      - Taxa de câmbio apenas para fins de referência.<br>
-      - Para valores em moeda estrangeira será considerado o Ptax do dia anterior ao faturamento, acrescido de spread cambial negociado comercialmente.
+      ${L.notesTitle}<br>
+      - ${L.notesFx}<br>
+      - ${L.notesPtax}
     </div>
   </div>
 
   <div class="pq-page">
-    <b style="font-size:12px;">Termos e Condições:</b>
+    <b style="font-size:12px;">${L.termsTitle}</b>
     <p class="pq-terms">
-      Esta Proposta é baseada nas informações fornecidas por V.Sas. Qualquer alteração, seja de dimensões, peso, embalagem ou datas poderão influenciar nas condições ofertadas. // As tarifas dessa proposta não são validas para cargas perigosas, perecíveis e valiosas, salvo se referido serviço for objeto da proposta. // Esta proposta está sujeita a disponibilidade de espaço e equipamento. // A presente oferta está baseada nas tarifas e custos vigentes fornecidos pelas companhias aéreas, marítimas e transportadoras, podendo sofrer alterações até a data do efetivo embarque. A Hevile se reserva no direito de alterar os preços e condições das propostas em havendo inclusão ou alteração de impostos, tarifas e taxas portuárias ou alfandegárias, ou ainda reajuste de preços por parte das companhias de transporte, passando a vigorar de imediato as novas tarifas para os embarques que sucederem aos aumentos dos preços. A Hevile atuando na forma de agenciadora de transporte internacional, gerencia e coordena a movimentação de cargas utilizando-se de terceiros subcontratados. Neste sentido, todas as despesas incorridas com serviços subcontratados serão integralmente repassadas à contratante. // O transit time informado é estimado. A Hevile não se responsabiliza por atrasos na entrega das mercadorias decorrentes dos cronogramas de embarque das companhias aéreas, marítimas e rodoviárias. // O valor do frete não contempla o ad valorem destinado à cobertura/indenização do valor da carga em caso de sinistro, perda, furto, roubo ou avaria. Sugerimos a nossos clientes a contratação do seguro de transporte. // O pagamento do valor do frete e demais taxas será faturado à vista e será convertido em moeda corrente nacional pela cotação do valor de mercado da moeda estrangeira na data do faturamento pela taxa PTAX acrescido de 5%. // Ressaltamos que todas as operações da Hevile Logística e Consultoria Internacional Ltda. são regidas pelas Condições Gerais de Negócios registradas no 2º Cartório Oficial de Registro de Títulos e Documentos de Recife sob o nº 470079, disponível através de nossa equipe, mediante solicitação.
+      ${L.terms}
     </p>
   </div>
 
   <div class="pq-page pq-footer">
-    <h2>ENTREGAMOS<br><b>A MELHOR CONEXÃO<br>COM VOCÊ TAMBÉM.</b><br>FALE COM A HEVILE.</h2>
-    <b>RECIFE, PERNAMBUCO</b>Telefone: +55 81 3465.1017 · e-mail: hevile@hevile.com.br
-    <b>FILIAL: BELÉM, PARÁ</b>Telefone: +55 91 99112.3369 · e-mail: belem@hevile.com.br
-    <b>FILIAL: NATAL, RIO GRANDE DO NORTE</b>Telefone: +55 84 3301.8499 · e-mail: natal@hevile.com.br
-    <b>FILIAL: RIO DE JANEIRO, RJ</b>Telefone: +55 21 3795.7523 · e-mail: rio@hevile.com.br
-    <b>FILIAL: RECIFE, PERNAMBUCO - AEROPORTO</b>Telefone: +55 81 3322.4277 · e-mail: air.ops.rec@hevile.com.br
+    <h2>${L.footerH2}</h2>
+    <b>RECIFE, PERNAMBUCO</b>${L.tel}: +55 81 3465.1017 · ${L.email}: hevile@hevile.com.br
+    <b>${L.filial}: BELÉM, PARÁ</b>${L.tel}: +55 91 99112.3369 · ${L.email}: belem@hevile.com.br
+    <b>${L.filial}: NATAL, RIO GRANDE DO NORTE</b>${L.tel}: +55 84 3301.8499 · ${L.email}: natal@hevile.com.br
+    <b>${L.filial}: RIO DE JANEIRO, RJ</b>${L.tel}: +55 21 3795.7523 · ${L.email}: rio@hevile.com.br
+    <b>${L.filial}: RECIFE, PERNAMBUCO - AEROPORTO</b>${L.tel}: +55 81 3322.4277 · ${L.email}: air.ops.rec@hevile.com.br
   </div>
 
   <script>window.onload = () => { ${autoprint ? 'window.print();' : ''} };<\/script>
