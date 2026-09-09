@@ -51,15 +51,17 @@
     width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; margin-bottom:16px;
   }
   .fruit-chip{
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    display:flex; flex-direction:column; align-items:stretch; gap:1px;
     padding:7px 10px; border-radius:8px; margin-bottom:4px; cursor:pointer; font-size:13px;
     border:1px solid transparent;
   }
   .fruit-chip:hover{background:#F5F5F5;}
   .fruit-chip.active{background:var(--teal); color:#fff;}
+  .fruit-chip .fc-top{display:flex; align-items:center; justify-content:space-between; gap:8px;}
   .fruit-chip .dot{width:9px;height:9px;border-radius:50%; flex-shrink:0; display:inline-block; margin-right:7px;}
   .fruit-chip .name{display:flex; align-items:center;}
   .fruit-chip .count{font-size:11px; opacity:.7;}
+  .fruit-chip .variety-sub{font-size:10.5px; opacity:.65; padding-left:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .variety-chip{
     display:inline-flex; align-items:center; padding:5px 12px; border-radius:14px; font-size:12px;
     border:1.5px solid var(--line); cursor:pointer; background:#fff; color:var(--muted); user-select:none;
@@ -2144,6 +2146,18 @@ async function loadFirstContactsCache(){
   });
 }
 
+let feirasCache = {};
+async function loadFeirasCache(){
+  feirasCache = {};
+  const entries = await backendListValues('hevile_feira:');
+  entries.forEach(({key, value}) => {
+    try{
+      const arr = JSON.parse(value);
+      if (arr && arr.length) feirasCache[key.replace('hevile_feira:', '')] = arr;
+    } catch(e){ /* skip corrupted entry */ }
+  });
+}
+
 const FEEDBACK_ICON = { 'Positive': '✅', 'Negative': '❌', 'Neutral': '➖' };
 
 function lastReferralOf(key){
@@ -2200,7 +2214,14 @@ function renderFruitList(){
     const color = fruitColor(f);
     const chip = document.createElement('div');
     chip.className = 'fruit-chip' + (activeFruit === f ? ' active' : '');
-    chip.innerHTML = `<span class="name"><span class="dot" style="background:${color}"></span>${ptFruit(f)}</span><span class="count">${fruitCount(f)}</span>`;
+    const varieties = (FRUIT_GUIDE[f] && FRUIT_GUIDE[f].varieties && FRUIT_GUIDE[f].varieties !== '—') ? FRUIT_GUIDE[f].varieties : '';
+    chip.innerHTML = `
+      <div class="fc-top">
+        <span class="name"><span class="dot" style="background:${color}"></span>${ptFruit(f)}</span>
+        <span class="count">${fruitCount(f)}</span>
+      </div>
+      ${varieties ? `<div class="variety-sub" title="${varieties}">${varieties}</div>` : ''}
+    `;
     chip.onclick = () => { activeFruit = (activeFruit === f) ? null : f; render(); };
     el.appendChild(chip);
   });
@@ -2373,7 +2394,9 @@ function renderCards(){
   grid.innerHTML = '';
   let list = EXPORTERS.filter(d => {
     const aliasTarget = exporterAliases[normalizeName(d.name)];
-    return !aliasTarget || normalizeName(aliasTarget) === normalizeName(d.name);
+    if (aliasTarget && normalizeName(aliasTarget) !== normalizeName(d.name)) return false;
+    if (convertedTypes[normalizeName(d.name)] === 'importer') return false;
+    return true;
   });
   list = list.filter(d => matchesFruit(d) && matchesSearch(d));
   if (onlyProspects) list = list.filter(d => isProspect(d));
@@ -2462,10 +2485,11 @@ function openModal(d, initialTab){
     <span class="site-link">${siteHtml}</span>
 
     <div class="modal-tabs">
-      <div class="modal-tab${initialTab==='perfil'||initialTab==='frutas'||initialTab==='cotacoes'||initialTab==='historico'||initialTab==='primeirocontato'?'':' active'}" data-tab="perfil">Perfil</div>
+      <div class="modal-tab${initialTab==='perfil'||initialTab==='frutas'||initialTab==='cotacoes'||initialTab==='historico'||initialTab==='primeirocontato'||initialTab==='feira'?'':' active'}" data-tab="perfil">Perfil</div>
       <div class="modal-tab${initialTab==='frutas'?' active':''}" data-tab="frutas">Frutas</div>
       <div class="modal-tab${initialTab==='cotacoes'?' active':''}" data-tab="cotacoes">Cotações</div>
       <div class="modal-tab${initialTab==='primeirocontato'?' active':''}" data-tab="primeirocontato">Primeiro Contato</div>
+      <div class="modal-tab${initialTab==='feira'?' active':''}" data-tab="feira">Reunião em Feira</div>
       <div class="modal-tab${initialTab==='historico'?' active':''}" data-tab="historico">Indicações e feedback</div>
     </div>
 
@@ -2499,6 +2523,11 @@ function openModal(d, initialTab){
       ${EXPORTERS.includes(d) ? `
         <div style="margin-top:10px;">
           <button id="convertToImporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Importador</button>
+        </div>
+      ` : ''}
+      ${IMPORTERS.includes(d) ? `
+        <div style="margin-top:10px;">
+          <button id="convertToExporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Exportador</button>
         </div>
       ` : ''}
       ${IMPORTERS.includes(d) ? `
@@ -2601,6 +2630,37 @@ function openModal(d, initialTab){
       <div style="font-size:11px; color:var(--muted); margin-top:6px;">Isso vai pro Agendor como nota direto no histórico do cliente — não cria negócio.</div>
       <h4 style="margin-top:16px;">Contatos registrados</h4>
       <div id="fcList"><div class="log-empty">Carregando…</div></div>
+    </div>
+
+    <div class="modal-pane${initialTab==='feira'?' active':''}" data-pane="feira">
+      <h4 id="frFormTitle">Registrar reunião em feira</h4>
+      <div class="contact-form">
+        <div class="cf-row">
+          <input type="text" id="frFeira" placeholder="Nome da feira (ex: Fruit Attraction 2026)" style="flex:1.4;">
+          <select id="frStatus" style="flex:0 0 190px;">
+            <option value="Contato feito">📨 Contato feito</option>
+            <option value="Aguardando resposta">⏳ Aguardando resposta</option>
+            <option value="Vai à feira">✅ Vai à feira</option>
+            <option value="Não vai à feira">✕ Não vai à feira</option>
+            <option value="Reunião marcada">📅 Reunião marcada</option>
+          </select>
+        </div>
+        <div class="cf-row" id="frDataRow" style="display:none;">
+          <input type="text" id="frData" placeholder="Data e horário da reunião (ex: 14/10, 15h no estande X)" style="flex:1;">
+        </div>
+        <div class="cf-row" style="align-items:flex-start;">
+          <textarea id="frNotes" placeholder="Detalhes: com quem falou, local do estande, próximos passos..."></textarea>
+          <button type="button" class="voice-btn" data-target="frNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
+        </div>
+        <button id="frSave">Salvar</button>
+        <button id="frCorrigir" type="button" style="display:none; background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">✎ Corrigir (sem histórico novo)</button>
+        <button id="frAtualizar" type="button" style="display:none;">↻ Atualizar (nova etapa)</button>
+        <button id="frCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
+        <span class="fs-status" id="frSyncStatus"></span>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:6px;">Isso vai pro Agendor como nota direto no histórico do cliente — não cria negócio.</div>
+      <h4 style="margin-top:16px;">Feiras registradas</h4>
+      <div id="frList"><div class="log-empty">Carregando…</div></div>
     </div>
 
     <div class="modal-pane${initialTab==='historico'?' active':''}" data-pane="historico">
@@ -2780,11 +2840,40 @@ function openModal(d, initialTab){
       const customImp = await getCustomImporters();
       customImp.push(importerEntry);
       await setCustomImporters(customImp);
+      await markConverted(d.name, 'importer');
 
       closeModal();
       renderStats();
       render();
       if (currentNav === 'importers') renderImportersView();
+    };
+  }
+
+  const convertToExporterBtn = document.getElementById('convertToExporterBtn');
+  if (convertToExporterBtn){
+    convertToExporterBtn.onclick = async () => {
+      if (!confirm(`Converter "${d.trade}" de importador para exportador?\n\nAs indicações, cotações e outros dados já registrados continuam ligados normalmente, já que o nome não muda.`)) return;
+      const idx = IMPORTERS.findIndex(x => exporterKey(x) === key);
+      if (idx !== -1) IMPORTERS.splice(idx, 1);
+      const customImp = await getCustomImporters();
+      await setCustomImporters(customImp.filter(x => exporterKey(x) !== key));
+
+      const exporterEntry = {
+        name: d.name, trade: d.trade, display: d.display || d.trade, site: d.site || null,
+        phone: d.phone || '', email: d.email || '', active: true, tier: 'Manually added',
+        shipments: d.shipments || 0, all_fruits: [...(d.all_fruits || [])],
+        variety_confirmed: d.variety_confirmed || {}, source: d.source || 'Convertido de importador',
+        custom: true
+      };
+      EXPORTERS.push(exporterEntry);
+      const customExp = await getCustomExporters();
+      customExp.push(exporterEntry);
+      await setCustomExporters(customExp);
+      await markConverted(d.name, 'exporter');
+
+      closeModal();
+      renderStats();
+      render();
     };
   }
 
@@ -2819,6 +2908,20 @@ function openModal(d, initialTab){
       // Teach the matcher this alias permanently, so future market-data imports and the
       // weekly DUE import recognize "d.name" as the same company from now on.
       await addExporterAlias(d.name, targetKey);
+
+      // Carry over history (cotações, indicações, primeiro contato) from the duplicate into
+      // the target's records, instead of leaving it orphaned under the removed key.
+      const [srcQuotes, tgtQuotes] = await Promise.all([getQuotes(key), getQuotes(targetKey)]);
+      if (srcQuotes.length){ await setQuotes(targetKey, [...tgtQuotes, ...srcQuotes]); quotesCache[targetKey] = [...tgtQuotes, ...srcQuotes]; }
+      const [srcRefs, tgtRefs] = await Promise.all([getReferrals(key), getReferrals(targetKey)]);
+      if (srcRefs.length){ await setReferrals(targetKey, [...tgtRefs, ...srcRefs]); referralsCache[targetKey] = [...tgtRefs, ...srcRefs]; }
+      const [srcFc, tgtFc] = await Promise.all([getFirstContacts(key), getFirstContacts(targetKey)]);
+      if (srcFc.length){ await setFirstContacts(targetKey, [...tgtFc, ...srcFc]); firstContactsCache[targetKey] = [...tgtFc, ...srcFc]; }
+      const srcFeedback = await getFeedback(key);
+      if (srcFeedback){
+        const tgtFeedback = await getFeedback(targetKey);
+        await setFeedback(targetKey, tgtFeedback ? tgtFeedback + '\n\n---\n\n' + srcFeedback : srcFeedback);
+      }
 
       const idx = IMPORTERS.findIndex(x => exporterKey(x) === key);
       if (idx !== -1) IMPORTERS.splice(idx, 1);
@@ -2862,6 +2965,20 @@ function openModal(d, initialTab){
       // weekly DUE import recognize "d.name" as the same company from now on.
       await addExporterAlias(d.name, targetKey);
 
+      // Carry over history (cotações, indicações, primeiro contato) from the duplicate into
+      // the target's records, instead of leaving it orphaned under the removed key.
+      const [srcQuotes, tgtQuotes] = await Promise.all([getQuotes(key), getQuotes(targetKey)]);
+      if (srcQuotes.length){ await setQuotes(targetKey, [...tgtQuotes, ...srcQuotes]); quotesCache[targetKey] = [...tgtQuotes, ...srcQuotes]; }
+      const [srcRefs, tgtRefs] = await Promise.all([getReferrals(key), getReferrals(targetKey)]);
+      if (srcRefs.length){ await setReferrals(targetKey, [...tgtRefs, ...srcRefs]); referralsCache[targetKey] = [...tgtRefs, ...srcRefs]; }
+      const [srcFc, tgtFc] = await Promise.all([getFirstContacts(key), getFirstContacts(targetKey)]);
+      if (srcFc.length){ await setFirstContacts(targetKey, [...tgtFc, ...srcFc]); firstContactsCache[targetKey] = [...tgtFc, ...srcFc]; }
+      const srcFeedback = await getFeedback(key);
+      if (srcFeedback){
+        const tgtFeedback = await getFeedback(targetKey);
+        await setFeedback(targetKey, tgtFeedback ? tgtFeedback + '\n\n---\n\n' + srcFeedback : srcFeedback);
+      }
+
       const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
       if (idx !== -1) EXPORTERS.splice(idx, 1);
       const customExp = await getCustomExporters();
@@ -2898,6 +3015,7 @@ function openModal(d, initialTab){
 
   initQuotesPane(d, key);
   initPrimeiroContatoPane(d, key);
+  initFeiraPane(d, key);
   initHistoricoPane(d, key);
 }
 
@@ -2961,6 +3079,7 @@ function initVoiceButtons(root){
 
 const QUOTE_STATUS_ICON = { 'Solicitado CIA': '📨', 'Criação de cotação': '📝', 'Cotação enviada': '✅', 'Cotação aprovada': '✔', 'Cotação negada': '✕' };
 const FC_STATUS_ICON = { 'Contato enviado': '📨', 'Aguardando resposta': '⏳', 'Respondeu com dados': '✅', 'Sem resposta': '✕' };
+const FR_STATUS_ICON = { 'Contato feito': '📨', 'Aguardando resposta': '⏳', 'Vai à feira': '✅', 'Não vai à feira': '✕', 'Reunião marcada': '📅' };
 
 async function syncQuoteToAgendor(d, quote, statusChanged){
   if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
@@ -3236,6 +3355,143 @@ async function initPrimeiroContatoPane(d, key){
   document.getElementById('fcSave').onclick = () => saveFc(true);
   document.getElementById('fcAtualizar').onclick = () => saveFc(true);
   document.getElementById('fcCorrigir').onclick = () => saveFc(false);
+}
+
+async function getFeiras(key){
+  try{
+    const v = await backendGet('hevile_feira:' + key);
+    return v ? JSON.parse(v) : [];
+  } catch(e){ return []; }
+}
+async function setFeiras(key, arr){
+  await backendSet('hevile_feira:' + key, JSON.stringify(arr));
+}
+
+async function initFeiraPane(d, key){
+  const frListEl = document.getElementById('frList');
+  let feiras = await getFeiras(key);
+  let editingFrId = null;
+  let savingFr = false;
+  renderFrList();
+
+  document.getElementById('frStatus').addEventListener('change', (e) => {
+    document.getElementById('frDataRow').style.display = e.target.value === 'Reunião marcada' ? 'flex' : 'none';
+  });
+
+  function renderFrList(){
+    if (!feiras.length){
+      frListEl.innerHTML = '<div class="log-empty">Nenhuma feira registrada ainda.</div>';
+      return;
+    }
+    const sorted = [...feiras].sort((a,b) => (b.ts||0) - (a.ts||0));
+    frListEl.innerHTML = sorted.map(f => `
+      <div class="log-entry" data-id="${f.id}" style="position:relative;">
+        <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
+          <button class="fr-edit" data-id="${f.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
+          <button class="fr-del" data-id="${f.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
+        </div>
+        <div class="le-top"><span>${FR_STATUS_ICON[f.status] || ''} <b>${f.feira || 'Feira'}</b> · ${f.status}${f.data ? ' · ' + f.data : ''}</span></div>
+        <div class="le-notes">${(f.notes || '').replace(/</g,'&lt;')}</div>
+      </div>
+    `).join('');
+    frListEl.querySelectorAll('.fr-del').forEach(btn => {
+      btn.onclick = async () => {
+        feiras = feiras.filter(f => f.id !== btn.dataset.id);
+        await setFeiras(key, feiras);
+        renderFrList();
+      };
+    });
+    frListEl.querySelectorAll('.fr-edit').forEach(btn => {
+      btn.onclick = () => {
+        const f = feiras.find(x => x.id === btn.dataset.id);
+        if (!f) return;
+        editingFrId = f.id;
+        document.getElementById('frFeira').value = f.feira || '';
+        document.getElementById('frStatus').value = f.status;
+        document.getElementById('frData').value = f.data || '';
+        document.getElementById('frDataRow').style.display = f.status === 'Reunião marcada' ? 'flex' : 'none';
+        document.getElementById('frNotes').value = f.notes || '';
+        document.getElementById('frFormTitle').textContent = 'Editando reunião em feira';
+        document.getElementById('frSave').style.display = 'none';
+        document.getElementById('frCorrigir').style.display = 'inline-block';
+        document.getElementById('frAtualizar').style.display = 'inline-block';
+        document.getElementById('frCancelEdit').style.display = 'inline-block';
+      };
+    });
+  }
+
+  function resetFrForm(){
+    editingFrId = null;
+    document.getElementById('frFeira').value = '';
+    document.getElementById('frStatus').value = 'Contato feito';
+    document.getElementById('frData').value = '';
+    document.getElementById('frDataRow').style.display = 'none';
+    document.getElementById('frNotes').value = '';
+    document.getElementById('frFormTitle').textContent = 'Registrar reunião em feira';
+    document.getElementById('frSave').style.display = 'inline-block';
+    document.getElementById('frCorrigir').style.display = 'none';
+    document.getElementById('frAtualizar').style.display = 'none';
+    document.getElementById('frCancelEdit').style.display = 'none';
+  }
+  document.getElementById('frCancelEdit').onclick = resetFrForm;
+
+  async function saveFr(syncToAgendor){
+    if (savingFr) return;
+    savingFr = true;
+    const feira = document.getElementById('frFeira').value.trim();
+    const status = document.getElementById('frStatus').value;
+    const data = document.getElementById('frData').value.trim();
+    const notes = document.getElementById('frNotes').value.trim();
+    if (!feira && !notes){ savingFr = false; return; }
+
+    let entry;
+    if (editingFrId){
+      const idx = feiras.findIndex(f => f.id === editingFrId);
+      if (idx !== -1){
+        feiras[idx] = { ...feiras[idx], feira, status, data, notes };
+        entry = feiras[idx];
+      }
+    } else {
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), feira, status, data, notes };
+      feiras.push(entry);
+    }
+
+    const syncStatus = document.getElementById('frSyncStatus');
+    syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
+    await setFeiras(key, feiras);
+    syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
+
+    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
+      syncStatus.textContent += ' · Enviando pro Agendor…';
+      let orgId = d.agendorOrgId;
+      if (!orgId){
+        const pushResult = await agendorPushOrg(d);
+        orgId = extractOrgId(pushResult);
+        if (orgId){ d.agendorOrgId = orgId; await setContactOverride(key, { phone: d.phone, email: d.email, site: d.site, agendorOrgId: orgId }); }
+        if (!orgId){
+          syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', friendlyAgendorError(pushResult));
+        }
+      }
+      if (orgId){
+        const label = entry.feira ? `Reunião em feira (${entry.feira})` : 'Reunião em feira';
+        const taskText = `${label}: ${entry.status}${entry.data ? ' — ' + entry.data : ''}${entry.notes ? ' — ' + entry.notes : ''}`;
+        const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: taskText });
+        const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
+        syncStatus.textContent = syncStatus.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : friendlyAgendorError(taskResult));
+      }
+    } else if (!syncToAgendor && editingFrId){
+      syncStatus.textContent += ' · Correção salva sem criar histórico novo no Agendor';
+    }
+
+    renderFrList();
+    resetFrForm();
+    feirasCache[key] = feiras;
+    savingFr = false;
+  }
+
+  document.getElementById('frSave').onclick = () => saveFr(true);
+  document.getElementById('frAtualizar').onclick = () => saveFr(true);
+  document.getElementById('frCorrigir').onclick = () => saveFr(false);
 }
 
 async function initHistoricoPane(d, key){
@@ -3559,6 +3815,27 @@ async function addExporterAlias(aliasNameRaw, targetKey){
   await setExporterAliases(exporterAliases);
 }
 
+// ---- Tracks companies converted from one type to the other (Exportador <-> Importador),
+// so a static/seed entry doesn't reappear on its original side after a page reload — same
+// problem the merge feature has for entries that aren't in the "custom" storage. ----
+let convertedTypes = {}; // normalized name -> 'importer' | 'exporter' (the type it now IS)
+async function getConvertedTypes(){
+  try{
+    const v = await backendGet('hevile_converted_types');
+    return v ? JSON.parse(v) : {};
+  } catch(e){ return {}; }
+}
+async function setConvertedTypes(obj){
+  await backendSet('hevile_converted_types', JSON.stringify(obj));
+}
+async function loadConvertedTypes(){
+  convertedTypes = await getConvertedTypes();
+}
+async function markConverted(nameRaw, newType){
+  convertedTypes[normalizeName(nameRaw)] = newType;
+  await setConvertedTypes(convertedTypes);
+}
+
 function findExporterMatch(nameRaw){
   const cname = normalizeName(nameRaw);
   if (!cname) return null;
@@ -3817,7 +4094,9 @@ function buildUnifiedImporters(){
   // outright the way custom/manually-added ones can).
   const activeImporters = IMPORTERS.filter(imp => {
     const aliasTarget = exporterAliases[normalizeName(imp.name)];
-    return !aliasTarget || normalizeName(aliasTarget) === normalizeName(imp.name);
+    if (aliasTarget && normalizeName(aliasTarget) !== normalizeName(imp.name)) return false;
+    if (convertedTypes[normalizeName(imp.name)] === 'exporter') return false;
+    return true;
   });
   const importerKeyByNorm = {};
   activeImporters.forEach(imp => { importerKeyByNorm[normalizeName(imp.name)] = imp; });
@@ -4100,7 +4379,7 @@ function buildClienteGroups(){
 
 let clienteGroupsCache = [];
 
-let quotesViewMode = 'cotacoes'; // cotacoes | primeirocontato
+let quotesViewMode = 'cotacoes'; // cotacoes | primeirocontato | feira
 
 function renderQuotesView(){
   const el = document.getElementById('quotesView');
@@ -4109,6 +4388,7 @@ function renderQuotesView(){
     <div class="nav-toggle" style="margin-bottom:12px;">
       <button id="qvModeCotacoes" class="${quotesViewMode==='cotacoes'?'active':''}">Cotações</button>
       <button id="qvModePrimeiroContato" class="${quotesViewMode==='primeirocontato'?'active':''}">Primeiro Contato</button>
+      <button id="qvModeFeira" class="${quotesViewMode==='feira'?'active':''}">Reunião em Feira</button>
     </div>
     <div style="display:flex; gap:8px; margin-bottom:16px;">
       <input id="clienteSearch" type="text" placeholder="Buscar por cliente…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
@@ -4117,12 +4397,14 @@ function renderQuotesView(){
     <div id="clienteGroups"></div>`;
   document.getElementById('qvModeCotacoes').onclick = () => { quotesViewMode = 'cotacoes'; renderQuotesView(); };
   document.getElementById('qvModePrimeiroContato').onclick = () => { quotesViewMode = 'primeirocontato'; renderQuotesView(); };
+  document.getElementById('qvModeFeira').onclick = () => { quotesViewMode = 'feira'; renderQuotesView(); };
   document.getElementById('clienteSearch').addEventListener('input', e => renderClienteGroups(e.target.value.trim().toLowerCase()));
   document.getElementById('refreshQuotesCloudBtn').addEventListener('click', async () => {
     const btn = document.getElementById('refreshQuotesCloudBtn');
     btn.textContent = 'Atualizando…';
     await loadQuotesCache();
     await loadFirstContactsCache();
+    await loadFeirasCache();
     clienteGroupsCache = buildClienteGroups();
     renderClienteGroups(document.getElementById('clienteSearch').value.trim().toLowerCase());
     btn.textContent = '🔄 Atualizar da nuvem';
@@ -4141,8 +4423,43 @@ function buildFirstContactCompanyGroups(){
   return groups.sort((a,b) => a.display.localeCompare(b.display));
 }
 
+function buildFeiraCompanyGroups(){
+  const groups = [];
+  Object.entries(feirasCache).forEach(([key, arr]) => {
+    if (!arr || !arr.length) return;
+    const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    groups.push({ display: d.trade, key, items: [...arr].sort((a,b) => (b.ts||0) - (a.ts||0)) });
+  });
+  return groups.sort((a,b) => a.display.localeCompare(b.display));
+}
+
 function renderClienteGroups(filter){
   const wrap = document.getElementById('clienteGroups');
+
+  if (quotesViewMode === 'feira'){
+    const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
+    if (!groups.length){
+      wrap.innerHTML = '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
+      return;
+    }
+    wrap.innerHTML = groups.map(g => {
+      const rows = g.items.map(f => `<div class="history-row" data-exp="${g.key}">
+        <div>
+          <div class="hr-name">${FR_STATUS_ICON[f.status] || ''} ${f.feira || 'Feira'}</div>
+          <div class="hr-feedback">${f.status}${f.data ? ' · ' + f.data : ''}${f.notes ? ' · ' + f.notes.replace(/\n/g,' ') : ''}</div>
+        </div>
+      </div>`).join('');
+      return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+    }).join('');
+    wrap.querySelectorAll('.history-row').forEach(row => {
+      row.onclick = () => {
+        const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+        if (d) openModal(d, 'feira');
+      };
+    });
+    return;
+  }
 
   if (quotesViewMode === 'primeirocontato'){
     const groups = buildFirstContactCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
@@ -4608,9 +4925,11 @@ renderAlerts();
 loadReferralsCache();
 loadQuotesCache();
 loadFirstContactsCache();
+loadFeirasCache();
 loadRatesCache();
 loadNoShowCache();
 loadExporterAliases().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+loadConvertedTypes().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadCiaFeesCache();
 loadCustomExporters();
 loadCustomImporters();
