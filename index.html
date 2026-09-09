@@ -1422,102 +1422,6 @@ async function loadCiaMeetingsCache(){
 
 const CM_STATUS_ICON = { 'Contato feito': '📨', 'Aguardando resposta': '⏳', 'Reunião marcada': '📅', 'Realizada': '✅' };
 
-function renderCiaMeetingsView(){
-  const wrap = document.getElementById('ciaMeetingsWrap');
-  wrap.innerHTML = `
-    <div style="background:#F2EEF5; border:1px solid #D8C9E0; border-radius:10px; padding:16px;">
-      <h4 style="margin:0 0 10px;">Reuniões com CIAs <span style="font-weight:normal; font-size:11px; color:var(--muted);">(não sincroniza com o Agendor)</span></h4>
-      <div id="ciaMeetingsCalendar"></div>
-      <h4 style="margin-top:16px;">Reuniões registradas</h4>
-      <div id="ciaMeetingsList"></div>
-      <button id="addCiaMeetingBtn" style="background:var(--orange); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:8px;">+ Nova reunião</button>
-    </div>
-  `;
-  document.getElementById('addCiaMeetingBtn').onclick = () => openCiaMeetingForm(null);
-  renderCiaMeetingsCalendarAndList();
-}
-
-function renderCiaMeetingsCalendarAndList(){
-  document.getElementById('ciaMeetingsCalendar').innerHTML = renderCiaMeetingsCalendarHtml();
-  wireCiaMeetingsCalendarNav();
-
-  const listEl = document.getElementById('ciaMeetingsList');
-  const sorted = [...ciaMeetingsCache].sort((a,b) => (b.ts||0) - (a.ts||0));
-  if (!sorted.length){
-    listEl.innerHTML = '<div class="log-empty">Nenhuma reunião com CIA registrada ainda.</div>';
-    return;
-  }
-  listEl.innerHTML = sorted.map(m => `
-    <div class="log-entry" data-id="${m.id}" style="position:relative;">
-      <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
-        <button class="cm-edit" data-id="${m.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
-        <button class="cm-del" data-id="${m.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
-      </div>
-      <div class="le-top"><span>${CM_STATUS_ICON[m.status] || ''} <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${feiraColor(m.cia)}; margin-right:4px;"></span><b>${m.cia}</b> · ${m.status}${m.dataDia ? ' · ' + formatBRDate(m.dataDia) : ''}${m.data ? ' · ' + m.data : ''}</span></div>
-      <div class="le-notes">${(m.notes || '').replace(/</g,'&lt;')}</div>
-    </div>
-  `).join('');
-  listEl.querySelectorAll('.cm-del').forEach(btn => {
-    btn.onclick = async () => {
-      ciaMeetingsCache = ciaMeetingsCache.filter(m => m.id !== btn.dataset.id);
-      await setCiaMeetings(ciaMeetingsCache);
-      renderCiaMeetingsCalendarAndList();
-    };
-  });
-  listEl.querySelectorAll('.cm-edit').forEach(btn => {
-    btn.onclick = () => openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === btn.dataset.id));
-  });
-}
-
-function renderCiaMeetingsCalendarHtml(){
-  const scheduled = ciaMeetingsCache.filter(m => m.status === 'Reunião marcada' && m.dataDia);
-  const firstOfMonth = new Date(feiraCalYear, feiraCalMonth, 1);
-  const startWeekday = firstOfMonth.getDay();
-  const daysInMonth = new Date(feiraCalYear, feiraCalMonth + 1, 0).getDate();
-
-  const byDay = {};
-  scheduled.forEach(m => {
-    const [y,mo,d] = m.dataDia.split('-').map(Number);
-    if (y === feiraCalYear && (mo-1) === feiraCalMonth) (byDay[d] || (byDay[d] = [])).push(m);
-  });
-
-  let cells = '';
-  for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
-  for (let day = 1; day <= daysInMonth; day++){
-    const dayEvents = byDay[day] || [];
-    const dots = dayEvents.slice(0,4).map(m => {
-      const timeLabel = m.data ? `<b>${m.data}</b> ` : '';
-      return `<div class="feira-cal-event" style="background:${feiraColor(m.cia)}22; border-left:3px solid ${feiraColor(m.cia)};" data-id="${m.id}" title="${m.cia}${m.data ? ' — ' + m.data : ''}">${timeLabel}${m.cia}</div>`;
-    }).join('');
-    const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
-    cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
-      <div class="feira-cal-daynum">${day}</div>
-      ${dots}${more}
-    </div>`;
-  }
-  return `
-    <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
-        <button id="ciaCalPrev" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">‹</button>
-        <b style="font-size:14px;">${MES_NOMES[feiraCalMonth]} ${feiraCalYear}</b>
-        <button id="ciaCalNext" style="background:#fff; border:1px solid var(--line); border-radius:6px; width:28px; height:28px; cursor:pointer;">›</button>
-      </div>
-      <div class="feira-cal-grid feira-cal-header">${DIA_SEMANA_LETRAS.map(l => `<div class="feira-cal-cell head">${l}</div>`).join('')}</div>
-      <div class="feira-cal-grid">${cells}</div>
-    </div>
-  `;
-}
-
-function wireCiaMeetingsCalendarNav(){
-  const prevBtn = document.getElementById('ciaCalPrev');
-  const nextBtn = document.getElementById('ciaCalNext');
-  if (prevBtn) prevBtn.onclick = () => { feiraCalMonth--; if (feiraCalMonth < 0){ feiraCalMonth = 11; feiraCalYear--; } renderCiaMeetingsCalendarAndList(); };
-  if (nextBtn) nextBtn.onclick = () => { feiraCalMonth++; if (feiraCalMonth > 11){ feiraCalMonth = 0; feiraCalYear++; } renderCiaMeetingsCalendarAndList(); };
-  document.querySelectorAll('#ciaMeetingsCalendar .feira-cal-event').forEach(ev => {
-    ev.onclick = () => openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === ev.dataset.id));
-  });
-}
-
 function openCiaMeetingForm(meeting){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
@@ -1575,8 +1479,7 @@ function openCiaMeetingForm(meeting){
     }
     await setCiaMeetings(ciaMeetingsCache);
     closeModal();
-    document.getElementById('ciaMeetingsWrap').style.display = 'block';
-    renderCiaMeetingsView();
+    if (currentNav === 'feedbacks' && feedbacksMode === 'feiras') renderFeedbacksView();
   };
 }
 
@@ -1791,20 +1694,21 @@ function renderRatesView(){
   }
 
   el.innerHTML = `
-    <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
       <input type="text" id="ratesSearch" placeholder="🔍 Buscar por CIA, origem, destino, produto..." style="flex:1; min-width:240px; padding:9px 14px; border:1px solid var(--line); border-radius:8px; font-size:13.5px;">
       <button id="addRateBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">+ Nova tarifa</button>
       <button id="openQuoteBuilderBtn" style="background:var(--teal); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💲 Gerar cotação de venda</button>
-      <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">⚠ Observações de no-show</button>
-      <button id="toggleCiaFeesBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">💰 Taxas por CIA</button>
-      <button id="toggleCiaContactsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📇 Contatos das CIAs</button>
-      <button id="toggleCiaMeetingsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📅 Reuniões com CIAs</button>
-      <button id="findDupRatesBtn" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">🔍 Encontrar duplicadas</button>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; padding:8px 10px; background:#FAFAFA; border-radius:8px;">
+      <span style="font-size:11px; color:var(--muted); font-weight:bold; text-transform:uppercase; letter-spacing:.04em;">Ferramentas:</span>
+      <button id="toggleNoShowBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:6px 12px; border-radius:7px; font-size:12px; font-weight:bold; cursor:pointer;">⚠ No-show</button>
+      <button id="toggleCiaFeesBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:6px 12px; border-radius:7px; font-size:12px; font-weight:bold; cursor:pointer;">💰 Taxas por CIA</button>
+      <button id="toggleCiaContactsBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--line); padding:6px 12px; border-radius:7px; font-size:12px; font-weight:bold; cursor:pointer;">📇 Contatos das CIAs</button>
+      <button id="findDupRatesBtn" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:6px 12px; border-radius:7px; font-size:12px; font-weight:bold; cursor:pointer; margin-left:auto;">🔍 Encontrar duplicadas</button>
     </div>
     <div id="noShowWrap" style="display:none; margin-bottom:22px;"></div>
     <div id="ciaFeesWrap" style="display:none; margin-bottom:22px;"></div>
     <div id="ciaContactsWrap" style="display:none; margin-bottom:22px;"></div>
-    <div id="ciaMeetingsWrap" style="display:none; margin-bottom:22px;"></div>
     <div style="display:flex; gap:14px; margin-bottom:10px;">
       <span id="ratesToggleAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Expandir todos</span>
       <span id="ratesCollapseAll" style="font-size:12px; color:var(--teal-deep); cursor:pointer; text-decoration:underline;">Recolher todos</span>
@@ -1908,13 +1812,6 @@ function renderRatesView(){
     if (showing){ wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     renderCiaContactsView();
-  };
-  document.getElementById('toggleCiaMeetingsBtn').onclick = () => {
-    const wrap = document.getElementById('ciaMeetingsWrap');
-    const showing = wrap.style.display !== 'none';
-    if (showing){ wrap.style.display = 'none'; return; }
-    wrap.style.display = 'block';
-    renderCiaMeetingsView();
   };
   document.getElementById('findDupRatesBtn').onclick = () => openDuplicateRatesReview();
 }
@@ -4911,9 +4808,14 @@ function getAllScheduledFeiraEvents(){
     if (!d) return;
     (arr || []).forEach(f => {
       if (f.status === 'Reunião marcada' && f.dataDia){
-        events.push({ ...f, companyKey: key, companyName: d.trade });
+        events.push({ ...f, kind: 'feira', companyKey: key, companyName: d.trade, colorKey: f.feira || 'Feira' });
       }
     });
+  });
+  ciaMeetingsCache.forEach(m => {
+    if (m.status === 'Reunião marcada' && m.dataDia){
+      events.push({ ...m, kind: 'cia', companyName: m.cia, colorKey: m.cia });
+    }
   });
   return events;
 }
@@ -4932,11 +4834,11 @@ function renderFeiraCalendarHtml(){
     }
   });
 
-  // legend: unique fair names in this month
-  const fairsThisMonth = [...new Set(events.filter(e => {
+  // legend: unique fair/CIA names in this month
+  const namesThisMonth = [...new Set(events.filter(e => {
     const [y,m] = e.dataDia.split('-').map(Number);
     return y === feiraCalYear && (m-1) === feiraCalMonth;
-  }).map(e => e.feira || 'Feira'))];
+  }).map(e => e.colorKey))];
 
   let cells = '';
   for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
@@ -4944,7 +4846,9 @@ function renderFeiraCalendarHtml(){
     const dayEvents = byDay[day] || [];
     const dots = dayEvents.slice(0,4).map(e => {
       const timeLabel = e.data ? `<b>${e.data}</b> ` : '';
-      return `<div class="feira-cal-event" style="background:${feiraColor(e.feira)}22; border-left:3px solid ${feiraColor(e.feira)};" data-key="${e.companyKey.replace(/"/g,'&quot;')}" title="${e.feira || 'Feira'} — ${e.companyName}${e.data ? ' — ' + e.data : ''}">${timeLabel}${e.companyName}</div>`;
+      const icon = e.kind === 'cia' ? '✈ ' : '';
+      const titleExtra = e.kind === 'cia' ? `CIA: ${e.cia}` : `${e.feira || 'Feira'} — ${e.companyName}`;
+      return `<div class="feira-cal-event" style="background:${feiraColor(e.colorKey)}22; border-left:3px solid ${feiraColor(e.colorKey)};" data-kind="${e.kind}" data-key="${(e.companyKey||'').replace(/"/g,'&quot;')}" data-id="${e.id||''}" title="${titleExtra}${e.data ? ' — ' + e.data : ''}">${timeLabel}${icon}${e.companyName}</div>`;
     }).join('');
     const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
     cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
@@ -4953,8 +4857,8 @@ function renderFeiraCalendarHtml(){
     </div>`;
   }
 
-  const legend = fairsThisMonth.length ? `<div style="display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 4px;">
-    ${fairsThisMonth.map(nome => `<span style="font-size:11.5px; display:flex; align-items:center; gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${feiraColor(nome)};display:inline-block;"></span>${nome}</span>`).join('')}
+  const legend = namesThisMonth.length ? `<div style="display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 4px;">
+    ${namesThisMonth.map(nome => `<span style="font-size:11.5px; display:flex; align-items:center; gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${feiraColor(nome)};display:inline-block;"></span>${nome}</span>`).join('')}
   </div>` : '';
 
   return `
@@ -4969,6 +4873,7 @@ function renderFeiraCalendarHtml(){
       </div>
       <div class="feira-cal-grid">${cells}</div>
       ${legend}
+      <button id="addCiaMeetingFromCalBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px;">✈ + Nova reunião com CIA</button>
     </div>
   `;
 }
@@ -4988,10 +4893,16 @@ function wireFeiraCalendarNav(){
   };
   document.querySelectorAll('.feira-cal-event').forEach(ev => {
     ev.onclick = () => {
+      if (ev.dataset.kind === 'cia'){
+        openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === ev.dataset.id));
+        return;
+      }
       const d = EXPORTERS.find(x => exporterKey(x) === ev.dataset.key) || IMPORTERS.find(x => exporterKey(x) === ev.dataset.key);
       if (d) openModal(d, 'feira');
     };
   });
+  const addCiaBtn = document.getElementById('addCiaMeetingFromCalBtn');
+  if (addCiaBtn) addCiaBtn.onclick = () => openCiaMeetingForm(null);
 }
 
 function renderClienteGroups(filter){
@@ -5066,8 +4977,15 @@ function renderFbGroups(filter){
   if (feedbacksMode === 'feiras'){
     const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
     const calendarHtml = renderFeiraCalendarHtml();
-    if (!groups.length){
-      wrap.innerHTML = calendarHtml + '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
+    const ciaMeetingsFiltered = ciaMeetingsCache.filter(m => !filter || m.cia.toLowerCase().includes(filter));
+    const ciaRowsHtml = ciaMeetingsFiltered.length ? `<h4 style="margin-top:18px;">✈ Companhias aéreas</h4>${[...ciaMeetingsFiltered].sort((a,b)=>(b.ts||0)-(a.ts||0)).map(m => `<div class="history-row" data-cia-id="${m.id}">
+        <div>
+          <div class="hr-name">${CM_STATUS_ICON[m.status] || ''} ${m.cia}</div>
+          <div class="hr-feedback">${m.status}${m.dataDia ? ' · ' + formatBRDate(m.dataDia) : ''}${m.data ? ' · ' + m.data : ''}${m.notes ? ' · ' + m.notes.replace(/\n/g,' ') : ''}</div>
+        </div>
+      </div>`).join('')}` : '';
+    if (!groups.length && !ciaMeetingsFiltered.length){
+      wrap.innerHTML = calendarHtml + '<div class="empty">Nenhuma reunião encontrada. Use "+ Nova reunião com CIA" acima, ou abra um exportador/importador e use a aba "Reunião em Feira".</div>';
       wireFeiraCalendarNav();
       return;
     }
@@ -5080,13 +4998,16 @@ function renderFbGroups(filter){
       </div>`).join('');
       return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
     }).join('');
-    wrap.innerHTML = calendarHtml + rowsHtml;
+    wrap.innerHTML = calendarHtml + rowsHtml + ciaRowsHtml;
     wireFeiraCalendarNav();
-    wrap.querySelectorAll('.history-row').forEach(row => {
+    wrap.querySelectorAll('.history-row[data-exp]').forEach(row => {
       row.onclick = () => {
         const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
         if (d) openModal(d, 'feira');
       };
+    });
+    wrap.querySelectorAll('.history-row[data-cia-id]').forEach(row => {
+      row.onclick = () => openCiaMeetingForm(ciaMeetingsCache.find(m => m.id === row.dataset.ciaId));
     });
     return;
   }
