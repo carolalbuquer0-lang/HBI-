@@ -254,7 +254,8 @@
   .feira-cal-cell.head{min-height:auto; text-align:center; font-size:11px; font-weight:bold; color:var(--muted); background:transparent; padding:2px;}
   .feira-cal-cell.has-events{background:#F2F6F4;}
   .feira-cal-daynum{font-size:11px; color:var(--muted); margin-bottom:2px;}
-  .feira-cal-event{font-size:9.5px; padding:1px 4px; border-radius:3px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;}
+  .feira-cal-event{font-size:9.5px; padding:1px 4px; border-radius:3px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; cursor:pointer; line-height:1.25;}
+  .feira-cal-event b{display:block; font-size:9px;}
   .feira-cal-more{font-size:9.5px; color:var(--muted); padding-left:4px;}
   @media (max-width:760px){
     .feira-cal-cell{min-height:44px;}
@@ -367,9 +368,8 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
     <div class="nav-toggle">
       <button id="navExporters" class="active">Exportadores</button>
       <button id="navImporters">Importadores</button>
-      <button id="navQuotes">Cotações</button>
-      <button id="navRates">Tarifas</button>
-      <button id="navHistory">Indicações e feedback</button>
+      <button id="navCotTar">Cotações e Tarifas</button>
+      <button id="navFeedbacks">Feedbacks</button>
     </div>
 
     <div class="main-header">
@@ -392,9 +392,22 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
     <div class="grid" id="cardGrid"></div>
     <div class="empty" id="emptyState" style="display:none;">Nenhum exportador encontrado para essa busca.</div>
 
-    <div id="quotesView" style="display:none;"></div>
-    <div id="ratesView" style="display:none;"></div>
-    <div id="historyView" style="display:none;"></div>
+    <div id="cotTarView" style="display:none;">
+      <div class="nav-toggle" style="margin-bottom:16px;">
+        <button id="ctModeCotacoes">Cotações</button>
+        <button id="ctModeTarifas">Tarifas</button>
+      </div>
+      <div id="quotesView"></div>
+      <div id="ratesView" style="display:none;"></div>
+    </div>
+    <div id="feedbacksView" style="display:none;">
+      <div class="nav-toggle" style="margin-bottom:16px;">
+        <button id="fbModePrimeiroContato">Primeiro Contato</button>
+        <button id="fbModeFeiras">Feiras e Reuniões</button>
+        <button id="fbModeIndicacoes">Indicações</button>
+      </div>
+      <div id="feedbacksContent"></div>
+    </div>
     <div id="importersView" style="display:none;"></div>
   </div>
 </div>
@@ -1160,7 +1173,7 @@ async function loadRatesCache(){
   if (healed) await setRates(ratesCache);
 
   await mergeSeedRates();
-  if (currentNav === 'rates') renderRatesView();
+  if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
 }
 
 // ---- No-show policies per CIA (kept separate from the rate cards, shown as a notes panel) ----
@@ -1282,7 +1295,7 @@ async function mergeSeedCiaFees(){
 async function loadCiaFeesCache(){
   ciaFeesCache = await getCiaFees();
   await mergeSeedCiaFees();
-  if (currentNav === 'rates') renderRatesView();
+  if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
 }
 
 let editingRateId = null;
@@ -1323,7 +1336,7 @@ function renderCiaFeesView(){
       if (!confirm('Remover essa taxa?')) return;
       ciaFeesCache = ciaFeesCache.filter(f => f.id !== btn.dataset.id);
       await setCiaFees(ciaFeesCache);
-      if (currentNav === 'rates') renderRatesView();
+      if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
       document.getElementById('ciaFeesWrap').style.display = 'block';
       renderCiaFeesView();
     };
@@ -1366,7 +1379,7 @@ function openCiaFeeForm(fee){
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
-    if (currentNav === 'rates') renderRatesView();
+    if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
     document.getElementById('ciaFeesWrap').style.display = 'block';
     renderCiaFeesView();
   };
@@ -1660,7 +1673,7 @@ function openDuplicateRatesReview(){
       ratesCache = ratesCache.filter(r => !idsToRemove.has(r.id));
       await setRates(ratesCache);
       document.getElementById('dupRatesStatus').textContent = `${idsToRemove.size} tarifa(s) removida(s) ✓`;
-      if (currentNav === 'rates') renderRatesView();
+      if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
       setTimeout(closeModal, 1000);
     };
   }
@@ -3875,47 +3888,57 @@ function setNav(which){
   currentNav = which;
   document.getElementById('navExporters').classList.toggle('active', which === 'exporters');
   document.getElementById('navImporters').classList.toggle('active', which === 'importers');
-  document.getElementById('navQuotes').classList.toggle('active', which === 'quotes');
-  document.getElementById('navRates').classList.toggle('active', which === 'rates');
-  document.getElementById('navHistory').classList.toggle('active', which === 'history');
+  document.getElementById('navCotTar').classList.toggle('active', which === 'cottar');
+  document.getElementById('navFeedbacks').classList.toggle('active', which === 'feedbacks');
   const gridOn = which === 'exporters';
   const impOn = which === 'importers';
-  const quotesOn = which === 'quotes';
-  const ratesOn = which === 'rates';
-  const histOn = which === 'history';
+  const cotTarOn = which === 'cottar';
+  const feedbacksOn = which === 'feedbacks';
   document.getElementById('cardGrid').style.display = gridOn ? 'grid' : 'none';
   document.getElementById('fruitInfoPanel').style.display = gridOn ? '' : 'none';
   document.getElementById('search').style.display = gridOn ? 'block' : 'none';
   document.getElementById('exportersToolbar').style.display = gridOn ? 'flex' : 'none';
   document.getElementById('emptyState').style.display = 'none';
-  document.getElementById('historyView').style.display = histOn ? 'block' : 'none';
   document.getElementById('importersView').style.display = impOn ? 'block' : 'none';
-  document.getElementById('quotesView').style.display = quotesOn ? 'block' : 'none';
-  document.getElementById('ratesView').style.display = ratesOn ? 'block' : 'none';
+  document.getElementById('cotTarView').style.display = cotTarOn ? 'block' : 'none';
+  document.getElementById('feedbacksView').style.display = feedbacksOn ? 'block' : 'none';
   document.getElementById('mainTitle').textContent = gridOn
     ? (activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : 'Todos os exportadores')
-    : (impOn ? 'Importadores (compradores no exterior)' : (quotesOn ? 'Cotações' : (ratesOn ? 'Tarifas aéreas' : 'Indicações e feedback')));
+    : (impOn ? 'Importadores (compradores no exterior)' : (cotTarOn ? 'Cotações e Tarifas' : 'Feedbacks'));
   document.getElementById('mainSub').textContent = gridOn
     ? document.getElementById('mainSub').textContent
     : (impOn ? `${IMPORTERS.length} compradores no exterior — inclui histórico de embarques e inteligência de mercado (LPCO/DU-E)`
-        : (quotesOn
-        ? 'Busque por cliente para ver quais cotações já foram pedidas, com quem, e em que status estão'
-        : (ratesOn
-        ? 'Tarifas de compra por rota — monte uma cotação de venda aplicando profit e gere o PDF'
-        : 'Busque por importador para ver quais exportadores já foram indicados a ele, e como foi o resultado')));
-  document.getElementById('newExporterBtn').style.display = (impOn || quotesOn || histOn || ratesOn) ? 'none' : 'inline-block';
+        : (cotTarOn
+        ? 'Cotações já pedidas por cliente, e o tarifário aéreo de compra pra montar novas propostas'
+        : 'Primeiro contato, reuniões em feira, e indicações — tudo por cliente'));
+  document.getElementById('newExporterBtn').style.display = (impOn || cotTarOn || feedbacksOn) ? 'none' : 'inline-block';
   document.getElementById('newImporterBtn').style.display = impOn ? 'inline-block' : 'none';
-  if (histOn) renderHistoryView();
   if (impOn) renderImportersView();
-  if (quotesOn) renderQuotesView();
-  if (ratesOn) renderRatesView();
+  if (cotTarOn) setCotTarMode(ctMode);
+  if (feedbacksOn) renderFeedbacksView();
   if (gridOn) renderExportersToolbar();
 }
 document.getElementById('navExporters').addEventListener('click', () => setNav('exporters'));
 document.getElementById('navImporters').addEventListener('click', () => setNav('importers'));
-document.getElementById('navRates').addEventListener('click', () => setNav('rates'));
-document.getElementById('navQuotes').addEventListener('click', () => setNav('quotes'));
-document.getElementById('navHistory').addEventListener('click', () => setNav('history'));
+document.getElementById('navCotTar').addEventListener('click', () => setNav('cottar'));
+document.getElementById('navFeedbacks').addEventListener('click', () => setNav('feedbacks'));
+
+let ctMode = 'cotacoes'; // cotacoes | tarifas
+function setCotTarMode(mode){
+  ctMode = mode;
+  document.getElementById('ctModeCotacoes').classList.toggle('active', mode === 'cotacoes');
+  document.getElementById('ctModeTarifas').classList.toggle('active', mode === 'tarifas');
+  document.getElementById('quotesView').style.display = mode === 'cotacoes' ? 'block' : 'none';
+  document.getElementById('ratesView').style.display = mode === 'tarifas' ? 'block' : 'none';
+  if (mode === 'cotacoes') renderQuotesView();
+  if (mode === 'tarifas') renderRatesView();
+}
+document.getElementById('ctModeCotacoes').addEventListener('click', () => setCotTarMode('cotacoes'));
+document.getElementById('ctModeTarifas').addEventListener('click', () => setCotTarMode('tarifas'));
+
+document.getElementById('fbModePrimeiroContato').addEventListener('click', () => { feedbacksMode = 'primeirocontato'; renderFeedbacksView(); });
+document.getElementById('fbModeFeiras').addEventListener('click', () => { feedbacksMode = 'feiras'; renderFeedbacksView(); });
+document.getElementById('fbModeIndicacoes').addEventListener('click', () => { feedbacksMode = 'indicacoes'; renderFeedbacksView(); });
 
 let marketFilter = 'all'; // all | opportunity | new
 
@@ -4533,7 +4556,7 @@ function buildClienteGroups(){
 
 let clienteGroupsCache = [];
 
-let quotesViewMode = 'cotacoes'; // cotacoes | primeirocontato | feira
+let feedbacksMode = 'primeirocontato'; // primeirocontato | feiras | indicacoes
 let feiraCalMonth = new Date().getMonth();
 let feiraCalYear = new Date().getFullYear();
 
@@ -4541,26 +4564,16 @@ function renderQuotesView(){
   const el = document.getElementById('quotesView');
   clienteGroupsCache = buildClienteGroups();
   el.innerHTML = `
-    <div class="nav-toggle" style="margin-bottom:12px;">
-      <button id="qvModeCotacoes" class="${quotesViewMode==='cotacoes'?'active':''}">Cotações</button>
-      <button id="qvModePrimeiroContato" class="${quotesViewMode==='primeirocontato'?'active':''}">Primeiro Contato</button>
-      <button id="qvModeFeira" class="${quotesViewMode==='feira'?'active':''}">Reunião em Feira</button>
-    </div>
     <div style="display:flex; gap:8px; margin-bottom:16px;">
       <input id="clienteSearch" type="text" placeholder="Buscar por cliente…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
       <button id="refreshQuotesCloudBtn" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">🔄 Atualizar da nuvem</button>
     </div>
     <div id="clienteGroups"></div>`;
-  document.getElementById('qvModeCotacoes').onclick = () => { quotesViewMode = 'cotacoes'; renderQuotesView(); };
-  document.getElementById('qvModePrimeiroContato').onclick = () => { quotesViewMode = 'primeirocontato'; renderQuotesView(); };
-  document.getElementById('qvModeFeira').onclick = () => { quotesViewMode = 'feira'; renderQuotesView(); };
   document.getElementById('clienteSearch').addEventListener('input', e => renderClienteGroups(e.target.value.trim().toLowerCase()));
   document.getElementById('refreshQuotesCloudBtn').addEventListener('click', async () => {
     const btn = document.getElementById('refreshQuotesCloudBtn');
     btn.textContent = 'Atualizando…';
     await loadQuotesCache();
-    await loadFirstContactsCache();
-    await loadFeirasCache();
     clienteGroupsCache = buildClienteGroups();
     renderClienteGroups(document.getElementById('clienteSearch').value.trim().toLowerCase());
     btn.textContent = '🔄 Atualizar da nuvem';
@@ -4631,7 +4644,10 @@ function renderFeiraCalendarHtml(){
   for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
   for (let day = 1; day <= daysInMonth; day++){
     const dayEvents = byDay[day] || [];
-    const dots = dayEvents.slice(0,4).map(e => `<div class="feira-cal-event" style="background:${feiraColor(e.feira)}22; border-left:3px solid ${feiraColor(e.feira)};" data-key="${e.companyKey.replace(/"/g,'&quot;')}" title="${e.feira || 'Feira'} — ${e.companyName}">${e.companyName}</div>`).join('');
+    const dots = dayEvents.slice(0,4).map(e => {
+      const timeLabel = e.data ? `<b>${e.data}</b> ` : '';
+      return `<div class="feira-cal-event" style="background:${feiraColor(e.feira)}22; border-left:3px solid ${feiraColor(e.feira)};" data-key="${e.companyKey.replace(/"/g,'&quot;')}" title="${e.feira || 'Feira'} — ${e.companyName}${e.data ? ' — ' + e.data : ''}">${timeLabel}${e.companyName}</div>`;
+    }).join('');
     const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
     cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
       <div class="feira-cal-daynum">${day}</div>
@@ -4682,59 +4698,6 @@ function wireFeiraCalendarNav(){
 
 function renderClienteGroups(filter){
   const wrap = document.getElementById('clienteGroups');
-
-  if (quotesViewMode === 'feira'){
-    const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
-    const calendarHtml = renderFeiraCalendarHtml();
-    if (!groups.length){
-      wrap.innerHTML = calendarHtml + '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
-      wireFeiraCalendarNav();
-      return;
-    }
-    const rowsHtml = groups.map(g => {
-      const rows = g.items.map(f => `<div class="history-row" data-exp="${g.key}">
-        <div>
-          <div class="hr-name">${FR_STATUS_ICON[f.status] || ''} ${f.feira || 'Feira'}</div>
-          <div class="hr-feedback">${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}${f.notes ? ' · ' + f.notes.replace(/\n/g,' ') : ''}</div>
-        </div>
-      </div>`).join('');
-      return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
-    }).join('');
-    wrap.innerHTML = calendarHtml + rowsHtml;
-    wireFeiraCalendarNav();
-    wrap.querySelectorAll('.history-row').forEach(row => {
-      row.onclick = () => {
-        const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
-        if (d) openModal(d, 'feira');
-      };
-    });
-    return;
-  }
-
-  if (quotesViewMode === 'primeirocontato'){
-    const groups = buildFirstContactCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
-    if (!groups.length){
-      wrap.innerHTML = '<div class="empty">Nenhum primeiro contato encontrado. Abra um exportador ou importador e use a aba "Primeiro Contato" pra registrar o primeiro.</div>';
-      return;
-    }
-    wrap.innerHTML = groups.map(g => {
-      const rows = g.items.map(c => `<div class="history-row" data-exp="${g.key}">
-        <div>
-          <div class="hr-name">${FC_STATUS_ICON[c.status] || ''} ${c.emailUsado || 'E-mail geral'}</div>
-          <div class="hr-feedback">${c.status}${c.notes ? ' · ' + c.notes.replace(/\n/g,' ') : ''}</div>
-        </div>
-      </div>`).join('');
-      return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
-    }).join('');
-    wrap.querySelectorAll('.history-row').forEach(row => {
-      row.onclick = () => {
-        const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
-        if (d) openModal(d, 'primeirocontato');
-      };
-    });
-    return;
-  }
-
   const groups = clienteGroupsCache.filter(g => !filter || g.display.toLowerCase().includes(filter));
   if (!groups.length){
     wrap.innerHTML = '<div class="empty">Nenhuma cotação encontrada. Abra um exportador ou importador e use a aba "Cotações" pra registrar a primeira.</div>';
@@ -4772,8 +4735,89 @@ function buildImporterGroups(){
   return Object.values(groups).sort((a,b) => a.display.localeCompare(b.display));
 }
 
+function renderFeedbacksView(){
+  document.getElementById('fbModePrimeiroContato').classList.toggle('active', feedbacksMode === 'primeirocontato');
+  document.getElementById('fbModeFeiras').classList.toggle('active', feedbacksMode === 'feiras');
+  document.getElementById('fbModeIndicacoes').classList.toggle('active', feedbacksMode === 'indicacoes');
+  if (feedbacksMode === 'indicacoes'){
+    renderHistoryView();
+    return;
+  }
+  const el = document.getElementById('feedbacksContent');
+  el.innerHTML = `
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <input id="fbSearch" type="text" placeholder="Buscar por cliente…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;">
+      <button id="fbRefreshBtn" style="background:#fff; border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">🔄 Atualizar da nuvem</button>
+    </div>
+    <div id="fbGroups"></div>`;
+  document.getElementById('fbSearch').addEventListener('input', e => renderFbGroups(e.target.value.trim().toLowerCase()));
+  document.getElementById('fbRefreshBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('fbRefreshBtn');
+    btn.textContent = 'Atualizando…';
+    await loadFirstContactsCache();
+    await loadFeirasCache();
+    renderFbGroups(document.getElementById('fbSearch').value.trim().toLowerCase());
+    btn.textContent = '🔄 Atualizar da nuvem';
+  });
+  renderFbGroups('');
+}
+
+function renderFbGroups(filter){
+  const wrap = document.getElementById('fbGroups');
+
+  if (feedbacksMode === 'feiras'){
+    const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
+    const calendarHtml = renderFeiraCalendarHtml();
+    if (!groups.length){
+      wrap.innerHTML = calendarHtml + '<div class="empty">Nenhuma reunião de feira encontrada. Abra um exportador ou importador e use a aba "Reunião em Feira" pra registrar a primeira.</div>';
+      wireFeiraCalendarNav();
+      return;
+    }
+    const rowsHtml = groups.map(g => {
+      const rows = g.items.map(f => `<div class="history-row" data-exp="${g.key}">
+        <div>
+          <div class="hr-name">${FR_STATUS_ICON[f.status] || ''} ${f.feira || 'Feira'}</div>
+          <div class="hr-feedback">${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}${f.notes ? ' · ' + f.notes.replace(/\n/g,' ') : ''}</div>
+        </div>
+      </div>`).join('');
+      return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+    }).join('');
+    wrap.innerHTML = calendarHtml + rowsHtml;
+    wireFeiraCalendarNav();
+    wrap.querySelectorAll('.history-row').forEach(row => {
+      row.onclick = () => {
+        const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+        if (d) openModal(d, 'feira');
+      };
+    });
+    return;
+  }
+
+  // primeirocontato
+  const groups = buildFirstContactCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
+  if (!groups.length){
+    wrap.innerHTML = '<div class="empty">Nenhum primeiro contato encontrado. Abra um exportador ou importador e use a aba "Primeiro Contato" pra registrar o primeiro.</div>';
+    return;
+  }
+  wrap.innerHTML = groups.map(g => {
+    const rows = g.items.map(c => `<div class="history-row" data-exp="${g.key}">
+      <div>
+        <div class="hr-name">${FC_STATUS_ICON[c.status] || ''} ${c.emailUsado || 'E-mail geral'}</div>
+        <div class="hr-feedback">${c.status}${c.notes ? ' · ' + c.notes.replace(/\n/g,' ') : ''}</div>
+      </div>
+    </div>`).join('');
+    return `<h4 style="margin-top:18px;">${g.display}</h4>${rows}`;
+  }).join('');
+  wrap.querySelectorAll('.history-row').forEach(row => {
+    row.onclick = () => {
+      const d = EXPORTERS.find(x => exporterKey(x) === row.dataset.exp) || IMPORTERS.find(x => exporterKey(x) === row.dataset.exp);
+      if (d) openModal(d, 'primeirocontato');
+    };
+  });
+}
+
 function renderHistoryView(){
-  const el = document.getElementById('historyView');
+  const el = document.getElementById('feedbacksContent');
   importerGroupsCache = buildImporterGroups();
   el.innerHTML = `
     <div style="display:flex; gap:8px; margin-bottom:16px;">
