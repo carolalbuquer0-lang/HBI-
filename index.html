@@ -256,7 +256,7 @@
   .feira-cal-daynum{font-size:11px; color:var(--muted); margin-bottom:2px;}
   .feira-cal-event{font-size:9.5px; padding:1px 4px; border-radius:3px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; cursor:pointer; line-height:1.25;}
   .feira-cal-event b{display:block; font-size:9px;}
-  .feira-cal-more{font-size:9.5px; color:var(--muted); padding-left:4px;}
+  .feira-cal-more{font-size:9.5px; color:var(--teal-deep); padding-left:4px; cursor:pointer; text-decoration:underline; font-weight:bold;}
   @media (max-width:760px){
     .feira-cal-cell{min-height:44px;}
     .feira-cal-event{font-size:8.5px;}
@@ -4758,6 +4758,7 @@ let clienteGroupsCache = [];
 let feedbacksMode = 'primeirocontato'; // primeirocontato | feiras | indicacoes
 let feiraCalMonth = new Date().getMonth();
 let feiraCalYear = new Date().getFullYear();
+let feiraCalExpandedDays = new Set(); // which days show all events instead of the 4-item preview
 
 function renderQuotesView(){
   const el = document.getElementById('quotesView');
@@ -4849,7 +4850,9 @@ function renderFeiraCalendarHtml(){
   for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
   for (let day = 1; day <= daysInMonth; day++){
     const dayEvents = (byDay[day] || []).slice().sort((a,b) => extractSortableMinutes(a.data) - extractSortableMinutes(b.data));
-    const dots = dayEvents.slice(0,4).map(e => {
+    const expanded = feiraCalExpandedDays.has(day);
+    const visibleEvents = expanded ? dayEvents : dayEvents.slice(0,4);
+    const dots = visibleEvents.map(e => {
       const timeLabel = e.data ? `<b>${e.data}</b> ` : '';
       const icon = e.kind === 'cia' ? '✈ ' : '';
       const titleExtra = e.kind === 'cia' ? `CIA: ${e.cia}` : `${e.feira || 'Feira'} — ${e.companyName}`;
@@ -4858,7 +4861,7 @@ function renderFeiraCalendarHtml(){
       const pendingTag = isConfirmed ? '' : '⏳ ';
       return `<div class="feira-cal-event" style="background:${feiraColor(e.colorKey)}22; border-left:3px solid ${feiraColor(e.colorKey)}; ${pendingStyle}" data-kind="${e.kind}" data-key="${(e.companyKey||'').replace(/"/g,'&quot;')}" data-id="${e.id||''}" title="${titleExtra}${e.data ? ' — ' + e.data : ''} (${e.status}${isConfirmed ? '' : ' — ainda não confirmado'})">${timeLabel}${icon}${pendingTag}${e.companyName}</div>`;
     }).join('');
-    const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
+    const more = (!expanded && dayEvents.length > 4) ? `<div class="feira-cal-more" data-day="${day}">+${dayEvents.length-4} ver todos</div>` : '';
     cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
       <div class="feira-cal-daynum">${day}</div>
       ${dots}${more}
@@ -4895,13 +4898,21 @@ function wireFeiraCalendarNav(){
   if (prevBtn) prevBtn.onclick = () => {
     feiraCalMonth--;
     if (feiraCalMonth < 0){ feiraCalMonth = 11; feiraCalYear--; }
+    feiraCalExpandedDays.clear();
     renderFbGroups(document.getElementById('fbSearch') ? document.getElementById('fbSearch').value.trim().toLowerCase() : '');
   };
   if (nextBtn) nextBtn.onclick = () => {
     feiraCalMonth++;
     if (feiraCalMonth > 11){ feiraCalMonth = 0; feiraCalYear++; }
+    feiraCalExpandedDays.clear();
     renderFbGroups(document.getElementById('fbSearch') ? document.getElementById('fbSearch').value.trim().toLowerCase() : '');
   };
+  document.querySelectorAll('.feira-cal-more').forEach(btn => {
+    btn.onclick = () => {
+      feiraCalExpandedDays.add(parseInt(btn.dataset.day, 10));
+      renderFbGroups(document.getElementById('fbSearch') ? document.getElementById('fbSearch').value.trim().toLowerCase() : '');
+    };
+  });
   document.querySelectorAll('.feira-cal-event').forEach(ev => {
     ev.onclick = () => {
       if (ev.dataset.kind === 'cia'){
