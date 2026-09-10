@@ -4888,6 +4888,7 @@ function renderFeiraCalendarHtml(){
       ${legend}
       ${pendingHint}
       <button id="addCiaMeetingFromCalBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px;">✈ + Nova reunião com CIA</button>
+      <button id="exportMeetingsSummaryBtn" style="background:#fff; color:var(--orange); border:1px solid var(--orange); padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px; margin-left:8px;">📄 Exportar PDF do mês</button>
       <button id="exportMeetingsSummaryBtn" style="background:var(--teal); color:#fff; border:none; padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px; margin-left:8px;">📄 Exportar resumo do mês (PDF)</button>
     </div>
   `;
@@ -4933,6 +4934,25 @@ function wireFeiraCalendarNav(){
   };
 }
 
+function getUnscheduledContactEvents(){
+  const events = [];
+  Object.entries(feirasCache).forEach(([key, arr]) => {
+    const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
+    if (!d) return;
+    (arr || []).forEach(f => {
+      if (!f.dataDia){
+        events.push({ ...f, kind: 'feira', companyKey: key, companyName: d.trade, tipo: f.feira || 'Feira' });
+      }
+    });
+  });
+  ciaMeetingsCache.forEach(m => {
+    if (!m.dataDia){
+      events.push({ ...m, kind: 'cia', companyName: m.cia, tipo: '✈ Companhia aérea' });
+    }
+  });
+  return events.sort((a,b) => (b.ts||0) - (a.ts||0));
+}
+
 function buildMeetingsSummaryHTML(month, year){
   const events = getAllScheduledFeiraEvents().filter(e => {
     const [y,m] = e.dataDia.split('-').map(Number);
@@ -4941,6 +4961,7 @@ function buildMeetingsSummaryHTML(month, year){
     if (a.dataDia !== b.dataDia) return a.dataDia.localeCompare(b.dataDia);
     return extractSortableMinutes(a.data) - extractSortableMinutes(b.data);
   });
+  const unscheduled = getUnscheduledContactEvents();
 
   const CONFIRMED_STATUSES = ['Reunião marcada', 'Realizada'];
   const confirmedCount = events.filter(e => CONFIRMED_STATUSES.includes(e.status)).length;
@@ -4959,6 +4980,13 @@ function buildMeetingsSummaryHTML(month, year){
       <td>${(e.notes || '').replace(/</g,'&lt;')}</td>
     </tr>`;
   }).join('');
+
+  const unscheduledRows = unscheduled.map(e => `<tr>
+      <td>${e.companyName}</td>
+      <td>${e.tipo}</td>
+      <td>${e.status}</td>
+      <td>${(e.notes || '').replace(/</g,'&lt;')}</td>
+    </tr>`).join('');
 
   const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -4979,6 +5007,7 @@ function buildMeetingsSummaryHTML(month, year){
     tr:nth-child(even) td{ background:#FAFAFA; }
     .rs-empty{ padding:30px; text-align:center; color:#888; font-size:13px; }
     .rs-footer{ margin-top:20px; font-size:9.5px; color:#999; text-align:center; }
+    .rs-section-label{ background:#EDEDED; font-weight:bold; padding:6px 10px; font-size:12.5px; margin:20px 0 8px; }
   </style></head><body>
     <div class="rs-header">
       <div class="eyebrow">HEVILE — REDE COMERCIAL DE FRUTAS BRASILEIRAS</div>
@@ -4988,11 +5017,19 @@ function buildMeetingsSummaryHTML(month, year){
       <div><b>${events.length}</b>reunião(ões) no mês</div>
       <div><b style="color:#2E6B39;">${confirmedCount}</b>confirmada(s)</div>
       <div><b style="color:#8A6D1D;">${pendingCount}</b>pendente(s)</div>
+      <div><b style="color:#5A7A94;">${unscheduled.length}</b>contato(s) sem data ainda</div>
     </div>
     ${events.length ? `<table>
       <thead><tr><th>Data</th><th>Horário</th><th>Com quem</th><th>Contexto</th><th>Status</th><th>Observações</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>` : `<div class="rs-empty">Nenhuma reunião agendada para ${MES_NOMES[month]} de ${year}.</div>`}
+    ${unscheduled.length ? `
+      <div class="rs-section-label">Contatos feitos — ainda sem data marcada</div>
+      <table>
+        <thead><tr><th>Com quem</th><th>Contexto</th><th>Status</th><th>Observações</th></tr></thead>
+        <tbody>${unscheduledRows}</tbody>
+      </table>
+    ` : ''}
     <div class="rs-footer">Gerado em ${todayStr} pelo painel HBI da Hevile Logística.</div>
     <script>window.onload = () => { window.print(); };<\/script>
   </body></html>`;
