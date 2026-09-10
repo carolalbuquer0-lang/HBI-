@@ -1442,7 +1442,8 @@ function openCiaMeetingForm(meeting){
           <option value="Realizada">✅ Realizada</option>
         </select>
       </div>
-      <div class="cf-row" id="cmDataRow" style="display:none;">
+      <label>Data da reunião (opcional — preencha pra aparecer no calendário)</label>
+      <div class="cf-row" id="cmDataRow">
         <input type="date" id="cmDataDia" style="flex:0 0 170px;">
         <input type="text" id="cmData" placeholder="Horário / local (ex: 15h, online)" style="flex:1;">
       </div>
@@ -1459,11 +1460,7 @@ function openCiaMeetingForm(meeting){
     document.getElementById('cmStatus').value = meeting.status;
     document.getElementById('cmDataDia').value = meeting.dataDia || '';
     document.getElementById('cmData').value = meeting.data || '';
-    document.getElementById('cmDataRow').style.display = meeting.status === 'Reunião marcada' ? 'flex' : 'none';
   }
-  document.getElementById('cmStatus').addEventListener('change', (e) => {
-    document.getElementById('cmDataRow').style.display = e.target.value === 'Reunião marcada' ? 'flex' : 'none';
-  });
   document.getElementById('cmSave').onclick = async () => {
     const cia = document.getElementById('cmCia').value.trim();
     const status = document.getElementById('cmStatus').value;
@@ -2999,7 +2996,8 @@ function openModal(d, initialTab){
             <option value="Reunião marcada">📅 Reunião marcada</option>
           </select>
         </div>
-        <div class="cf-row" id="frDataRow" style="display:none;">
+        <label>Data da reunião (opcional — preencha pra aparecer no calendário)</label>
+        <div class="cf-row" id="frDataRow">
           <input type="date" id="frDataDia" style="flex:0 0 170px;">
           <input type="text" id="frData" placeholder="Horário / local (ex: 15h, estande 42)" style="flex:1;">
         </div>
@@ -3729,10 +3727,6 @@ async function initFeiraPane(d, key){
   let savingFr = false;
   renderFrList();
 
-  document.getElementById('frStatus').addEventListener('change', (e) => {
-    document.getElementById('frDataRow').style.display = e.target.value === 'Reunião marcada' ? 'flex' : 'none';
-  });
-
   function renderFrList(){
     if (!feiras.length){
       frListEl.innerHTML = '<div class="log-empty">Nenhuma feira registrada ainda.</div>';
@@ -3765,7 +3759,6 @@ async function initFeiraPane(d, key){
         document.getElementById('frStatus').value = f.status;
         document.getElementById('frDataDia').value = f.dataDia || '';
         document.getElementById('frData').value = f.data || '';
-        document.getElementById('frDataRow').style.display = f.status === 'Reunião marcada' ? 'flex' : 'none';
         document.getElementById('frNotes').value = f.notes || '';
         document.getElementById('frFormTitle').textContent = 'Editando reunião em feira';
         document.getElementById('frSave').style.display = 'none';
@@ -3782,7 +3775,6 @@ async function initFeiraPane(d, key){
     document.getElementById('frStatus').value = 'Contato feito';
     document.getElementById('frDataDia').value = '';
     document.getElementById('frData').value = '';
-    document.getElementById('frDataRow').style.display = 'none';
     document.getElementById('frNotes').value = '';
     document.getElementById('frFormTitle').textContent = 'Registrar reunião em feira';
     document.getElementById('frSave').style.display = 'inline-block';
@@ -4807,13 +4799,13 @@ function getAllScheduledFeiraEvents(){
     const d = EXPORTERS.find(x => exporterKey(x) === key) || IMPORTERS.find(x => exporterKey(x) === key);
     if (!d) return;
     (arr || []).forEach(f => {
-      if (f.status === 'Reunião marcada' && f.dataDia){
+      if (f.dataDia){
         events.push({ ...f, kind: 'feira', companyKey: key, companyName: d.trade, colorKey: f.feira || 'Feira' });
       }
     });
   });
   ciaMeetingsCache.forEach(m => {
-    if (m.status === 'Reunião marcada' && m.dataDia){
+    if (m.dataDia){
       events.push({ ...m, kind: 'cia', companyName: m.cia, colorKey: m.cia });
     }
   });
@@ -4840,6 +4832,7 @@ function renderFeiraCalendarHtml(){
     return y === feiraCalYear && (m-1) === feiraCalMonth;
   }).map(e => e.colorKey))];
 
+  const CONFIRMED_STATUSES = ['Reunião marcada', 'Realizada'];
   let cells = '';
   for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
   for (let day = 1; day <= daysInMonth; day++){
@@ -4848,7 +4841,10 @@ function renderFeiraCalendarHtml(){
       const timeLabel = e.data ? `<b>${e.data}</b> ` : '';
       const icon = e.kind === 'cia' ? '✈ ' : '';
       const titleExtra = e.kind === 'cia' ? `CIA: ${e.cia}` : `${e.feira || 'Feira'} — ${e.companyName}`;
-      return `<div class="feira-cal-event" style="background:${feiraColor(e.colorKey)}22; border-left:3px solid ${feiraColor(e.colorKey)};" data-kind="${e.kind}" data-key="${(e.companyKey||'').replace(/"/g,'&quot;')}" data-id="${e.id||''}" title="${titleExtra}${e.data ? ' — ' + e.data : ''}">${timeLabel}${icon}${e.companyName}</div>`;
+      const isConfirmed = CONFIRMED_STATUSES.includes(e.status);
+      const pendingStyle = isConfirmed ? '' : 'border-left-style:dashed; opacity:0.75;';
+      const pendingTag = isConfirmed ? '' : '⏳ ';
+      return `<div class="feira-cal-event" style="background:${feiraColor(e.colorKey)}22; border-left:3px solid ${feiraColor(e.colorKey)}; ${pendingStyle}" data-kind="${e.kind}" data-key="${(e.companyKey||'').replace(/"/g,'&quot;')}" data-id="${e.id||''}" title="${titleExtra}${e.data ? ' — ' + e.data : ''} (${e.status}${isConfirmed ? '' : ' — ainda não confirmado'})">${timeLabel}${icon}${pendingTag}${e.companyName}</div>`;
     }).join('');
     const more = dayEvents.length > 4 ? `<div class="feira-cal-more">+${dayEvents.length-4}</div>` : '';
     cells += `<div class="feira-cal-cell${dayEvents.length ? ' has-events' : ''}">
@@ -4860,6 +4856,8 @@ function renderFeiraCalendarHtml(){
   const legend = namesThisMonth.length ? `<div style="display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 4px;">
     ${namesThisMonth.map(nome => `<span style="font-size:11.5px; display:flex; align-items:center; gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${feiraColor(nome)};display:inline-block;"></span>${nome}</span>`).join('')}
   </div>` : '';
+  const pendingHint = events.some(e => !['Reunião marcada','Realizada'].includes(e.status))
+    ? `<div style="font-size:10.5px; color:var(--muted); margin-top:4px;">⏳ = pedido feito, ainda sem confirmação</div>` : '';
 
   return `
     <div style="background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:20px;">
@@ -4873,6 +4871,7 @@ function renderFeiraCalendarHtml(){
       </div>
       <div class="feira-cal-grid">${cells}</div>
       ${legend}
+      ${pendingHint}
       <button id="addCiaMeetingFromCalBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px;">✈ + Nova reunião com CIA</button>
     </div>
   `;
