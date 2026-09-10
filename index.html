@@ -4888,6 +4888,7 @@ function renderFeiraCalendarHtml(){
       ${legend}
       ${pendingHint}
       <button id="addCiaMeetingFromCalBtn" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px;">✈ + Nova reunião com CIA</button>
+      <button id="exportMeetingsSummaryBtn" style="background:var(--teal); color:#fff; border:none; padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer; margin-top:12px; margin-left:8px;">📄 Exportar resumo do mês (PDF)</button>
     </div>
   `;
 }
@@ -4925,6 +4926,76 @@ function wireFeiraCalendarNav(){
   });
   const addCiaBtn = document.getElementById('addCiaMeetingFromCalBtn');
   if (addCiaBtn) addCiaBtn.onclick = () => openCiaMeetingForm(null);
+  const exportBtn = document.getElementById('exportMeetingsSummaryBtn');
+  if (exportBtn) exportBtn.onclick = () => {
+    const html = buildMeetingsSummaryHTML(feiraCalMonth, feiraCalYear);
+    showQuotePDF(html);
+  };
+}
+
+function buildMeetingsSummaryHTML(month, year){
+  const events = getAllScheduledFeiraEvents().filter(e => {
+    const [y,m] = e.dataDia.split('-').map(Number);
+    return y === year && (m-1) === month;
+  }).sort((a,b) => {
+    if (a.dataDia !== b.dataDia) return a.dataDia.localeCompare(b.dataDia);
+    return extractSortableMinutes(a.data) - extractSortableMinutes(b.data);
+  });
+
+  const CONFIRMED_STATUSES = ['Reunião marcada', 'Realizada'];
+  const confirmedCount = events.filter(e => CONFIRMED_STATUSES.includes(e.status)).length;
+  const pendingCount = events.length - confirmedCount;
+
+  const rows = events.map(e => {
+    const tipo = e.kind === 'cia' ? '✈ Companhia aérea' : (e.feira || 'Feira');
+    const nome = e.companyName;
+    const isConfirmed = CONFIRMED_STATUSES.includes(e.status);
+    return `<tr>
+      <td>${formatBRDate(e.dataDia)}</td>
+      <td>${e.data || '—'}</td>
+      <td>${nome}</td>
+      <td>${tipo}</td>
+      <td style="color:${isConfirmed ? '#2E6B39' : '#8A6D1D'};">${e.status}${isConfirmed ? '' : ' (pendente)'}</td>
+      <td>${(e.notes || '').replace(/</g,'&lt;')}</td>
+    </tr>`;
+  }).join('');
+
+  const todayStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+  <title>Resumo de agendamentos - ${MES_NOMES[month]} ${year}</title>
+  <style>
+    @page { size: A4; margin: 14mm 10mm; }
+    *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+    body{ font-family: Arial, Helvetica, sans-serif; margin:0; color:#2A2A2A; }
+    .rs-header{ background:#5A7A94; color:#fff; padding:18px 20px; border-radius:8px; margin-bottom:16px; }
+    .rs-header .eyebrow{ font-size:11px; letter-spacing:.08em; font-weight:bold; opacity:.85; }
+    .rs-header h1{ font-size:24px; margin:4px 0 0; }
+    .rs-summary{ display:flex; gap:24px; margin-bottom:16px; font-size:12.5px; }
+    .rs-summary b{ font-size:20px; display:block; color:#2A5F75; }
+    table{ width:100%; border-collapse:collapse; font-size:10.5px; }
+    th{ background:#2A5F75; color:#fff; text-align:left; padding:6px 8px; }
+    td{ padding:6px 8px; border-bottom:1px solid #E0E0E0; vertical-align:top; }
+    tr:nth-child(even) td{ background:#FAFAFA; }
+    .rs-empty{ padding:30px; text-align:center; color:#888; font-size:13px; }
+    .rs-footer{ margin-top:20px; font-size:9.5px; color:#999; text-align:center; }
+  </style></head><body>
+    <div class="rs-header">
+      <div class="eyebrow">HEVILE — REDE COMERCIAL DE FRUTAS BRASILEIRAS</div>
+      <h1>Resumo de Agendamentos — ${MES_NOMES[month]} ${year}</h1>
+    </div>
+    <div class="rs-summary">
+      <div><b>${events.length}</b>reunião(ões) no mês</div>
+      <div><b style="color:#2E6B39;">${confirmedCount}</b>confirmada(s)</div>
+      <div><b style="color:#8A6D1D;">${pendingCount}</b>pendente(s)</div>
+    </div>
+    ${events.length ? `<table>
+      <thead><tr><th>Data</th><th>Horário</th><th>Com quem</th><th>Contexto</th><th>Status</th><th>Observações</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : `<div class="rs-empty">Nenhuma reunião agendada para ${MES_NOMES[month]} de ${year}.</div>`}
+    <div class="rs-footer">Gerado em ${todayStr} pelo painel HBI da Hevile Logística.</div>
+    <script>window.onload = () => { window.print(); };<\/script>
+  </body></html>`;
 }
 
 function renderClienteGroups(filter){
