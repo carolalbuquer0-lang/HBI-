@@ -498,6 +498,18 @@ function formatBRDate(isoDate){
   const [y,m,d] = isoDate.split('-');
   return `${d}/${m}/${y}`;
 }
+// Pulls a leading time (13:00, 13h, 13h30...) out of the free-text "horário / local" field
+// so calendar day-cells can list events in chronological order. Entries with no recognizable
+// leading time sort last (but keep their relative order among themselves).
+function extractSortableMinutes(text){
+  if (!text) return Infinity;
+  const m = text.trim().match(/^(\d{1,2})[:h](\d{2})?/i);
+  if (!m) return Infinity;
+  const hh = parseInt(m[1], 10);
+  const mm = m[2] ? parseInt(m[2], 10) : 0;
+  if (hh > 23 || mm > 59) return Infinity;
+  return hh * 60 + mm;
+}
 const FEIRA_PALETTE = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E','#C2703D','#4B7A5E'];
 function feiraColor(nome){
   const n = (nome || 'Feira').trim().toUpperCase();
@@ -4836,7 +4848,7 @@ function renderFeiraCalendarHtml(){
   let cells = '';
   for (let i = 0; i < startWeekday; i++) cells += `<div class="feira-cal-cell empty"></div>`;
   for (let day = 1; day <= daysInMonth; day++){
-    const dayEvents = byDay[day] || [];
+    const dayEvents = (byDay[day] || []).slice().sort((a,b) => extractSortableMinutes(a.data) - extractSortableMinutes(b.data));
     const dots = dayEvents.slice(0,4).map(e => {
       const timeLabel = e.data ? `<b>${e.data}</b> ` : '';
       const icon = e.kind === 'cia' ? '✈ ' : '';
