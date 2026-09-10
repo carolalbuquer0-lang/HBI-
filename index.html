@@ -4967,17 +4967,19 @@ function buildMeetingsSummaryHTML(month, year){
   const confirmedCount = events.filter(e => CONFIRMED_STATUSES.includes(e.status)).length;
   const pendingCount = events.length - confirmedCount;
 
-  const rows = events.map(e => {
+  const rows = events.map((e, i) => {
     const tipo = e.kind === 'cia' ? '✈ Companhia aérea' : (e.feira || 'Feira');
     const nome = e.companyName;
     const isConfirmed = CONFIRMED_STATUSES.includes(e.status);
+    const isNewDay = i === 0 || e.dataDia !== events[i-1].dataDia;
+    const sep = (isNewDay && i > 0) ? 'border-top:3px solid #2A5F75; padding-top:12px;' : '';
     return `<tr>
-      <td>${formatBRDate(e.dataDia)}</td>
-      <td>${e.data || '—'}</td>
-      <td>${nome}</td>
-      <td>${tipo}</td>
-      <td style="color:${isConfirmed ? '#2E6B39' : '#8A6D1D'};">${e.status}${isConfirmed ? '' : ' (pendente)'}</td>
-      <td>${(e.notes || '').replace(/</g,'&lt;')}</td>
+      <td style="${sep} ${isNewDay ? 'font-weight:bold;' : 'color:#BBB;'}">${isNewDay ? formatBRDate(e.dataDia) : ''}</td>
+      <td style="${sep}">${e.data || '—'}</td>
+      <td style="${sep}">${nome}</td>
+      <td style="${sep}">${tipo}</td>
+      <td style="${sep} color:${isConfirmed ? '#2E6B39' : '#8A6D1D'};">${e.status}${isConfirmed ? '' : ' (pendente)'}</td>
+      <td style="${sep}">${(e.notes || '').replace(/</g,'&lt;')}</td>
     </tr>`;
   }).join('');
 
