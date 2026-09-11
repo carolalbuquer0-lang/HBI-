@@ -3017,13 +3017,17 @@ function openModal(d, initialTab){
           <textarea id="frNotes" placeholder="Detalhes: com quem falou, local do estande, próximos passos..."></textarea>
           <button type="button" class="voice-btn" data-target="frNotes" style="flex:0 0 auto; background:#fff; border:1px solid var(--line); color:var(--teal-deep); border-radius:8px; padding:0 12px; font-size:13px; cursor:pointer; align-self:stretch;">🎤 Falar</button>
         </div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:normal; margin-top:4px;">
+          <input type="checkbox" id="frNoAgendor" style="width:auto;">
+          Não sincronizar essa reunião com o Agendor (fica só aqui no sistema)
+        </label>
         <button id="frSave">Salvar</button>
         <button id="frCorrigir" type="button" style="display:none; background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">✎ Corrigir (sem histórico novo)</button>
         <button id="frAtualizar" type="button" style="display:none;">↻ Atualizar (nova etapa)</button>
         <button id="frCancelEdit" type="button" style="display:none; background:#fff; color:var(--muted); border:1px solid var(--line); margin-left:8px;">Cancelar edição</button>
         <span class="fs-status" id="frSyncStatus"></span>
       </div>
-      <div style="font-size:11px; color:var(--muted); margin-top:6px;">Isso vai pro Agendor como nota direto no histórico do cliente — não cria negócio.</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:6px;">Isso vai pro Agendor como nota direto no histórico do cliente — não cria negócio. Marque a caixinha acima se quiser que essa reunião específica fique só no sistema.</div>
       <h4 style="margin-top:16px;">Feiras registradas</h4>
       <div id="frList"><div class="log-empty">Carregando…</div></div>
     </div>
@@ -3751,7 +3755,7 @@ async function initFeiraPane(d, key){
           <button class="fr-edit" data-id="${f.id}" style="background:none; border:none; color:var(--teal-deep); font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">editar</button>
           <button class="fr-del" data-id="${f.id}" style="background:none; border:none; color:#B3413B; font-size:11.5px; cursor:pointer; text-decoration:underline; padding:0;">remover</button>
         </div>
-        <div class="le-top"><span>${FR_STATUS_ICON[f.status] || ''} <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${feiraColor(f.feira)}; margin-right:4px;"></span><b>${f.feira || 'Feira'}</b> · ${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}</span></div>
+        <div class="le-top"><span>${FR_STATUS_ICON[f.status] || ''} <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${feiraColor(f.feira)}; margin-right:4px;"></span><b>${f.feira || 'Feira'}</b> · ${f.status}${f.dataDia ? ' · ' + formatBRDate(f.dataDia) : ''}${f.data ? ' · ' + f.data : ''}${f.noAgendor ? ' · <span style="color:var(--muted);">🔒 só no sistema</span>' : ''}</span></div>
         <div class="le-notes">${(f.notes || '').replace(/</g,'&lt;')}</div>
       </div>
     `).join('');
@@ -3772,6 +3776,7 @@ async function initFeiraPane(d, key){
         document.getElementById('frDataDia').value = f.dataDia || '';
         document.getElementById('frData').value = f.data || '';
         document.getElementById('frNotes').value = f.notes || '';
+        document.getElementById('frNoAgendor').checked = !!f.noAgendor;
         document.getElementById('frFormTitle').textContent = 'Editando reunião em feira';
         document.getElementById('frSave').style.display = 'none';
         document.getElementById('frCorrigir').style.display = 'inline-block';
@@ -3788,6 +3793,7 @@ async function initFeiraPane(d, key){
     document.getElementById('frDataDia').value = '';
     document.getElementById('frData').value = '';
     document.getElementById('frNotes').value = '';
+    document.getElementById('frNoAgendor').checked = false;
     document.getElementById('frFormTitle').textContent = 'Registrar reunião em feira';
     document.getElementById('frSave').style.display = 'inline-block';
     document.getElementById('frCorrigir').style.display = 'none';
@@ -3804,17 +3810,18 @@ async function initFeiraPane(d, key){
     const dataDia = document.getElementById('frDataDia').value;
     const data = document.getElementById('frData').value.trim();
     const notes = document.getElementById('frNotes').value.trim();
+    const noAgendor = document.getElementById('frNoAgendor').checked;
     if (!feira && !notes){ savingFr = false; return; }
 
     let entry;
     if (editingFrId){
       const idx = feiras.findIndex(f => f.id === editingFrId);
       if (idx !== -1){
-        feiras[idx] = { ...feiras[idx], feira, status, dataDia, data, notes };
+        feiras[idx] = { ...feiras[idx], feira, status, dataDia, data, notes, noAgendor };
         entry = feiras[idx];
       }
     } else {
-      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), feira, status, dataDia, data, notes };
+      entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), feira, status, dataDia, data, notes, noAgendor };
       feiras.push(entry);
     }
 
@@ -3823,7 +3830,9 @@ async function initFeiraPane(d, key){
     await setFeiras(key, feiras);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
-    if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
+    if (noAgendor){
+      syncStatus.textContent += ' · Mantido só no sistema (não enviado ao Agendor)';
+    } else if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
       syncStatus.textContent += ' · Enviando pro Agendor…';
       let orgId = d.agendorOrgId;
       if (!orgId){
