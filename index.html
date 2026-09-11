@@ -601,7 +601,11 @@ async function backendGet(key){
     try{
       const res = await fetch(`${url}?action=get&key=${encodeURIComponent(key)}`);
       const data = await res.json();
-      if (data.value !== null && data.value !== undefined){
+      // A blank/empty value from the sheet (as opposed to a genuinely missing key) is treated
+      // the same as "nothing there" — trusting it as real data would overwrite the safe local
+      // backup and could wipe out everything you'd customized (this is what was likely causing
+      // rates/taxas to reset back to just the defaults after loading a new version).
+      if (data.value !== null && data.value !== undefined && data.value !== ''){
         localStorage.setItem(key, data.value); // keep a local mirror
         return data.value;
       }
@@ -626,20 +630,30 @@ async function backendSet(key, value){
 
 async function backendListValues(prefix){
   const url = getSheetsUrl();
+  const localEntries = () => {
+    const entries = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) entries.push({ key: k, value: localStorage.getItem(k) });
+    }
+    return entries;
+  };
   if (url){
     try{
       const res = await fetch(`${url}?action=listValues&prefix=${encodeURIComponent(prefix)}`);
       const data = await res.json();
-      (data.entries || []).forEach(e => localStorage.setItem(e.key, e.value));
-      return data.entries || [];
+      const cloudEntries = data.entries || [];
+      // If the cloud came back empty but there's a richer local backup for this same prefix,
+      // treat the empty cloud response as suspicious (a transient read glitch) rather than
+      // trusting it — this is what could otherwise wipe out real data after loading a new
+      // version, if the very first cloud call for something happened to return nothing.
+      const local = localEntries();
+      if (!cloudEntries.length && local.length) return local;
+      cloudEntries.forEach(e => localStorage.setItem(e.key, e.value));
+      return cloudEntries;
     } catch(e){ console.error('Cloud list failed, using local copies', e); }
   }
-  const entries = [];
-  for (let i = 0; i < localStorage.length; i++){
-    const k = localStorage.key(i);
-    if (k && k.startsWith(prefix)) entries.push({ key: k, value: localStorage.getItem(k) });
-  }
-  return entries;
+  return localEntries();
 }
 
 async function testCloudConnection(){
@@ -1139,15 +1153,45 @@ const SEED_RATES = [
   {"tipo": "Aeroporto", "cia": "Azul", "origem": "REC", "conexao": "", "destino": "MAD", "tarifaBase": 1.05, "condicao": "Produto: Fruta · Faixa +1000KG", "taxasCia": 10, "desembaraco": 0, "armazenagem": 0, "validade": "atualizadas 01/04/2026"},
 ];
 
+function seedRateStableKey(seed){
+  // A key based on the seed's OWN fixed content — never changes, regardless of what you later
+  // edit on the resulting rate. Used to remember "this seed was already introduced once" so it
+  // never gets silently re-added just because you changed its destino/tarifa/etc. afterward.
+  return [seed.cia, seed.origem, seed.destino, Number(seed.tarifaBase).toFixed(2), seed.condicao].join('|');
+}
+async function getMergedSeedRateKeys(){
+  try{
+    const v = await backendGet('hevile_seed_rates_merged');
+    return v ? JSON.parse(v) : null; // null = never migrated yet
+  } catch(e){ return null; }
+}
+async function setMergedSeedRateKeys(arr){
+  await backendSet('hevile_seed_rates_merged', JSON.stringify(arr));
+}
+
 async function mergeSeedRates(){
+  let mergedKeys = await getMergedSeedRateKeys();
   let changed = false;
+  if (mergedKeys === null){
+    // First time running this — backfill using the OLD "does a matching rate currently exist"
+    // check, so seeds you already have don't get touched, and only genuinely-missing ones (or
+    // ones you've since edited away) are treated correctly going forward.
+    mergedKeys = [];
+    SEED_RATES.forEach(seed => {
+      const exists = ratesCache.some(r => r.cia === seed.cia && r.origem === seed.origem && r.destino === seed.destino && Math.abs(r.tarifaBase - seed.tarifaBase) < 0.001 && r.condicao === seed.condicao);
+      if (exists) mergedKeys.push(seedRateStableKey(seed));
+    });
+  }
+  const mergedSet = new Set(mergedKeys);
   SEED_RATES.forEach(seed => {
-    const exists = ratesCache.some(r => r.cia === seed.cia && r.origem === seed.origem && r.destino === seed.destino && Math.abs(r.tarifaBase - seed.tarifaBase) < 0.001 && r.condicao === seed.condicao);
-    if (!exists){
+    const key = seedRateStableKey(seed);
+    if (!mergedSet.has(key)){
       ratesCache.push({ id: 'seed_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), ...seed });
+      mergedSet.add(key);
       changed = true;
     }
   });
+  await setMergedSeedRateKeys([...mergedSet]);
   if (changed) await setRates(ratesCache);
 }
 
