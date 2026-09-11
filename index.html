@@ -1302,6 +1302,21 @@ async function mergeSeedCiaFees(){
       changed = true;
     }
   });
+  // Safety net: if the same CIA+nome ever ends up listed twice (e.g. from an older file
+  // version re-adding a seed entry that looks slightly different from what you edited), keep
+  // whichever copy was actually edited most recently instead of silently picking one — this is
+  // what protects your manual adjustments from ever being quietly overwritten by defaults.
+  const byKey = {};
+  ciaFeesCache.forEach(f => {
+    const k = f.cia + '|' + f.nome;
+    const existing = byKey[k];
+    if (!existing || (f.updatedAt || 0) > (existing.updatedAt || 0)) byKey[k] = f;
+  });
+  const deduped = Object.values(byKey);
+  if (deduped.length !== ciaFeesCache.length){
+    ciaFeesCache = deduped;
+    changed = true;
+  }
   if (changed) await setCiaFees(ciaFeesCache);
 }
 async function loadCiaFeesCache(){
@@ -1565,9 +1580,9 @@ function openCiaFeeForm(fee){
     if (!cia || !nome){ alert('Preencha ao menos CIA e Nome da taxa.'); return; }
     if (fee){
       const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
-      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs };
+      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, updatedAt: Date.now() };
     } else {
-      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs });
+      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, updatedAt: Date.now() });
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
