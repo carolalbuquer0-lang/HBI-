@@ -1185,7 +1185,7 @@ async function loadRatesCache(){
   if (healed) await setRates(ratesCache);
 
   await mergeSeedRates();
-  if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
+  if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
 }
 
 // ---- No-show policies per CIA (kept separate from the rate cards, shown as a notes panel) ----
@@ -1307,7 +1307,7 @@ async function mergeSeedCiaFees(){
 async function loadCiaFeesCache(){
   ciaFeesCache = await getCiaFees();
   await mergeSeedCiaFees();
-  if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
+  if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
 }
 
 let editingRateId = null;
@@ -1528,7 +1528,7 @@ function renderCiaFeesView(){
       if (!confirm('Remover essa taxa?')) return;
       ciaFeesCache = ciaFeesCache.filter(f => f.id !== btn.dataset.id);
       await setCiaFees(ciaFeesCache);
-      if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
+      if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
       document.getElementById('ciaFeesWrap').style.display = 'block';
       renderCiaFeesView();
     };
@@ -1571,7 +1571,7 @@ function openCiaFeeForm(fee){
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
-    if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
+    if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
     document.getElementById('ciaFeesWrap').style.display = 'block';
     renderCiaFeesView();
   };
@@ -1653,54 +1653,128 @@ function getEffectiveProduto(r){
   return m ? m[1].trim() : '';
 }
 
+function rateCardGroup(group){
+  const first = group[0];
+  const produto = getEffectiveProduto(first);
+  const groupIds = group.map(r => r.id).join(',');
+  const tipoTag = first.tipo === 'To Door'
+    ? `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra Aeroporto" style="background:var(--orange); font-size:12px; padding:4px 10px; cursor:pointer;">🚚 TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
+    : `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra To Door" style="background:#5A7A94; font-size:12px; padding:4px 10px; cursor:pointer;">✈ AEROPORTO</span>`;
+  const tarifasHtml = group.map(r => {
+    const { faixaLabel } = parseCondicao(r.condicao);
+    return `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
+      <span style="font-size:12px; color:var(--muted);">${faixaLabel || 'Tarifa única'}</span>
+      <span style="display:flex; align-items:center; gap:8px;">
+        <b style="color:var(--orange);">USD ${Number(r.tarifaBase).toFixed(2)}/kg</b>
+        <button class="rate-edit" data-id="${r.id}" title="Editar" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;font-size:12px;">✎</button>
+        <button class="rate-del" data-id="${r.id}" title="Remover" style="background:none;border:none;color:#B3413B;cursor:pointer;font-size:12px;">✕</button>
+      </span>
+    </div>`;
+  }).join('');
+  const obsSet = [...new Set(group.map(r => parseCondicao(r.condicao).obs).filter(Boolean))];
+  const feesForCia = ciaFeesCache.filter(f => f.cia === first.cia);
+  const feesHtml = feesForCia.length
+    ? feesForCia.map(f => `<div class="rate-row"><span class="rate-label">${f.nome}</span><span class="rate-val orange">USD ${Number(f.valor).toFixed(2)}${f.obs ? `<br><span style="font-weight:normal; font-size:10.5px; color:var(--muted);">${f.obs}</span>` : ''}</span></div>`).join('')
+    : (first.taxasCia ? `<div class="rate-row"><span class="rate-label">TAXAS DA CIA</span><span class="rate-val orange">USD ${Number(first.taxasCia).toFixed(2)}</span></div>` : '');
+  const diasHtml = (first.diasSemana && first.diasSemana.length)
+    ? `<div class="rate-row"><span class="rate-label">DIAS VÁLIDOS</span><span class="rate-val" style="text-align:right;">${first.diasSemana.join(', ')}</span></div>`
+    : '';
+
+  return `<div class="rate-card">
+    <div class="rate-card-head">
+      <span>${first.cia}</span>
+      ${tipoTag}
+    </div>
+    <div class="rate-card-body">
+      ${produto ? `<div class="rate-row"><span class="rate-label">PRODUTO</span><span class="rate-val">${produto}</span></div>` : ''}
+      <div style="background:#FBF6EE; border-radius:8px; padding:6px 10px; margin:6px 0;">${tarifasHtml}</div>
+      <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${first.origem}</span></div>
+      <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
+      <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
+      ${diasHtml}
+      ${obsSet.length ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
+      ${feesHtml}
+      ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
+    </div>
+  </div>`;
+}
+
+// Groups rate entries that only differ by weight tier (same CIA/tipo/origem/conexão/destino/
+// produto/other-observations) into a single visual card, so +500KG and +1000KG etc. show
+// together instead of as separate cards.
+function groupByRoute(list){
+  const map = {};
+  list.forEach(r => {
+    const { obs } = parseCondicao(r.condicao);
+    const produto = getEffectiveProduto(r);
+    const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, produto, obs].join('|');
+    (map[k] || (map[k] = [])).push(r);
+  });
+  return Object.values(map);
+}
+
+function renderList(filterText){
+  const wrap = document.getElementById('ratesListWrap');
+  if (!wrap) return;
+  const currentlyOpen = new Set([...wrap.querySelectorAll('.rate-dest-group[open]')].map(el => el.dataset.dest));
+  const f = (filterText || '').trim().toLowerCase();
+  const filtered = !f ? ratesCache : ratesCache.filter(r =>
+    [r.cia, r.origem, r.conexao, r.destino, r.produto, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
+  );
+  const byDestino = {};
+  filtered.forEach(r => { (byDestino[r.destino] || (byDestino[r.destino] = [])).push(r); });
+  const destinos = Object.keys(byDestino).sort();
+
+  if (!filtered.length){
+    wrap.innerHTML = `<div class="empty">${ratesCache.length ? 'Nenhuma tarifa encontrada pra essa busca.' : 'Nenhuma tarifa cadastrada ainda. Clique em "+ Nova tarifa" pra começar.'}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = destinos.map(dest => {
+    const groups = groupByRoute(byDestino[dest]);
+    const shouldOpen = f || currentlyOpen.has(dest);
+    return `
+    <details class="rate-dest-group" data-dest="${dest.replace(/"/g,'&quot;')}" ${shouldOpen ? 'open' : ''}>
+      <summary class="rate-dest-header">Destino: ${dest} <span class="rate-dest-count">${byDestino[dest].length}</span></summary>
+      <div class="rate-card-grid">${groups.map(rateCardGroup).join('')}</div>
+    </details>
+  `;
+  }).join('');
+
+  wrap.querySelectorAll('.rate-edit').forEach(btn => {
+    btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
+  });
+  wrap.querySelectorAll('.rate-del').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Remover essa tarifa?')) return;
+      ratesCache = ratesCache.filter(r => r.id !== btn.dataset.id);
+      await setRates(ratesCache);
+      renderList(document.getElementById('ratesSearch').value);
+    };
+  });
+  wrap.querySelectorAll('.rate-tipo-toggle').forEach(tag => {
+    tag.onclick = async () => {
+      const ids = tag.dataset.ids.split(',');
+      ids.forEach(id => {
+        const r = ratesCache.find(x => x.id === id);
+        if (r) r.tipo = r.tipo === 'To Door' ? 'Aeroporto' : 'To Door';
+      });
+      await setRates(ratesCache);
+      renderList(document.getElementById('ratesSearch').value);
+    };
+  });
+}
+
+// Soft refresh: updates just the rate cards (preserving the search box's current text and
+// whichever destination groups are expanded) instead of rebuilding the whole Tarifas screen
+// (which used to reset the search box and collapse everything back — the "fecha tudo" bug).
+function refreshRatesList(){
+  const searchBox = document.getElementById('ratesSearch');
+  if (searchBox) renderList(searchBox.value);
+}
+
 function renderRatesView(){
   const el = document.getElementById('ratesView');
-
-  function rateCardGroup(group){
-    const first = group[0];
-    const produto = getEffectiveProduto(first);
-    const groupIds = group.map(r => r.id).join(',');
-    const tipoTag = first.tipo === 'To Door'
-      ? `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra Aeroporto" style="background:var(--orange); font-size:12px; padding:4px 10px; cursor:pointer;">🚚 TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
-      : `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra To Door" style="background:#5A7A94; font-size:12px; padding:4px 10px; cursor:pointer;">✈ AEROPORTO</span>`;
-    const tarifasHtml = group.map(r => {
-      const { faixaLabel } = parseCondicao(r.condicao);
-      return `<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0;">
-        <span style="font-size:12px; color:var(--muted);">${faixaLabel || 'Tarifa única'}</span>
-        <span style="display:flex; align-items:center; gap:8px;">
-          <b style="color:var(--orange);">USD ${Number(r.tarifaBase).toFixed(2)}/kg</b>
-          <button class="rate-edit" data-id="${r.id}" title="Editar" style="background:none;border:none;color:var(--teal-deep);cursor:pointer;font-size:12px;">✎</button>
-          <button class="rate-del" data-id="${r.id}" title="Remover" style="background:none;border:none;color:#B3413B;cursor:pointer;font-size:12px;">✕</button>
-        </span>
-      </div>`;
-    }).join('');
-    const obsSet = [...new Set(group.map(r => parseCondicao(r.condicao).obs).filter(Boolean))];
-    const feesForCia = ciaFeesCache.filter(f => f.cia === first.cia);
-    const feesHtml = feesForCia.length
-      ? feesForCia.map(f => `<div class="rate-row"><span class="rate-label">${f.nome}</span><span class="rate-val orange">USD ${Number(f.valor).toFixed(2)}${f.obs ? `<br><span style="font-weight:normal; font-size:10.5px; color:var(--muted);">${f.obs}</span>` : ''}</span></div>`).join('')
-      : (first.taxasCia ? `<div class="rate-row"><span class="rate-label">TAXAS DA CIA</span><span class="rate-val orange">USD ${Number(first.taxasCia).toFixed(2)}</span></div>` : '');
-    const diasHtml = (first.diasSemana && first.diasSemana.length)
-      ? `<div class="rate-row"><span class="rate-label">DIAS VÁLIDOS</span><span class="rate-val" style="text-align:right;">${first.diasSemana.join(', ')}</span></div>`
-      : '';
-
-    return `<div class="rate-card">
-      <div class="rate-card-head">
-        <span>${first.cia}</span>
-        ${tipoTag}
-      </div>
-      <div class="rate-card-body">
-        ${produto ? `<div class="rate-row"><span class="rate-label">PRODUTO</span><span class="rate-val">${produto}</span></div>` : ''}
-        <div style="background:#FBF6EE; border-radius:8px; padding:6px 10px; margin:6px 0;">${tarifasHtml}</div>
-        <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${first.origem}</span></div>
-        <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
-        <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
-        ${diasHtml}
-        ${obsSet.length ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
-        ${feesHtml}
-        ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
-      </div>
-    </div>`;
-  }
 
   el.innerHTML = `
     <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
@@ -1724,71 +1798,6 @@ function renderRatesView(){
     </div>
     <div id="ratesListWrap"></div>
   `;
-
-  // Groups rate entries that only differ by weight tier (same CIA/tipo/origem/conexão/destino/
-  // produto/other-observations) into a single visual card, so +500KG and +1000KG etc. show
-  // together instead of as separate cards.
-  function groupByRoute(list){
-    const map = {};
-    list.forEach(r => {
-      const { obs } = parseCondicao(r.condicao);
-      const produto = getEffectiveProduto(r);
-      const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, produto, obs].join('|');
-      (map[k] || (map[k] = [])).push(r);
-    });
-    return Object.values(map);
-  }
-
-  function renderList(filterText){
-    const wrap = document.getElementById('ratesListWrap');
-    const currentlyOpen = new Set([...wrap.querySelectorAll('.rate-dest-group[open]')].map(el => el.dataset.dest));
-    const f = (filterText || '').trim().toLowerCase();
-    const filtered = !f ? ratesCache : ratesCache.filter(r =>
-      [r.cia, r.origem, r.conexao, r.destino, r.produto, r.condicao, r.validade].join(' ').toLowerCase().includes(f)
-    );
-    const byDestino = {};
-    filtered.forEach(r => { (byDestino[r.destino] || (byDestino[r.destino] = [])).push(r); });
-    const destinos = Object.keys(byDestino).sort();
-
-    if (!filtered.length){
-      wrap.innerHTML = `<div class="empty">${ratesCache.length ? 'Nenhuma tarifa encontrada pra essa busca.' : 'Nenhuma tarifa cadastrada ainda. Clique em "+ Nova tarifa" pra começar.'}</div>`;
-      return;
-    }
-
-    wrap.innerHTML = destinos.map(dest => {
-      const groups = groupByRoute(byDestino[dest]);
-      const shouldOpen = f || currentlyOpen.has(dest);
-      return `
-      <details class="rate-dest-group" data-dest="${dest.replace(/"/g,'&quot;')}" ${shouldOpen ? 'open' : ''}>
-        <summary class="rate-dest-header">Destino: ${dest} <span class="rate-dest-count">${byDestino[dest].length}</span></summary>
-        <div class="rate-card-grid">${groups.map(rateCardGroup).join('')}</div>
-      </details>
-    `;
-    }).join('');
-
-    wrap.querySelectorAll('.rate-edit').forEach(btn => {
-      btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
-    });
-    wrap.querySelectorAll('.rate-del').forEach(btn => {
-      btn.onclick = async () => {
-        if (!confirm('Remover essa tarifa?')) return;
-        ratesCache = ratesCache.filter(r => r.id !== btn.dataset.id);
-        await setRates(ratesCache);
-        renderList(document.getElementById('ratesSearch').value);
-      };
-    });
-    wrap.querySelectorAll('.rate-tipo-toggle').forEach(tag => {
-      tag.onclick = async () => {
-        const ids = tag.dataset.ids.split(',');
-        ids.forEach(id => {
-          const r = ratesCache.find(x => x.id === id);
-          if (r) r.tipo = r.tipo === 'To Door' ? 'Aeroporto' : 'To Door';
-        });
-        await setRates(ratesCache);
-        renderList(document.getElementById('ratesSearch').value);
-      };
-    });
-  }
 
   renderList('');
   document.getElementById('ratesSearch').addEventListener('input', (e) => renderList(e.target.value));
@@ -1877,7 +1886,7 @@ function openDuplicateRatesReview(){
       ratesCache = ratesCache.filter(r => !idsToRemove.has(r.id));
       await setRates(ratesCache);
       document.getElementById('dupRatesStatus').textContent = `${idsToRemove.size} tarifa(s) removida(s) ✓`;
-      if (currentNav === 'cottar' && ctMode === 'tarifas') renderRatesView();
+      if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
       setTimeout(closeModal, 1000);
     };
   }
@@ -1994,6 +2003,22 @@ function openRateForm(rate){
       alert('Preencha ao menos CIA, Origem, Destino e Tarifa.');
       return;
     }
+    // If this route already has rates under a DIFFERENT tipo (Aeroporto vs To Door), this new
+    // entry won't merge into the same card as its siblings — the mismatch is easy to miss since
+    // "tipo" always starts on the same default option, so flag it before saving.
+    if (!editingRateId){
+      const sameRouteDifferentTipo = ratesCache.find(r =>
+        r.cia === cia && r.origem === origem && (r.conexao||'') === conexao && r.destino === destino && r.tipo !== tipo
+      );
+      if (sameRouteDifferentTipo){
+        const proceed = confirm(`Já existe tarifa pra ${cia} ${origem}→${destino} como "${sameRouteDifferentTipo.tipo}", mas essa nova está marcada como "${tipo}" — elas não vão aparecer juntas no mesmo card.\n\nQuer trocar essa nova pra "${sameRouteDifferentTipo.tipo}" antes de salvar?`);
+        if (proceed){
+          document.getElementById('rfTipo').value = sameRouteDifferentTipo.tipo;
+          document.getElementById('rfToDoorRow').style.display = sameRouteDifferentTipo.tipo === 'To Door' ? 'flex' : 'none';
+          return; // let her review/save again with the corrected tipo
+        }
+      }
+    }
     // Rebuild condicao cleanly from the separated fields, instead of hand-editing one
     // combined string — this is what kept losing the weight-tier tag by accident before.
     const parts = [];
@@ -2012,7 +2037,7 @@ function openRateForm(rate){
     await setRates(ratesCache);
     editingRateId = null;
     closeModal();
-    renderRatesView();
+    refreshRatesList();
   };
 }
 
