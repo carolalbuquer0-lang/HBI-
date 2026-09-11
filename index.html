@@ -1215,9 +1215,11 @@ async function loadRatesCache(){
   // Repair pass: if a saved rate lost its weight-tier tag (e.g. from an earlier edit that
   // accidentally stripped it), and a SEED_RATES entry matches the same route/price, borrow
   // that seed's condicao text back — otherwise the rate shows as an indistinguishable
-  // "Tarifa única" alongside its sibling tiers.
+  // "Tarifa única" alongside its sibling tiers. Only ever done ONCE per rate (marked via
+  // _healed) so it can never re-overwrite something you've since edited on purpose.
   let healed = false;
   ratesCache.forEach(r => {
+    if (r._healed) return;
     const hasFaixa = /Faixa\s*:?\s*(Q|\+)?\s*[\d.,]+/i.test(r.condicao || '') || /[\d.,]+\s*(KG|TONS?)\b/i.test(r.condicao || '');
     if (!hasFaixa){
       const seed = SEED_RATES.find(s => s.cia === r.cia && s.origem === r.origem && s.destino === r.destino &&
@@ -1225,6 +1227,8 @@ async function loadRatesCache(){
         /Faixa/i.test(s.condicao || ''));
       if (seed){ r.condicao = seed.condicao; healed = true; }
     }
+    r._healed = true;
+    healed = true;
   });
   if (healed) await setRates(ratesCache);
 
