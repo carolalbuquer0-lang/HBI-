@@ -2695,6 +2695,8 @@ function lastReferralOf(key){
 let activeFruit = null;
 let searchTerm = '';
 let onlyProspects = false;
+let sortExportersAZ = false;
+let sortImportersAZ = false;
 
 function allFruits(){
   const set = new Set();
@@ -2828,6 +2830,9 @@ function renderExportersToolbar(){
     ${marketOppCount ? `<span id="marketOppChip" class="fruit-chip" style="display:inline-flex; padding:6px 14px; border-radius:14px; cursor:pointer; border:1px solid var(--line); font-size:12.5px;">
       🔍 Oportunidades de mercado: exportador novo (${marketOppCount})
     </span>` : ''}
+    <span id="sortAzChip" class="fruit-chip${sortExportersAZ ? ' active' : ''}" style="display:inline-flex; padding:6px 14px; border-radius:14px; cursor:pointer; border:1px solid var(--line); font-size:12.5px; margin-left:auto;">
+      ${sortExportersAZ ? '✓ ' : ''}🔤 Ordem alfabética
+    </span>
   `;
   document.getElementById('onlyProspectsChip').onclick = () => {
     onlyProspects = !onlyProspects;
@@ -2836,6 +2841,11 @@ function renderExportersToolbar(){
   };
   const oppChip = document.getElementById('marketOppChip');
   if (oppChip) oppChip.onclick = () => openMarketOpportunityReview(getMarketExporterOpportunities());
+  document.getElementById('sortAzChip').onclick = () => {
+    sortExportersAZ = !sortExportersAZ;
+    renderExportersToolbar();
+    renderCards();
+  };
 }
 
 function openMarketOpportunityReview(oportunidades){
@@ -2930,7 +2940,11 @@ function renderCards(){
   });
   list = list.filter(d => matchesFruit(d) && matchesSearch(d));
   if (onlyProspects) list = list.filter(d => isProspect(d));
-  list.sort((a,b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)) || b.shipments - a.shipments);
+  if (sortExportersAZ){
+    list.sort((a,b) => a.trade.localeCompare(b.trade, 'pt-BR'));
+  } else {
+    list.sort((a,b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)) || b.shipments - a.shipments);
+  }
 
   document.getElementById('mainTitle').textContent = activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : (onlyProspects ? 'Novos prospects' : 'Todos os exportadores');
   document.getElementById('mainSub').textContent = `${list.length} exportador${list.length===1?'':'es'} encontrado${list.length===1?'':'s'}`;
@@ -4788,11 +4802,19 @@ function renderImportersView(){
     const products = item.kind === 'importer' ? item.data.products : item.data.products;
     return (products || []).includes(activeFruit);
   });
-  unified.sort((a,b) => {
-    const wa = a.kind === 'importer' ? a.data.weight : 0;
-    const wb = b.kind === 'importer' ? b.data.weight : 0;
-    return wb - wa;
-  });
+  if (sortImportersAZ){
+    unified.sort((a,b) => {
+      const na = a.kind === 'importer' ? (a.data.trade || a.data.name) : a.data.importer;
+      const nb = b.kind === 'importer' ? (b.data.trade || b.data.name) : b.data.importer;
+      return na.localeCompare(nb, 'pt-BR');
+    });
+  } else {
+    unified.sort((a,b) => {
+      const wa = a.kind === 'importer' ? a.data.weight : 0;
+      const wb = b.kind === 'importer' ? b.data.weight : 0;
+      return wb - wa;
+    });
+  }
 
   const newCount = buildUnifiedImporters().filter(item => item.kind === 'market-only' || (item.market && item.market.new_importer)).length;
 
@@ -4805,6 +4827,7 @@ function renderImportersView(){
     <div class="nav-toggle" style="margin-bottom:8px;">
       <button id="mfAll" class="${marketFilter==='all'?'active':''}">Todos (${buildUnifiedImporters().length})</button>
       <button id="mfNew" class="${marketFilter==='new'?'active':''}">Oportunidade: importador novo (${newCount})</button>
+      <button id="sortAzImpChip" class="${sortImportersAZ?'active':''}" style="margin-left:auto;">${sortImportersAZ ? '✓ ' : ''}🔤 Ordem alfabética</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.5;">
       <b>Importador novo:</b> nunca houve embarque com a Hevile para esse importador. (Oportunidades de <b>exportador novo</b> agora aparecem na aba Exportadores, já que são sobre encontrar um exportador — não um importador.)
@@ -4858,6 +4881,7 @@ function renderImportersView(){
   document.getElementById('importersSearch').addEventListener('input', (e) => renderImportersList(e.target.value));
   document.getElementById('mfAll').onclick = () => { marketFilter='all'; renderImportersView(); };
   document.getElementById('mfNew').onclick = () => { marketFilter='new'; renderImportersView(); };
+  document.getElementById('sortAzImpChip').onclick = () => { sortImportersAZ = !sortImportersAZ; renderImportersView(); };
   document.getElementById('importDueBtn').onclick = () => document.getElementById('importDueInput').click();
   document.getElementById('importDueInput').onchange = (e) => {
     if (e.target.files.length) handleDueFileImport(e.target.files[0]);
