@@ -617,15 +617,36 @@ async function backendGet(key){
 async function backendSet(key, value){
   localStorage.setItem(key, value); // always keep an instant local copy
   const url = getSheetsUrl();
-  if (url){
+  if (!url) return true;
+
+  async function attemptWrite(){
     try{
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
         body: JSON.stringify({ action: 'set', key, value })
       });
-    } catch(e){ console.error('Cloud sync failed, saved locally only', e); }
+      return true;
+    } catch(e){ console.error('Cloud sync request failed', e); return false; }
   }
+  async function verifyWrite(){
+    try{
+      const res = await fetch(`${url}?action=get&key=${encodeURIComponent(key)}`);
+      const data = await res.json();
+      return data.value === value;
+    } catch(e){ return false; }
+  }
+
+  await attemptWrite();
+  if (await verifyWrite()) return true;
+  // First attempt didn't visibly stick (network hiccup, or the sheet hadn't caught up yet) —
+  // wait briefly and try once more before giving up and warning that this save may not have
+  // reached the cloud, so it isn't a silent failure.
+  await new Promise(r => setTimeout(r, 600));
+  await attemptWrite();
+  if (await verifyWrite()) return true;
+  console.warn(`Cloud save for "${key}" could not be verified after retrying — it's saved on this device, but may not have reached the shared sheet yet.`);
+  return false;
 }
 
 async function backendListValues(prefix){
@@ -808,14 +829,68 @@ async function setQuotes(key, arr){
   await backendSet('hevile_quotes:' + key, JSON.stringify(arr));
 }
 
+// Rates are stored ONE PER KEY (hevile_rate:<id>) instead of one giant JSON array in a single
+// cell — with 300+ entries, the combined JSON routinely exceeds Google Sheets' ~50,000
+// character per-cell limit, causing the write to silently fail (this was the real reason
+// edits to Tarifas kept reverting: the save never actually reached the sheet at all, it
+// wasn't a "reappearing seed" problem).
+//
+// setRates(arr) keeps its old signature (still takes the whole current array) so none of the
+// many call sites need to change, but internally it only ever writes entries whose content
+// actually changed since the last save, and tombstones (blanks out) ones that were removed —
+// so a single edit costs one small network write, not 300.
+let lastSavedRateSnapshot = {}; // id -> last-saved JSON string, used to detect real changes
+
 async function getRates(){
   try{
-    const v = await backendGet('hevile_rates');
-    return v ? JSON.parse(v) : [];
+    const entries = await backendListValues('hevile_rate:');
+    const out = [];
+    lastSavedRateSnapshot = {};
+    entries.forEach(({key, value}) => {
+      if (!value) return; // tombstoned (deleted) entry
+      try{
+        const r = JSON.parse(value);
+        if (r && r.id){ out.push(r); lastSavedRateSnapshot[r.id] = value; }
+      } catch(e){ /* skip corrupted entry */ }
+    });
+    if (out.length) return out;
+    // Nothing in the new per-entry format yet — fall back to the legacy single-blob key so
+    // existing data isn't lost, and migrate it into the new format right away.
+    const legacy = await backendGet('hevile_rates');
+    if (legacy){
+      try{
+        const arr = JSON.parse(legacy);
+        if (Array.isArray(arr) && arr.length){
+          await Promise.all(arr.map(r => {
+            const json = JSON.stringify(r);
+            lastSavedRateSnapshot[r.id] = json;
+            return backendSet('hevile_rate:' + r.id, json);
+          }));
+          return arr;
+        }
+      } catch(e){ /* skip corrupted legacy data */ }
+    }
+    return [];
   } catch(e){ return []; }
 }
+
 async function setRates(arr){
-  await backendSet('hevile_rates', JSON.stringify(arr));
+  const currentIds = new Set();
+  const writes = [];
+  arr.forEach(r => {
+    if (!r.id) return;
+    currentIds.add(r.id);
+    const json = JSON.stringify(r);
+    if (lastSavedRateSnapshot[r.id] !== json){
+      writes.push(backendSet('hevile_rate:' + r.id, json).then(() => { lastSavedRateSnapshot[r.id] = json; }));
+    }
+  });
+  Object.keys(lastSavedRateSnapshot).forEach(id => {
+    if (!currentIds.has(id)){
+      writes.push(backendSet('hevile_rate:' + id, '').then(() => { delete lastSavedRateSnapshot[id]; }));
+    }
+  });
+  await Promise.all(writes);
 }
 let ratesCache = [];
 
@@ -1157,7 +1232,11 @@ function seedRateStableKey(seed){
   // A key based on the seed's OWN fixed content — never changes, regardless of what you later
   // edit on the resulting rate. Used to remember "this seed was already introduced once" so it
   // never gets silently re-added just because you changed its destino/tarifa/etc. afterward.
-  return [seed.cia, seed.origem, seed.destino, Number(seed.tarifaBase).toFixed(2), seed.condicao].join('|');
+  // Hashed down to a short string so this list stays small even as more seeds are added.
+  const raw = [seed.cia, seed.origem, seed.destino, Number(seed.tarifaBase).toFixed(2), seed.condicao].join('|');
+  let h = 0;
+  for (let i = 0; i < raw.length; i++) h = ((h << 5) - h + raw.charCodeAt(i)) | 0;
+  return h.toString(36);
 }
 async function getMergedSeedRateKeys(){
   try{
@@ -1169,9 +1248,10 @@ async function setMergedSeedRateKeys(arr){
   await backendSet('hevile_seed_rates_merged', JSON.stringify(arr));
 }
 
-async function mergeSeedRates(){
-  let mergedKeys = await getMergedSeedRateKeys();
+async function mergeSeedRates(preFetchedMergedKeys){
+  let mergedKeys = preFetchedMergedKeys !== undefined ? preFetchedMergedKeys : await getMergedSeedRateKeys();
   let changed = false;
+  let keysChanged = false;
   if (mergedKeys === null){
     // First time running this — backfill using the OLD "does a matching rate currently exist"
     // check, so seeds you already have don't get touched, and only genuinely-missing ones (or
@@ -1181,6 +1261,7 @@ async function mergeSeedRates(){
       const exists = ratesCache.some(r => r.cia === seed.cia && r.origem === seed.origem && r.destino === seed.destino && Math.abs(r.tarifaBase - seed.tarifaBase) < 0.001 && r.condicao === seed.condicao);
       if (exists) mergedKeys.push(seedRateStableKey(seed));
     });
+    keysChanged = true; // this is the one-time migration write
   }
   const mergedSet = new Set(mergedKeys);
   SEED_RATES.forEach(seed => {
@@ -1189,35 +1270,38 @@ async function mergeSeedRates(){
       ratesCache.push({ id: 'seed_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), ...seed });
       mergedSet.add(key);
       changed = true;
+      keysChanged = true;
     }
   });
-  await setMergedSeedRateKeys([...mergedSet]);
+  if (keysChanged) await setMergedSeedRateKeys([...mergedSet]);
   if (changed) await setRates(ratesCache);
 }
 
 async function loadRatesCache(){
-  ratesCache = await getRates();
+  const [rates, mergedKeysRaw] = await Promise.all([getRates(), getMergedSeedRateKeys()]);
+  ratesCache = rates;
+  let needsSave = false;
+
   // One-time cleanup: remove old Azul entries that had a guessed/wrong weight-tier assumption,
   // now replaced by entries read from the real column layout Carol sent.
   const before = ratesCache.length;
   ratesCache = ratesCache.filter(r => !(r.cia === 'Azul' && (r.condicao || '').includes('confirmar com a Carol')));
+  if (ratesCache.length !== before) needsSave = true;
+
   // One-time fix: normalize old "<300kg"/"<500kg" notation (Air France / KLM) to the same
   // "Faixa +XKG" pattern used everywhere else, so the PDF groups weight tiers into columns correctly.
-  let notationFixed = false;
   ratesCache.forEach(r => {
     if (r.condicao && /<\d+kg/i.test(r.condicao)){
       r.condicao = r.condicao.replace(/<(\d+)kg/gi, (m, n) => `Faixa +${n}KG`);
-      notationFixed = true;
+      needsSave = true;
     }
   });
-  if (ratesCache.length !== before || notationFixed) await setRates(ratesCache);
 
   // Repair pass: if a saved rate lost its weight-tier tag (e.g. from an earlier edit that
   // accidentally stripped it), and a SEED_RATES entry matches the same route/price, borrow
   // that seed's condicao text back — otherwise the rate shows as an indistinguishable
   // "Tarifa única" alongside its sibling tiers. Only ever done ONCE per rate (marked via
   // _healed) so it can never re-overwrite something you've since edited on purpose.
-  let healed = false;
   ratesCache.forEach(r => {
     if (r._healed) return;
     const hasFaixa = /Faixa\s*:?\s*(Q|\+)?\s*[\d.,]+/i.test(r.condicao || '') || /[\d.,]+\s*(KG|TONS?)\b/i.test(r.condicao || '');
@@ -1225,14 +1309,14 @@ async function loadRatesCache(){
       const seed = SEED_RATES.find(s => s.cia === r.cia && s.origem === r.origem && s.destino === r.destino &&
         (s.conexao || '') === (r.conexao || '') && Math.abs(s.tarifaBase - r.tarifaBase) < 0.001 &&
         /Faixa/i.test(s.condicao || ''));
-      if (seed){ r.condicao = seed.condicao; healed = true; }
+      if (seed) r.condicao = seed.condicao;
     }
     r._healed = true;
-    healed = true;
+    needsSave = true;
   });
-  if (healed) await setRates(ratesCache);
 
-  await mergeSeedRates();
+  if (needsSave) await setRates(ratesCache);
+  await mergeSeedRates(mergedKeysRaw);
   if (currentNav === 'cottar' && ctMode === 'tarifas') refreshRatesList();
 }
 
@@ -4424,18 +4508,19 @@ async function handleDueFileImport(file){
 
 function dueRowHtml(n, i, prefix){
   const guessed = guessFruitsForProducts(n.produtos);
-  return `<div class="cf-row" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:10px 0;">
-    <input type="checkbox" class="${prefix}-check" data-idx="${i}" checked style="flex:0 0 20px; margin-top:2px;">
+  const sid = n._sid;
+  return `<div class="cf-row due-review-row" data-row-sid="${sid}" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:10px 0;">
+    <input type="checkbox" class="${prefix}-check" data-sid="${sid}" checked style="flex:0 0 20px; margin-top:2px;">
     <span style="flex:1; font-size:12.5px; line-height:1.5;">
       <b>${n.nome}</b> — ${n.eventos} evento(s)<br>
       <span style="color:var(--muted); font-size:11px;">Produtos: ${n.produtos.join(', ')}</span><br>
       <span style="color:var(--muted); font-size:11px;">${prefix==='dueimp'?'Países':'Destinos'}: ${n.paises.slice(0,4).join(', ')}${n.paises.length>4?'…':''}</span><br>
       <span style="font-size:11px;">Frutas sugeridas: </span>
-      ${allFruits().map(f => `<label style="margin-right:8px; font-size:11px;"><input type="checkbox" class="${prefix}-fruit-${i}" value="${f}" ${guessed.includes(f)?'checked':''}> ${ptFruit(f)}</label>`).join('')}
+      ${allFruits().map(f => `<label style="margin-right:8px; font-size:11px;"><input type="checkbox" class="${prefix}-fruit-${sid}" value="${f}" ${guessed.includes(f)?'checked':''}> ${ptFruit(f)}</label>`).join('')}
       <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
         <span style="font-size:11px; color:var(--muted);">Na verdade já tenho como:</span>
-        <input type="text" class="${prefix}-alias-input" data-idx="${i}" list="allExportersDatalist2" placeholder="nome já cadastrado…" style="font-size:11px; padding:3px 6px; flex:1; max-width:220px;">
-        <button type="button" class="${prefix}-alias-btn" data-idx="${i}" style="font-size:11px; padding:3px 8px; background:#fff; border:1px solid var(--line); border-radius:5px; cursor:pointer;">Marcar</button>
+        <input type="text" class="${prefix}-alias-input" data-sid="${sid}" list="allExportersDatalist2" placeholder="nome já cadastrado…" style="font-size:11px; padding:3px 6px; flex:1; max-width:220px;">
+        <button type="button" class="${prefix}-alias-btn" data-sid="${sid}" style="font-size:11px; padding:3px 8px; background:#fff; border:1px solid var(--line); border-radius:5px; cursor:pointer;">Marcar</button>
       </div>
     </span>
   </div>`;
@@ -4446,19 +4531,25 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
   const modal = document.getElementById('modalContent');
   novosImp = novosImp || [];
   totalImporters = totalImporters || 0;
+  // Stable ids assigned ONCE, independent of array position — so marking one entry as an
+  // alias (which removes it from the array) never shifts or resets any other row's checkbox.
+  let sidCounter = 0;
+  novos.forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
+  novosImp.forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
+
   modal.innerHTML = `
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>Novos exportadores e importadores encontrados</h2>
 
     <h3 style="margin-top:16px;">Exportadores (${novos.length} novos de ${totalExporters})</h3>
     <p style="font-size:13px; color:var(--muted);">Marque quais quer adicionar como prospects — as frutas já vêm pré-marcadas por um palpite automático, mas confira antes de salvar.</p>
-    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;">
+    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="dueExpList">
       ${novos.length ? novos.map((n, i) => dueRowHtml(n, i, 'due')).join('') : '<div class="empty">Nenhum exportador novo — todos já estão no seu cadastro.</div>'}
     </div>
 
     <h3>Importadores (${novosImp.length} novos de ${totalImporters})</h3>
     <p style="font-size:13px; color:var(--muted);">Mesma ideia, só que do lado de quem compra no exterior.</p>
-    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;">
+    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="dueImpList">
       ${novosImp.length ? novosImp.map((n, i) => dueRowHtml(n, i, 'dueimp')).join('') : '<div class="empty">Nenhum importador novo — todos já estão no seu cadastro.</div>'}
     </div>
 
@@ -4473,32 +4564,34 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
   `;
   overlay.classList.add('visible');
 
-  document.querySelectorAll('.due-alias-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const idx = btn.dataset.idx;
-      const input = document.querySelector(`.due-alias-input[data-idx="${idx}"]`);
-      const typed = input.value.trim();
-      if (!typed) return;
-      const existing = [...EXPORTERS, ...IMPORTERS].find(d => d.trade.toLowerCase() === typed.toLowerCase());
-      if (!existing){ alert('Não achei esse nome no cadastro. Confira a grafia (ou escolha da lista de sugestões).'); return; }
-      await addExporterAlias(novos[idx].nome, exporterKey(existing));
-      novos.splice(parseInt(idx, 10), 1);
-      openDueImportReview(novos, totalExporters, novosImp, totalImporters);
-    };
-  });
-  document.querySelectorAll('.dueimp-alias-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const idx = btn.dataset.idx;
-      const input = document.querySelector(`.dueimp-alias-input[data-idx="${idx}"]`);
-      const typed = input.value.trim();
-      if (!typed) return;
-      const existing = [...EXPORTERS, ...IMPORTERS].find(d => d.trade.toLowerCase() === typed.toLowerCase());
-      if (!existing){ alert('Não achei esse nome no cadastro. Confira a grafia (ou escolha da lista de sugestões).'); return; }
-      await addExporterAlias(novosImp[idx].nome, exporterKey(existing));
-      novosImp.splice(parseInt(idx, 10), 1);
-      openDueImportReview(novos, totalExporters, novosImp, totalImporters);
-    };
-  });
+  function wireAliasButtons(prefix, list){
+    document.querySelectorAll(`.${prefix}-alias-btn`).forEach(btn => {
+      btn.onclick = async () => {
+        const sid = btn.dataset.sid;
+        const input = document.querySelector(`.${prefix}-alias-input[data-sid="${sid}"]`);
+        const typed = input.value.trim();
+        if (!typed) return;
+        const existing = [...EXPORTERS, ...IMPORTERS].find(d => d.trade.toLowerCase() === typed.toLowerCase());
+        if (!existing){ alert('Não achei esse nome no cadastro. Confira a grafia (ou escolha da lista de sugestões).'); return; }
+        const entry = list.find(x => x._sid === sid);
+        if (!entry) return;
+        await addExporterAlias(entry.nome, exporterKey(existing));
+        const idx = list.findIndex(x => x._sid === sid);
+        if (idx !== -1) list.splice(idx, 1);
+        // Remove just this one row from the DOM — every other row's checkboxes stay exactly
+        // as the user left them, instead of the whole list resetting.
+        const row = document.querySelector(`.due-review-row[data-row-sid="${sid}"]`);
+        if (row) row.remove();
+        const containerId = prefix === 'due' ? 'dueExpList' : 'dueImpList';
+        const container = document.getElementById(containerId);
+        if (container && !list.length){
+          container.innerHTML = `<div class="empty">Nenhum ${prefix === 'due' ? 'exportador' : 'importador'} novo — todos já estão no seu cadastro.</div>`;
+        }
+      };
+    });
+  }
+  wireAliasButtons('due', novos);
+  wireAliasButtons('dueimp', novosImp);
 
   const confirmBtn = document.getElementById('dueImportConfirm');
   if (confirmBtn){
@@ -4506,13 +4599,14 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
       confirmBtn.disabled = true;
       const customExp = await getCustomExporters();
       let addedExp = 0;
-      novos.forEach((n, i) => {
-        const checkbox = document.querySelector(`.due-check[data-idx="${i}"]`);
-        if (!checkbox.checked) return;
-        const fruits = [...document.querySelectorAll(`.due-fruit-${i}`)].filter(el => el.checked).map(el => el.value);
+      novos.forEach(n => {
+        const checkbox = document.querySelector(`.due-check[data-sid="${n._sid}"]`);
+        if (!checkbox || !checkbox.checked) return;
+        const fruits = [...document.querySelectorAll(`.due-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
         const key = uniqueExporterKey(n.nome);
         const entry = {
           name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
+
           active: false, tier: 'Prospect', shipments: 0, all_fruits: fruits, variety_confirmed: {},
           source: 'Planilha semanal (DUE) — importado automaticamente', custom: true
         };
@@ -4524,10 +4618,10 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
 
       const customImp = await getCustomImporters();
       let addedImp = 0;
-      novosImp.forEach((n, i) => {
-        const checkbox = document.querySelector(`.dueimp-check[data-idx="${i}"]`);
-        if (!checkbox.checked) return;
-        const fruits = [...document.querySelectorAll(`.dueimp-fruit-${i}`)].filter(el => el.checked).map(el => el.value);
+      novosImp.forEach(n => {
+        const checkbox = document.querySelector(`.dueimp-check[data-sid="${n._sid}"]`);
+        if (!checkbox || !checkbox.checked) return;
+        const fruits = [...document.querySelectorAll(`.dueimp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
         const entry = {
           name: n.nome, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
           active: true, shipments: 0, weight: 0, products: fruits, all_fruits: fruits,
