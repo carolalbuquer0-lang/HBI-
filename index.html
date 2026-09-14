@@ -2803,9 +2803,10 @@ function renderFruitInfoPanel(){
 
 function getMarketExporterOpportunities(){
   const byName = {};
+  const matchCandidates = buildMatchCandidates();
   MARKET.forEach(r => {
     r.exporters_not_hevile.forEach(nome => {
-      if (findExporterMatch(nome)) return; // already in the registry under some form
+      if (findExporterMatch(nome, matchCandidates)) return; // already in the registry under some form
       if (!byName[nome]) byName[nome] = { nome, importadores: new Set(), produtos: new Set() };
       byName[nome].importadores.add(r.importer);
       r.products.forEach(p => byName[nome].produtos.add(p));
@@ -3040,6 +3041,7 @@ function openModal(d, initialTab){
       </div>
       <div class="cf-row" style="margin-bottom:6px;">
         <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:1;">
+        <input type="text" id="contactCnpj" value="${d.cnpj || ''}" placeholder="CNPJ" style="flex:0.8;">
         <button id="contactSaveBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">Salvar</button>
       </div>
       <span class="fs-status" id="contactSaveStatus"></span>
@@ -3325,12 +3327,14 @@ function openModal(d, initialTab){
       const phone = document.getElementById('contactPhone').value.trim();
       const email = document.getElementById('contactEmail').value.trim();
       const site = document.getElementById('contactSite').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
+      const cnpj = document.getElementById('contactCnpj').value.trim();
       d.phone = phone;
       d.email = email;
       d.site = site || null;
+      d.cnpj = cnpj || null;
       const st = document.getElementById('contactSaveStatus');
       st.textContent = 'Salvando…';
-      await setContactOverride(key, { phone, email, site: d.site, agendorOrgId: d.agendorOrgId });
+      await setContactOverride(key, { phone, email, site: d.site, cnpj: d.cnpj, agendorOrgId: d.agendorOrgId });
       st.textContent = 'Salvo ✓';
       renderCards();
       if (currentNav === 'importers') renderImportersView();
@@ -4391,16 +4395,28 @@ async function markConverted(nameRaw, newType){
   await setConvertedTypes(convertedTypes);
 }
 
-function findExporterMatch(nameRaw){
+function buildMatchCandidates(){
+  // Precomputes normalized trade/name once per company — reused across many findExporterMatch
+  // calls (e.g. hundreds of unique names in a DUE spreadsheet) instead of re-normalizing every
+  // candidate's text on every single lookup, which is what made big imports feel slow.
+  const list = [];
+  [...EXPORTERS, ...IMPORTERS].forEach(d => {
+    list.push({ d, normTrade: normalizeName(d.trade), normName: normalizeName(d.name) });
+  });
+  return list;
+}
+
+function findExporterMatch(nameRaw, precomputedCandidates){
   const cname = normalizeName(nameRaw);
   if (!cname) return null;
   if (exporterAliases[cname]){
     const known = [...EXPORTERS, ...IMPORTERS].find(d => exporterKey(d) === exporterAliases[cname]);
     if (known) return known;
   }
+  const candidates = precomputedCandidates || buildMatchCandidates();
   let best = null, bestScore = 0;
-  for (const d of [...EXPORTERS, ...IMPORTERS]){
-    for (const cand of [normalizeName(d.trade), normalizeName(d.name)]){
+  for (const { d, normTrade, normName } of candidates){
+    for (const cand of [normTrade, normName]){
       if (!cand) continue;
       if (cname === cand) return d;
       const pref = commonPrefixLen(cname, cand);
@@ -4452,10 +4468,14 @@ async function handleDueFileImport(file){
 
     // Column names can vary a little between weekly exports, so match loosely instead of a
     // single hardcoded string — avoids silently processing zero rows if a header is renamed.
+    // Careful: "CNPJ Exportador" also matches a loose /exportador/i search, so the name-column
+    // pattern must specifically exclude CNPJ columns (this was silently pulling in CNPJ numbers
+    // as if they were company names before).
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const findCol = (re) => cols.find(c => re.test(c)) || null;
-    const exporterCol = findCol(/exportador/i) || 'Exportador Nome';
-    const importerCol = findCol(/importador/i) || 'Nome Importador';
+    const exporterCol = findCol(/exportador.*nome|nome.*exportador/i) || cols.find(c => /exportador/i.test(c) && !/cnpj/i.test(c)) || 'Exportador Nome';
+    const importerCol = findCol(/importador.*nome|nome.*importador/i) || cols.find(c => /importador/i.test(c) && !/cnpj/i.test(c)) || 'Nome Importador';
+    const cnpjExpCol = findCol(/cnpj.*exportador|exportador.*cnpj/i);
     const productCol = findCol(/produto|esp[ée]cie/i) || 'Produto / Espécie';
     const countryCol = findCol(/pa[ií]s/i) || 'País Destino';
 
@@ -4464,13 +4484,15 @@ async function handleDueFileImport(file){
     rows.forEach(r => {
       const nomeExp = (r[exporterCol] || '').toString().trim();
       const nomeImp = (r[importerCol] || '').toString().trim();
+      const cnpjExp = cnpjExpCol ? (r[cnpjExpCol] || '').toString().trim() : '';
       const produto = (r[productCol] || '').toString().trim();
       const pais = (r[countryCol] || '').toString().trim();
       if (!isFruitRelevantProduct(produto)) return;
       if (nomeExp){
-        if (!byExporter[nomeExp]) byExporter[nomeExp] = { produtos: new Set(), paises: new Set(), eventos: 0 };
+        if (!byExporter[nomeExp]) byExporter[nomeExp] = { produtos: new Set(), paises: new Set(), eventos: 0, cnpj: '' };
         byExporter[nomeExp].produtos.add(produto);
         if (pais) byExporter[nomeExp].paises.add(pais);
+        if (cnpjExp && !byExporter[nomeExp].cnpj) byExporter[nomeExp].cnpj = cnpjExp;
         byExporter[nomeExp].eventos++;
       }
       if (nomeImp){
@@ -4483,17 +4505,23 @@ async function handleDueFileImport(file){
 
     const totalExporters = Object.keys(byExporter).length;
     const totalImporters = Object.keys(byImporter).length;
+    statusEl.textContent = `Comparando ${totalExporters + totalImporters} nomes com o cadastro…`;
+    // Yield to the browser so the status text above actually paints before the (synchronous,
+    // potentially heavy) matching loop below runs.
+    await new Promise(r => setTimeout(r, 0));
+
+    const matchCandidates = buildMatchCandidates();
     const novosExp = [];
     Object.entries(byExporter).forEach(([nome, info]) => {
-      if (!findExporterMatch(nome)){
-        novosExp.push({ nome, produtos: [...info.produtos], paises: [...info.paises], eventos: info.eventos });
+      if (!findExporterMatch(nome, matchCandidates)){
+        novosExp.push({ nome, produtos: [...info.produtos], paises: [...info.paises], eventos: info.eventos, cnpj: info.cnpj || '' });
       }
     });
     novosExp.sort((a,b) => b.eventos - a.eventos);
 
     const novosImp = [];
     Object.entries(byImporter).forEach(([nome, info]) => {
-      if (!findExporterMatch(nome)){
+      if (!findExporterMatch(nome, matchCandidates)){
         novosImp.push({ nome, produtos: [...info.produtos], paises: [...info.paises], eventos: info.eventos });
       }
     });
@@ -4512,7 +4540,7 @@ function dueRowHtml(n, i, prefix){
   return `<div class="cf-row due-review-row" data-row-sid="${sid}" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:10px 0;">
     <input type="checkbox" class="${prefix}-check" data-sid="${sid}" checked style="flex:0 0 20px; margin-top:2px;">
     <span style="flex:1; font-size:12.5px; line-height:1.5;">
-      <b>${n.nome}</b> — ${n.eventos} evento(s)<br>
+      <b>${n.nome}</b>${n.cnpj ? ` <span style="color:var(--muted); font-weight:normal; font-size:11px;">(CNPJ ${n.cnpj})</span>` : ''} — ${n.eventos} evento(s)<br>
       <span style="color:var(--muted); font-size:11px;">Produtos: ${n.produtos.join(', ')}</span><br>
       <span style="color:var(--muted); font-size:11px;">${prefix==='dueimp'?'Países':'Destinos'}: ${n.paises.slice(0,4).join(', ')}${n.paises.length>4?'…':''}</span><br>
       <span style="font-size:11px;">Frutas sugeridas: </span>
@@ -4605,8 +4633,7 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
         const fruits = [...document.querySelectorAll(`.due-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
         const key = uniqueExporterKey(n.nome);
         const entry = {
-          name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
-
+          name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '', cnpj: n.cnpj || '',
           active: false, tier: 'Prospect', shipments: 0, all_fruits: fruits, variety_confirmed: {},
           source: 'Planilha semanal (DUE) — importado automaticamente', custom: true
         };
@@ -4892,6 +4919,7 @@ async function loadContactOverrides(){
       if (c.phone) d.phone = c.phone;
       if (c.email) d.email = c.email;
       if (c.site) d.site = c.site;
+      if (c.cnpj) d.cnpj = c.cnpj;
       if (c.agendorOrgId) d.agendorOrgId = c.agendorOrgId;
       if (c.agendorNotesDealId) d.agendorNotesDealId = c.agendorNotesDealId;
     } catch(e){ /* skip */ }
