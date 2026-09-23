@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Painel de Exportadores e Frutas</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2A5F75">
+<meta name="theme-color" content="#26344D">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -15,13 +15,26 @@
 <style>
   :root{
     --orange:#F47920;
-    --teal:#3D7D96;
-    --teal-deep:#2A5F75;
+    --teal:#3D5A7A;
+    --teal-deep:#26344D;
     --bg:#F0F0F0;
     --ink:#2A2A2A;
     --muted:#6B6B6B;
     --line:#DADADA;
     --white:#FFFFFF;
+    /* Profile detail palette — now just aliases of the app's main colors above, so the whole
+       app (topbar, nav, buttons, profile cards, forms) consistently reads as one design
+       instead of the profile section using a different accent color from everything else. */
+    --pf-navy:var(--teal-deep);
+    --pf-navy-light:#F4F6F9;
+    --pf-border:#DCE2EB;
+    --pf-muted:#7A88A3;
+    --pf-text:#1D2635;
+    --pf-client-bg:#E3F0EA;
+    --pf-client-text:#2F7D5C;
+    --pf-opp-bg:#FCE8E3;
+    --pf-opp-text:#B54A34;
+    --pf-status-ok-dark:#7FD9AE;
   }
   *{box-sizing:border-box;}
   body{
@@ -122,6 +135,8 @@
   .pill{font-size:10.5px; padding:3px 8px; border-radius:999px; color:#fff;}
   .pill-more{background:#E4E4E4; color:var(--muted);}
   .card-foot{margin-top:10px; padding-top:10px; border-top:1px solid var(--line);}
+  .works-with-line{margin-top:7px; font-size:11px; color:var(--teal-deep); font-weight:600;}
+  .works-with-line .ww-names{color:var(--muted); font-weight:normal;}
   .badge-confirmed{
     display:inline-block; font-size:9.5px; background:#E9F3EE; color:#2E6B39; padding:2px 6px; border-radius:5px; margin-left:6px; font-weight:bold;
   }
@@ -140,13 +155,60 @@
   .modal h2{margin:0 0 4px; font-size:19px;}
   .modal .site-link{font-size:13px; margin-bottom:16px; display:block;}
   .modal .site-link a{color:var(--teal-deep);}
-  .modal h4{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:18px 0 8px;}
+  .modal h4{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--pf-navy); margin:18px 0 8px; font-weight:bold;}
   .fruit-row{
-    display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:8px; margin-bottom:6px; background:#F7F7F7;
+    display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--pf-border);
   }
-  .fruit-row .fname{font-size:13.5px; font-weight:bold; display:flex; align-items:center; gap:8px;}
-  .fruit-row .variety{font-size:12px; color:var(--muted); text-align:right; max-width:260px;}
-  .fruit-row .variety.confirmed{color:#2E6B39; font-weight:600;}
+  .fruit-row:last-child{border-bottom:none;}
+  .fruit-row .fname{font-size:13.5px; font-weight:bold; display:flex; align-items:center; gap:8px; color:var(--pf-text);}
+  .fruit-row .variety{font-size:12px; color:var(--pf-muted); text-align:right; max-width:260px;}
+  .fruit-row .variety.confirmed{color:var(--pf-client-text); font-weight:600;}
+  .fruit-rows-card{border:1px solid var(--pf-border); border-radius:10px; overflow:hidden; background:#fff;}
+  .fruit-rows-card .fruit-row:nth-child(even){background:var(--pf-navy-light);}
+
+  /* Profile "Layout D": a fixed navy sidebar with key numbers, content beside it */
+  .profile-shell{display:flex; gap:0; margin:0 -28px 16px; border-bottom:1px solid var(--pf-border);}
+  .profile-sidebar{background:var(--pf-navy); color:#fff; padding:18px 12px; width:110px; flex-shrink:0; display:flex; flex-direction:column; gap:15px; align-items:center; text-align:center;}
+  .profile-sidebar .ps-item{width:100%;}
+  .profile-sidebar .ps-item + .ps-item{border-top:1px solid rgba(255,255,255,0.15); padding-top:14px;}
+  .profile-sidebar .ps-label{display:block; font-size:9px; opacity:.75; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px;}
+  .profile-sidebar .ps-value{display:block; font-size:13px; font-weight:bold; line-height:1.3;}
+  .profile-content{padding:18px 20px; flex:1; min-width:0;}
+  .profile-content h4{margin-top:0;}
+
+  .info-list{margin-top:4px; margin-bottom:6px;}
+  .info-item{display:flex; justify-content:space-between; align-items:baseline; padding:7px 2px; border-bottom:1px solid var(--pf-border); gap:16px;}
+  .info-item:last-child{border-bottom:none;}
+  .info-item .il-label{font-size:12px; color:var(--pf-muted); flex-shrink:0;}
+  .info-item .il-value{font-size:12.5px; text-align:right; color:var(--pf-text);}
+
+  .highlight-box{background:var(--pf-navy-light); border-radius:8px; padding:10px 12px; margin-bottom:12px;}
+  .highlight-box .hb-label{font-size:10px; color:var(--pf-muted); text-transform:uppercase; letter-spacing:.03em; display:block; margin-bottom:4px;}
+  .highlight-box .hb-value{font-size:13px; font-weight:bold; color:var(--pf-text);}
+
+  .rel-list{border:1px solid var(--pf-border); border-radius:10px; overflow:hidden; margin-top:2px;}
+  .rel-item{display:flex; justify-content:space-between; align-items:center; padding:9px 12px; gap:12px; border-bottom:1px solid var(--pf-border); background:#fff;}
+  .rel-item:last-child{border-bottom:none;}
+  .rel-item:nth-child(even){background:var(--pf-navy-light);}
+  .rel-item .rel-name{font-size:12.5px; font-weight:bold; color:var(--pf-text);}
+  .rel-item .rel-meta{font-size:11px; color:var(--pf-muted); text-align:right; flex-shrink:0;}
+  .rel-tag{font-size:10.5px; font-weight:normal; padding:1px 7px; border-radius:999px; margin-left:4px;}
+  .rel-tag-client{background:var(--pf-client-bg); color:var(--pf-client-text);}
+  .rel-tag-opp{background:var(--pf-opp-bg); color:var(--pf-opp-text);}
+
+  .actions-card{background:var(--pf-navy-light); border:1px solid var(--pf-border); border-radius:12px; padding:16px; margin-top:16px;}
+  .actions-row{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .actions-row:last-child{margin-bottom:0;}
+  .btn-navy{background:var(--pf-navy); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:12.5px; font-weight:bold; cursor:pointer; white-space:nowrap;}
+  .btn-navy-outline{background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); padding:9px 16px; border-radius:8px; font-size:12.5px; font-weight:bold; cursor:pointer;}
+  .btn-danger-outline{background:#fff; color:#B3413B; border:1px solid #B3413B; padding:9px 16px; border-radius:8px; font-size:12.5px; font-weight:bold; cursor:pointer;}
+  .merge-box{background:#fff; border:1px solid var(--pf-border); border-radius:10px; padding:12px 14px; margin-bottom:10px;}
+  .merge-box:last-child{margin-bottom:0;}
+  .merge-box label{display:block; font-size:12px; color:var(--pf-navy); margin-bottom:8px; font-weight:bold;}
+  .merge-row{display:flex; gap:6px;}
+  .merge-row input{flex:1; font-size:12.5px; padding:7px 9px; border:1px solid var(--pf-border); border-radius:6px; font-family:inherit;}
+  .merge-row input:focus{outline:none; border-color:var(--pf-navy); box-shadow:0 0 0 3px rgba(38,52,77,0.08);}
+  .merge-hint{font-size:11px; color:var(--pf-muted); margin-top:6px;}
 
   footer{text-align:center; padding:26px; color:var(--muted); font-size:12px; background:#fff; border-top:1px solid var(--line);}
   footer a{color:var(--teal-deep);}
@@ -201,15 +263,18 @@
     padding:8px 4px; margin-right:14px; font-size:12.5px; font-weight:bold; color:var(--muted); cursor:pointer;
     border-bottom:2px solid transparent; text-transform:uppercase; letter-spacing:.04em;
   }
-  .modal-tab.active{color:var(--teal-deep); border-bottom-color:var(--orange);}
+  .modal-tab.active{color:var(--pf-navy); border-bottom-color:var(--orange);}
   .modal-pane{display:none;}
   .modal-pane.active{display:block;}
 
   /* Contact log */
-  .contact-form{background:#F7F7F7; border-radius:10px; padding:12px; margin-bottom:14px;}
+  .contact-form{background:var(--pf-navy-light); border:1px solid var(--pf-border); border-radius:10px; padding:12px; margin-bottom:14px;}
   .contact-form .cf-row{display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
   .contact-form input, .contact-form select, .contact-form textarea{
-    font-family:inherit; font-size:13px; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:#fff;
+    font-family:inherit; font-size:13px; padding:7px 9px; border:1px solid var(--pf-border); border-radius:7px; background:#fff; transition:border-color .15s;
+  }
+  .contact-form input:focus, .contact-form select:focus, .contact-form textarea:focus{
+    outline:none; border-color:var(--pf-navy); box-shadow:0 0 0 3px rgba(38,52,77,0.08);
   }
   .contact-form input[type=date]{flex:0 0 150px;}
   .contact-form input[type=text]{flex:1; min-width:120px;}
@@ -219,22 +284,23 @@
     background:var(--orange); color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:13px; font-weight:bold; cursor:pointer;
   }
   .contact-form button:hover{opacity:.9;}
-  .log-entry{border-left:3px solid var(--teal); padding:8px 12px; margin-bottom:8px; background:#FAFAFA; border-radius:0 8px 8px 0; position:relative;}
-  .log-entry .le-top{display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;}
-  .log-entry .le-top b{color:var(--ink);}
-  .log-entry .le-notes{font-size:13px; color:var(--ink); white-space:pre-wrap;}
+  .log-entry{border-left:3px solid var(--pf-navy); padding:9px 12px; margin-bottom:8px; background:var(--pf-navy-light); border-radius:0 8px 8px 0; position:relative;}
+  .log-entry .le-top{display:flex; justify-content:space-between; font-size:12px; color:var(--pf-muted); margin-bottom:4px;}
+  .log-entry .le-top b{color:var(--pf-text);}
+  .log-entry .le-notes{font-size:13px; color:var(--pf-text); white-space:pre-wrap;}
   .log-entry .le-del{cursor:pointer; color:#B3413B; font-size:11px; background:none; border:none; padding:0;}
-  .log-empty{color:var(--muted); font-size:13px; padding:8px 0;}
+  .log-empty{color:var(--pf-muted); font-size:13px; padding:8px 0;}
 
   .feedback-box textarea{
-    width:100%; min-height:110px; font-family:inherit; font-size:13.5px; padding:10px 12px; border:1px solid var(--line);
-    border-radius:8px; resize:vertical; background:#FAFAFA;
+    width:100%; min-height:110px; font-family:inherit; font-size:13.5px; padding:10px 12px; border:1px solid var(--pf-border);
+    border-radius:8px; resize:vertical; background:var(--pf-navy-light); transition:border-color .15s;
   }
+  .feedback-box textarea:focus{outline:none; border-color:var(--pf-navy); box-shadow:0 0 0 3px rgba(38,52,77,0.08);}
   .feedback-save{margin-top:8px; display:flex; align-items:center; gap:10px;}
   .feedback-save button{
-    background:var(--teal); color:#fff; border:none; padding:7px 15px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;
+    background:var(--pf-navy); color:#fff; border:none; padding:7px 15px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;
   }
-  .feedback-save .fs-status{font-size:11.5px; color:var(--muted);}
+  .feedback-save .fs-status{font-size:11.5px; color:var(--pf-muted);}
 
   /* Referrals view */
   .history-row{
@@ -266,18 +332,22 @@
     background:#fff; border:1px solid var(--line); padding:7px 14px; border-radius:8px; font-size:12.5px; cursor:pointer; color:var(--muted);
   }
   .nav-toggle button.active{background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);}
-  .new-exp-form label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; font-weight:bold;}
+  .new-exp-form label{display:block; font-size:12px; color:var(--pf-muted); margin:10px 0 4px; font-weight:bold;}
   .new-exp-form input[type=text], .new-exp-form input[type=number], .new-exp-form input[type=password],
   .new-exp-form select, .new-exp-form textarea{
-    width:100%; font-family:inherit; font-size:13.5px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; box-sizing:border-box;
+    width:100%; font-family:inherit; font-size:13.5px; padding:8px 10px; border:1px solid var(--pf-border); border-radius:7px; background:#fff; box-sizing:border-box; transition:border-color .15s;
+  }
+  .new-exp-form input[type=text]:focus, .new-exp-form input[type=number]:focus, .new-exp-form input[type=password]:focus,
+  .new-exp-form select:focus, .new-exp-form textarea:focus{
+    outline:none; border-color:var(--pf-navy); box-shadow:0 0 0 3px rgba(38,52,77,0.08);
   }
   .new-exp-form textarea{ resize:vertical; min-height:70px; }
-  .qb-section{ background:#FAFAFA; border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .qb-section{ background:var(--pf-navy-light); border:1px solid var(--pf-border); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
   .qb-section > label:first-child{ margin-top:0; }
-  .qb-section-title{ font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--teal-deep); font-weight:bold; margin-bottom:8px; }
+  .qb-section-title{ font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--pf-navy); font-weight:bold; margin-bottom:8px; }
   .fruit-check-list{
     display:grid; grid-template-columns:repeat(2,1fr); gap:4px 10px; max-height:180px; overflow-y:auto;
-    border:1px solid var(--line); border-radius:8px; padding:10px; background:#FAFAFA;
+    border:1px solid var(--pf-border); border-radius:8px; padding:10px; background:var(--pf-navy-light);
   }
   .fruit-check-item{display:flex; align-items:center; gap:6px; font-size:12.5px;}
   .fruit-check-item input{margin:0;}
@@ -329,7 +399,7 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 </head>
 <body>
 
-<div id="lockScreen" style="position:fixed; inset:0; background:#2A5F75; display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+<div id="lockScreen" style="position:fixed; inset:0; background:#26344D; display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
   <div style="background:#fff; border-radius:14px; padding:32px 30px; max-width:340px; width:100%; text-align:center;">
     <div style="font-size:11.5px; letter-spacing:.12em; font-weight:bold; color:#6B6B6B; margin-bottom:6px;">ACESSO RESTRITO</div>
     <h2 style="margin:0 0 18px; font-size:18px; color:#2A2A2A;">Painel de Exportadores e Frutas</h2>
@@ -489,7 +559,7 @@ function fruitColor(fruit){
   if (FRUIT_COLORS[fruit]) return FRUIT_COLORS[fruit];
   let h = 0;
   for (let i=0;i<fruit.length;i++) h = (h * 31 + fruit.charCodeAt(i)) >>> 0;
-  const palette = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E'];
+  const palette = ['#3D5A7A','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#26344D','#6E3B6E'];
   return palette[h % palette.length];
 }
 
@@ -510,7 +580,7 @@ function extractSortableMinutes(text){
   if (hh > 23 || mm > 59) return Infinity;
   return hh * 60 + mm;
 }
-const FEIRA_PALETTE = ['#3D7D96','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#2A5F75','#6E3B6E','#C2703D','#4B7A5E'];
+const FEIRA_PALETTE = ['#3D5A7A','#F47920','#5C4160','#7C8F3E','#B03D6E','#8E4E33','#26344D','#6E3B6E','#C2703D','#4B7A5E'];
 function feiraColor(nome){
   const n = (nome || 'Feira').trim().toUpperCase();
   let h = 0;
@@ -2547,7 +2617,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang }){
     .pq-intro{ font-size:11px; line-height:1.5; margin-bottom:14px; }
     .pq-fee-hint{ font-size:10px; font-style:italic; color:#555; margin-bottom:10px; }
     table.pq-table{ width:100%; border-collapse:collapse; font-size:6.5px; margin-bottom:12px; table-layout:fixed; }
-    table.pq-table th{ background:#2A5F75; color:#fff; padding:4px 3px; text-align:left; font-size:6px; line-height:1.2; word-wrap:break-word; }
+    table.pq-table th{ background:#26344D; color:#fff; padding:4px 3px; text-align:left; font-size:6px; line-height:1.2; word-wrap:break-word; }
     table.pq-table td{ padding:4px 3px; border-bottom:1px solid #E0E0E0; word-wrap:break-word; vertical-align:top; }
     table.pq-table td.pq-obs{ font-size:6px; color:#444; }
     .pq-section-label{ background:#EDEDED; font-weight:bold; padding:5px 8px; font-size:11px; margin:10px 0 4px; }
@@ -2954,7 +3024,7 @@ function renderCards(){
   list.forEach(d => {
     const card = document.createElement('div');
     card.className = 'card';
-    const MAX_PILLS = 6;
+    const MAX_PILLS = 4;
     const visiblePills = d.all_fruits.slice(0, MAX_PILLS).map(f => {
       const c = fruitColor(f);
       const confirmed = d.variety_confirmed && d.variety_confirmed[f];
@@ -2972,6 +3042,8 @@ function renderCards(){
     } else {
       contactBadge = `<span class="last-contact none">Sem indicação registrada</span>`;
     }
+    const marketImporters = getImportersForExporter(d);
+    const worksWithHtml = marketImporters.length ? `<div class="works-with-line">🔗 Trabalha com ${marketImporters.length} importador${marketImporters.length>1?'es':''} <span class="ww-names">— ${marketImporters.slice(0,2).map(m=>m.importer).join(', ')}${marketImporters.length>2?'…':''}</span></div>` : '';
     card.innerHTML = `
       <div class="card-head">
         <div class="name">${d.trade}</div>
@@ -2980,6 +3052,7 @@ function renderCards(){
       ${d.site ? `<div class="site">${d.site}</div>` : ''}
       <div class="meta-line"><span class="tier-tag">${ptTier(d.tier)}</span><span>${d.shipments} embarques</span></div>
       <div class="pills">${pills}</div>
+      ${worksWithHtml}
       ${contactBadge ? `<div class="card-foot">${contactBadge}</div>` : ''}
     `;
     card.onclick = () => openModal(d);
@@ -3011,20 +3084,20 @@ function openModal(d, initialTab){
       const isSel = confirmedArr.includes(v);
       return `<span class="variety-chip${isSel?' selected':''}" data-fruit="${fEsc}" data-variety="${vEsc}" style="${isSel?`border-color:${c};background:${c}22;color:var(--ink);font-weight:600;`:''}">${v}</span>`;
     }).join('');
-    return `<div class="fruit-row" style="flex-direction:column; align-items:stretch; gap:8px; padding:12px 0;">
+    return `<div class="fruit-row" style="flex-direction:column; align-items:stretch; gap:8px; padding:12px 14px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span class="fname"><span class="dot" style="width:9px;height:9px;border-radius:50%;display:inline-block;background:${c}"></span>${ptFruit(f)}</span>
         <span style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:11px;color:var(--muted);">Pico: ${g ? g.peak : '—'}</span>
+          <span style="font-size:11px;color:var(--pf-muted);">Pico: ${g ? g.peak : '—'}</span>
           <button type="button" class="fruit-remove-btn" data-fruit="${fEsc}" title="Remover fruta" style="background:none;border:none;color:#B3413B;cursor:pointer;font-size:15px;line-height:1;padding:0 2px;">✕</button>
         </span>
       </div>
       <div class="variety-chip-wrap" style="display:flex; flex-wrap:wrap; gap:6px;">
-        ${chipsHtml || '<span style="font-size:11.5px;color:var(--muted);">Nenhuma variedade cadastrada ainda</span>'}
+        ${chipsHtml || '<span style="font-size:11.5px;color:var(--pf-muted);">Nenhuma variedade cadastrada ainda</span>'}
       </div>
       <div style="display:flex; gap:6px;">
-        <input type="text" class="variety-add-input" data-fruit="${fEsc}" placeholder="Adicionar variedade…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
-        <button type="button" class="variety-add-btn" data-fruit="${fEsc}" style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:12.5px; color:var(--teal-deep); cursor:pointer; white-space:nowrap;">+ Adicionar</button>
+        <input type="text" class="variety-add-input" data-fruit="${fEsc}" placeholder="Adicionar variedade…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--pf-border); border-radius:6px; font-family:inherit;">
+        <button type="button" class="variety-add-btn" data-fruit="${fEsc}" style="background:#fff; border:1px solid var(--pf-border); border-radius:6px; padding:0 10px; font-size:12.5px; color:var(--pf-navy); cursor:pointer; white-space:nowrap;">+ Adicionar</button>
       </div>
     </div>`;
   }).join('');
@@ -3044,79 +3117,100 @@ function openModal(d, initialTab){
     </div>
 
     <div class="modal-pane${initialTab==='historico'||initialTab==='frutas'?'':' active'}" data-pane="perfil">
-      <h4>Resumo</h4>
-      <div class="fruit-row"><span class="fname">Categoria</span><span class="variety">${ptTier(d.tier)}</span></div>
-      <div class="fruit-row"><span class="fname">Embarques registrados</span><span class="variety">${d.shipments}</span></div>
-      <div class="fruit-row"><span class="fname">Status</span><span class="variety">${d.active ? 'Ativo' : 'Inativo'}</span></div>
-      <h4 style="margin-top:16px;">Contato</h4>
-      <div class="cf-row" style="margin-bottom:6px;">
-        <input type="text" id="contactPhone" value="${d.phone || ''}" placeholder="Telefone" style="flex:1;">
-        <input type="text" id="contactEmail" value="${d.email || ''}" placeholder="E-mail" style="flex:1.4;">
-      </div>
-      <div class="cf-row" style="margin-bottom:6px;">
-        <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:1;">
-        <input type="text" id="contactCnpj" value="${d.cnpj || ''}" placeholder="CNPJ" style="flex:0.8;">
-        <button id="contactSaveBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">Salvar</button>
-      </div>
-      <span class="fs-status" id="contactSaveStatus"></span>
-      ${d.source ? `<div class="fruit-row"><span class="fname">Fonte</span><span class="variety">${d.source}</span></div>` : ''}
-      ${d.weight ? `<div class="fruit-row"><span class="fname">Peso total embarcado</span><span class="variety">${Math.round(d.weight).toLocaleString()} kg</span></div>` : ''}
-      ${d.destinations ? `<div class="fruit-row"><span class="fname">Destinos</span><span class="variety">${d.destinations.join(', ')}</span></div>` : ''}
-      ${d.agendor_categoria ? `<div class="fruit-row"><span class="fname">Agendor</span><span class="variety">${d.agendor_categoria}</span></div>` : ''}
-      ${d.agendor_notes ? `
-        <h4 style="margin-top:16px;">Histórico do Agendor</h4>
-        <div style="background:#F7F7F7; border-radius:8px; padding:10px 12px; font-size:12.5px; white-space:pre-wrap; line-height:1.5; max-height:220px; overflow:auto;">${d.agendor_notes.replace(/</g,'&lt;')}</div>
-      ` : ''}
-      <div style="margin-top:14px;">
-        <button id="agendorPushBtn" type="button" style="background:var(--teal); color:#fff; border:none; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">📇 Enviar para o Agendor</button>
-        <span class="fs-status" id="agendorPushStatus" style="margin-left:8px;"></span>
-      </div>
-      ${EXPORTERS.includes(d) ? `
-        <div style="margin-top:10px;">
-          <button id="convertToImporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Importador</button>
+      <div class="profile-shell">
+        <div class="profile-sidebar">
+          <div class="ps-item"><span class="ps-label">Categoria</span><span class="ps-value">${ptTier(d.tier)}</span></div>
+          <div class="ps-item"><span class="ps-label">Embarques</span><span class="ps-value" style="font-size:16px;">${d.shipments}</span></div>
+          ${d.weight ? `<div class="ps-item"><span class="ps-label">Peso total</span><span class="ps-value">${(d.weight/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})} t</span></div>` : ''}
+          <div class="ps-item"><span class="ps-label">Status</span><span class="ps-value" style="color:${d.active ? 'var(--pf-status-ok-dark)' : 'rgba(255,255,255,.6)'};">${d.active ? 'Ativo' : 'Inativo'}</span></div>
         </div>
-      ` : ''}
-      ${IMPORTERS.includes(d) ? `
-        <div style="margin-top:10px;">
-          <button id="convertToExporterBtn" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep); padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔄 Converter para Exportador</button>
-        </div>
-      ` : ''}
-      ${IMPORTERS.includes(d) ? `
-        <div style="margin-top:10px; background:#F7F7F7; border-radius:8px; padding:10px 12px;">
-          <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:bold;">🔗 Esse importador já é o mesmo que outro cadastro?</label>
-          <div style="display:flex; gap:6px;">
-            <input type="text" id="mergeDupInput" list="allImportersDatalist" placeholder="Nome do cadastro correto…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
-            <datalist id="allImportersDatalist">
-              ${IMPORTERS.filter(imp => imp !== d).map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
-            </datalist>
-            <button id="mergeDupBtn" type="button" style="background:var(--teal-deep); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">Juntar</button>
+        <div class="profile-content">
+          <h4>Contato</h4>
+          <div class="cf-row" style="margin-bottom:6px;">
+            <input type="text" id="contactPhone" value="${d.phone || ''}" placeholder="Telefone" style="flex:1;">
+            <input type="text" id="contactEmail" value="${d.email || ''}" placeholder="E-mail" style="flex:1.4;">
           </div>
-          <div style="font-size:11px; color:var(--muted); margin-top:4px;">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
-        </div>
-      ` : ''}
-      ${EXPORTERS.includes(d) ? `
-        <div style="margin-top:10px; background:#F7F7F7; border-radius:8px; padding:10px 12px;">
-          <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:bold;">🔗 Esse exportador já é o mesmo que outro cadastro?</label>
-          <div style="display:flex; gap:6px;">
-            <input type="text" id="mergeDupExpInput" list="allExportersDatalistMerge" placeholder="Nome do cadastro correto…" style="flex:1; font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;">
-            <datalist id="allExportersDatalistMerge">
-              ${EXPORTERS.filter(exp => exp !== d).map(exp => `<option value="${exp.trade.replace(/"/g,'&quot;')}">`).join('')}
-            </datalist>
-            <button id="mergeDupExpBtn" type="button" style="background:var(--teal-deep); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">Juntar</button>
+          <div class="cf-row" style="margin-bottom:6px;">
+            <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:1;">
+            <input type="text" id="contactCnpj" value="${d.cnpj || ''}" placeholder="CNPJ" style="flex:0.8;">
+            <button id="contactSaveBtn" type="button" style="background:var(--pf-navy); color:#fff; border:none; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">Salvar</button>
           </div>
-          <div style="font-size:11px; color:var(--muted); margin-top:4px;">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
+          <span class="fs-status" id="contactSaveStatus"></span>
+          ${d.destinations ? `<div class="highlight-box" style="margin-top:10px;"><span class="hb-label">Destinos</span><span class="hb-value">${d.destinations.join(', ')}</span></div>` : ''}
+          ${(d.source || d.agendor_categoria) ? `<div class="info-list">
+            ${d.source ? `<div class="info-item"><span class="il-label">Fonte</span><span class="il-value">${d.source}</span></div>` : ''}
+            ${d.agendor_categoria ? `<div class="info-item"><span class="il-label">Agendor</span><span class="il-value">${d.agendor_categoria}</span></div>` : ''}
+          </div>` : ''}
+          ${(() => {
+            const isImp = IMPORTERS.includes(d);
+            const rels = isImp ? getExportersForImporter(d) : getImportersForExporter(d);
+            if (!rels.length) return '';
+            const label = isImp ? 'Exportadores que já trabalham com esse importador' : 'Importadores que esse exportador já trabalha';
+            const rows = rels.map(r => {
+              const nome = isImp ? r.exportador : r.importer;
+              const tagHtml = isImp ? (r.isClient ? ' <span class="rel-tag rel-tag-client">✓ cliente atual</span>' : ' <span class="rel-tag rel-tag-opp">oportunidade</span>') : '';
+              return `<div class="rel-item"><span class="rel-name">${nome}${tagHtml}</span><span class="rel-meta">${r.eventos} evento(s) · ${r.produtos.map(ptFruit).join(', ')}</span></div>`;
+            }).join('');
+            return `<h4>${label} <span style="font-weight:normal; font-size:11px; color:var(--pf-muted); text-transform:none; letter-spacing:normal;">(dados LPCO/DU-E)</span></h4><div class="rel-list">${rows}</div>`;
+          })()}
+          ${d.agendor_notes ? `
+            <h4>Histórico do Agendor</h4>
+            <div style="background:var(--pf-navy-light); border-radius:8px; padding:10px 12px; font-size:12.5px; white-space:pre-wrap; line-height:1.5; max-height:220px; overflow:auto;">${d.agendor_notes.replace(/</g,'&lt;')}</div>
+          ` : ''}
         </div>
-      ` : ''}
-      ${(d.tier === 'Manually added' || (IMPORTERS.includes(d) && d.custom)) ? `
-        <div style="margin-top:10px;">
-          <button id="removeExporterBtn" type="button" style="background:#fff; color:#B3413B; border:1px solid #B3413B; padding:8px 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🗑 Remover ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}</button>
+      </div>
+      <div class="actions-card">
+        <div class="actions-row">
+          <button id="agendorPushBtn" type="button" class="btn-navy">📇 Enviar para o Agendor</button>
+          <span class="fs-status" id="agendorPushStatus"></span>
         </div>
-      ` : ''}
+        ${EXPORTERS.includes(d) ? `
+          <div class="actions-row">
+            <button id="convertToImporterBtn" type="button" class="btn-navy-outline">🔄 Converter para Importador</button>
+          </div>
+        ` : ''}
+        ${IMPORTERS.includes(d) ? `
+          <div class="actions-row">
+            <button id="convertToExporterBtn" type="button" class="btn-navy-outline">🔄 Converter para Exportador</button>
+          </div>
+        ` : ''}
+        ${IMPORTERS.includes(d) ? `
+          <div class="merge-box">
+            <label>🔗 Esse importador já é o mesmo que outro cadastro?</label>
+            <div class="merge-row">
+              <input type="text" id="mergeDupInput" list="allImportersDatalist" placeholder="Nome do cadastro correto…">
+              <datalist id="allImportersDatalist">
+                ${IMPORTERS.filter(imp => imp !== d).map(imp => `<option value="${imp.name.replace(/"/g,'&quot;')}">`).join('')}
+              </datalist>
+              <button id="mergeDupBtn" type="button" class="btn-navy">Juntar</button>
+            </div>
+            <div class="merge-hint">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
+          </div>
+        ` : ''}
+        ${EXPORTERS.includes(d) ? `
+          <div class="merge-box">
+            <label>🔗 Esse exportador já é o mesmo que outro cadastro?</label>
+            <div class="merge-row">
+              <input type="text" id="mergeDupExpInput" list="allExportersDatalistMerge" placeholder="Nome do cadastro correto…">
+              <datalist id="allExportersDatalistMerge">
+                ${EXPORTERS.filter(exp => exp !== d).map(exp => `<option value="${exp.trade.replace(/"/g,'&quot;')}">`).join('')}
+              </datalist>
+              <button id="mergeDupExpBtn" type="button" class="btn-navy">Juntar</button>
+            </div>
+            <div class="merge-hint">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
+          </div>
+        ` : ''}
+        ${(d.tier === 'Manually added' || (IMPORTERS.includes(d) && d.custom)) ? `
+          <div class="actions-row">
+            <button id="removeExporterBtn" type="button" class="btn-danger-outline">🗑 Remover ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}</button>
+          </div>
+        ` : ''}
+      </div>
     </div>
 
     <div class="modal-pane${initialTab==='frutas'?' active':''}" data-pane="frutas">
       <h4>Fruits &amp; varieties</h4>
-      <div id="fruitRowsWrap">${fruitRows || '<div class="log-empty">Nenhuma fruta adicionada ainda.</div>'}</div>
+      <div id="fruitRowsWrap" class="fruit-rows-card">${fruitRows || '<div class="log-empty" style="padding:12px 14px;">Nenhuma fruta adicionada ainda.</div>'}</div>
       ${true ? `
         <div class="contact-form" style="margin-top:14px;">
           <div class="cf-row">
@@ -4684,6 +4778,65 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
   }
 }
 
+// Cross-references LPCO/DU-E market data (which records real shipment relationships between
+// Brazilian exporters and their foreign importers) to answer "who does this company already
+// work with?" from either side — used to show a relationship summary on both exporter and
+// importer cards/profiles.
+function namesLooselyMatch(nameA, nameB){
+  const a = normalizeName(nameA), b = normalizeName(nameB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return commonPrefixLen(a, b) >= 8;
+}
+
+// MARKET is static, so this flat, pre-normalized index is built once and reused for every
+// lookup — avoids re-normalizing hundreds of names on every single card render.
+let marketFlatIndexCache = null;
+function marketFlatIndex(){
+  if (marketFlatIndexCache) return marketFlatIndexCache;
+  const rows = [];
+  MARKET.forEach(r => {
+    const normImporter = normalizeName(r.importer);
+    (r.exporters_hevile_client || []).forEach(nome => {
+      rows.push({ nome, normNome: normalizeName(nome), importer: r.importer, normImporter, eventos: r.n_events, produtos: r.products || [], isClient: true });
+    });
+    (r.exporters_not_hevile || []).forEach(nome => {
+      rows.push({ nome, normNome: normalizeName(nome), importer: r.importer, normImporter, eventos: r.n_events, produtos: r.products || [], isClient: false });
+    });
+  });
+  marketFlatIndexCache = rows;
+  return rows;
+}
+function normPrefixMatch(a, b){
+  if (!a || !b) return false;
+  return a === b || commonPrefixLen(a, b) >= 8;
+}
+
+function getImportersForExporter(exp){
+  const normTrade = normalizeName(exp.trade), normName = normalizeName(exp.name);
+  const byImporter = {};
+  marketFlatIndex().forEach(row => {
+    if (!row.isClient) return;
+    if (!normPrefixMatch(row.normNome, normTrade) && !normPrefixMatch(row.normNome, normName)) return;
+    if (!byImporter[row.importer]) byImporter[row.importer] = { importer: row.importer, eventos: 0, produtos: new Set() };
+    byImporter[row.importer].eventos += row.eventos;
+    row.produtos.forEach(p => byImporter[row.importer].produtos.add(p));
+  });
+  return Object.values(byImporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
+}
+
+function getExportersForImporter(imp){
+  const normTrade = normalizeName(imp.trade || imp.name), normName = normalizeName(imp.name);
+  const byExporter = {};
+  marketFlatIndex().forEach(row => {
+    if (!normPrefixMatch(row.normImporter, normTrade) && !normPrefixMatch(row.normImporter, normName)) return;
+    if (!byExporter[row.nome]) byExporter[row.nome] = { exportador: row.nome, eventos: 0, produtos: new Set(), isClient: row.isClient };
+    byExporter[row.nome].eventos += row.eventos;
+    row.produtos.forEach(p => byExporter[row.nome].produtos.add(p));
+  });
+  return Object.values(byExporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
+}
+
 function buildUnifiedImporters(){
   // Merges the two importer data sources into one list: IMPORTERS (real Hevile shipment
   // history, fully editable) and MARKET (LPCO/DU-E government data, read-only intelligence).
@@ -4755,10 +4908,9 @@ function buildUnifiedImporters(){
 }
 
 function unifiedImporterCard(item){
-  const MAX_PILLS = 6;
+  const MAX_PILLS = 4;
   if (item.kind === 'importer'){
     const imp = item.data;
-    const market = item.market;
     const visible = imp.products.slice(0, MAX_PILLS).map(pf => `<span class="pill" style="background:${fruitColor(pf)}">${ptFruit(pf)}</span>`).join('');
     const extra = imp.products.length - MAX_PILLS;
     const pills = (visible + (extra > 0 ? `<span class="pill pill-more">+${extra}</span>` : '')) || `<span class="pill" style="background:#B3B3B3;">Nenhuma fruta adicionada ainda</span>`;
@@ -4766,16 +4918,16 @@ function unifiedImporterCard(item){
     const feedbackBadge = lastRef
       ? `<span class="last-contact">${FEEDBACK_ICON[lastRef.feedback] || ''} ${lastRef.importer} · ${lastRef.season}</span>`
       : `<span class="last-contact none">Sem feedback registrado</span>`;
-    const marketBadges = market ? `<div class="pills" style="margin-top:4px;">
-        ${market.exporters_hevile_client.map(e => `<span class="pill" style="background:#4F6E45;">${e} ✓ cliente atual</span>`).join('')}
-        ${market.exporters_not_hevile.map(e => `<span class="pill" style="background:#B5502E;">${e}</span>`).join('')}
-      </div>` : '';
+    const marketExporters = getExportersForImporter(imp);
+    const clientExps = marketExporters.filter(e => e.isClient);
+    const worksWithHtml = marketExporters.length ? `<div class="works-with-line">🔗 ${clientExps.length ? `${clientExps.length} exportador${clientExps.length>1?'es':''} cliente(s)` : `${marketExporters.length} exportador${marketExporters.length>1?'es':''}`} <span class="ww-names">— ${(clientExps.length?clientExps:marketExporters).slice(0,2).map(e=>e.exportador).join(', ')}${marketExporters.length>2?'…':''}</span></div>` : '';
     return `<div class="card" data-key="${exporterKey(imp).replace(/"/g,'&quot;')}">
       <div class="name">${imp.trade || imp.name}</div>
       ${imp.destinations.length ? `<div class="site">${imp.destinations.join(', ')}</div>` : ''}
       <div class="meta-line"><span>${imp.shipments} embarques</span><span>${Math.round(imp.weight).toLocaleString()} kg</span></div>
       <div class="pills">${pills}</div>
-      <div class="card-foot">${feedbackBadge}${marketBadges}</div>
+      ${worksWithHtml}
+      <div class="card-foot">${feedbackBadge}</div>
     </div>`;
   } else {
     const r = item.data;
@@ -5215,7 +5367,7 @@ function buildMeetingsSummaryHTML(month, year){
     const nome = e.companyName;
     const isConfirmed = CONFIRMED_STATUSES.includes(e.status);
     const isNewDay = i === 0 || e.dataDia !== events[i-1].dataDia;
-    const sep = (isNewDay && i > 0) ? 'border-top:3px solid #2A5F75; padding-top:12px;' : '';
+    const sep = (isNewDay && i > 0) ? 'border-top:3px solid #26344D; padding-top:12px;' : '';
     return `<tr>
       <td style="${sep} ${isNewDay ? 'font-weight:bold;' : 'color:#BBB;'}">${isNewDay ? formatBRDate(e.dataDia) : ''}</td>
       <td style="${sep}">${e.data || '—'}</td>
@@ -5245,9 +5397,9 @@ function buildMeetingsSummaryHTML(month, year){
     .rs-header .eyebrow{ font-size:11px; letter-spacing:.08em; font-weight:bold; opacity:.85; }
     .rs-header h1{ font-size:24px; margin:4px 0 0; }
     .rs-summary{ display:flex; gap:24px; margin-bottom:16px; font-size:12.5px; }
-    .rs-summary b{ font-size:20px; display:block; color:#2A5F75; }
+    .rs-summary b{ font-size:20px; display:block; color:#26344D; }
     table{ width:100%; border-collapse:collapse; font-size:10.5px; }
-    th{ background:#2A5F75; color:#fff; text-align:left; padding:6px 8px; }
+    th{ background:#26344D; color:#fff; text-align:left; padding:6px 8px; }
     td{ padding:6px 8px; border-bottom:1px solid #E0E0E0; vertical-align:top; }
     tr:nth-child(even) td{ background:#FAFAFA; }
     .rs-empty{ padding:30px; text-align:center; color:#888; font-size:13px; }
