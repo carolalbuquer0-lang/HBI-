@@ -3104,7 +3104,7 @@ function openModal(d, initialTab){
 
   modal.innerHTML = `
     <button class="close" onclick="closeModal()">&times;</button>
-    <h2>${d.trade}</h2>
+    <h2 id="modalTitleH2">${d.trade}</h2>
     <span class="site-link">${siteHtml}</span>
 
     <div class="modal-tabs">
@@ -3126,6 +3126,9 @@ function openModal(d, initialTab){
         </div>
         <div class="profile-content">
           <h4>Contato</h4>
+          <div class="cf-row" style="margin-bottom:6px;">
+            <input type="text" id="contactName" value="${d.trade || ''}" placeholder="Nome (como aparece nos cards)" style="flex:1;">
+          </div>
           <div class="cf-row" style="margin-bottom:6px;">
             <input type="text" id="contactPhone" value="${d.phone || ''}" placeholder="Telefone" style="flex:1;">
             <input type="text" id="contactEmail" value="${d.email || ''}" placeholder="E-mail" style="flex:1.4;">
@@ -3432,17 +3435,21 @@ function openModal(d, initialTab){
   const contactSaveBtn = document.getElementById('contactSaveBtn');
   if (contactSaveBtn){
     contactSaveBtn.onclick = async () => {
+      const nome = document.getElementById('contactName').value.trim();
       const phone = document.getElementById('contactPhone').value.trim();
       const email = document.getElementById('contactEmail').value.trim();
       const site = document.getElementById('contactSite').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
       const cnpj = document.getElementById('contactCnpj').value.trim();
+      if (nome){ d.trade = nome; d.display = nome; }
+      const titleEl = document.getElementById('modalTitleH2');
+      if (titleEl && nome) titleEl.textContent = nome;
       d.phone = phone;
       d.email = email;
       d.site = site || null;
       d.cnpj = cnpj || null;
       const st = document.getElementById('contactSaveStatus');
       st.textContent = 'Salvando…';
-      await setContactOverride(key, { phone, email, site: d.site, cnpj: d.cnpj, agendorOrgId: d.agendorOrgId });
+      await setContactOverride(key, { trade: d.trade, display: d.display, phone, email, site: d.site, cnpj: d.cnpj, agendorOrgId: d.agendorOrgId });
       st.textContent = 'Salvo ✓';
       renderCards();
       if (currentNav === 'importers') renderImportersView();
@@ -4561,6 +4568,256 @@ function guessFruitsForProducts(produtos){
   return [...found];
 }
 
+// ---- Weekly shipment history spreadsheet (real Hevile shipments — Shipper/Consignee columns)
+// — updates the active/tier/shipments status of exporters and importers already in the
+// registry, and offers to add genuinely new ones found in the file. This is what keeps
+// "Prospect" from lingering on companies Hevile has actually already shipped with. ----
+function tierForShipmentCount(n){
+  if (n >= 100) return 'High volume';
+  if (n >= 20) return 'Regular';
+  if (n >= 1) return 'Occasional';
+  return 'Prospect';
+}
+
+async function handleShipmentsFileImport(file){
+  const statusEl = document.getElementById('importDueStatus');
+  statusEl.textContent = 'Lendo planilha de embarques…';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheetName = wb.SheetNames.find(n => /^in$/i.test(n)) || wb.SheetNames.find(n => {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: '', range: 0 });
+      return rows.length && 'Shipper' in rows[0];
+    }) || wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+    if (!rows.length || !('Shipper' in rows[0])){
+      statusEl.textContent = 'Não encontrei uma aba com coluna "Shipper" nesse arquivo. Confira se é a planilha certa.';
+      return;
+    }
+
+    const byShipper = {};
+    const byConsignee = {};
+    rows.forEach(r => {
+      const shipper = (r['Shipper'] || '').toString().trim();
+      const consignee = (r['Consignee'] || '').toString().trim();
+      const weight = parseFloat(r['Weight (kg)']) || 0;
+      if (shipper){
+        if (!byShipper[shipper]) byShipper[shipper] = { eventos: 0, peso: 0 };
+        byShipper[shipper].eventos++;
+        byShipper[shipper].peso += weight;
+      }
+      if (consignee){
+        if (!byConsignee[consignee]) byConsignee[consignee] = { eventos: 0, peso: 0 };
+        byConsignee[consignee].eventos++;
+        byConsignee[consignee].peso += weight;
+      }
+    });
+
+    statusEl.textContent = `Comparando ${Object.keys(byShipper).length + Object.keys(byConsignee).length} nomes com o cadastro…`;
+    await new Promise(r => setTimeout(r, 0));
+    const matchCandidates = buildMatchCandidates();
+
+    const updatesExp = [];
+    const updatesExpByKey = {};
+    const novosExp = [];
+    Object.entries(byShipper).forEach(([nome, info]) => {
+      const match = findExporterMatch(nome, matchCandidates);
+      if (match && EXPORTERS.includes(match)){
+        const k = exporterKey(match);
+        if (!updatesExpByKey[k]){
+          const entry = { d: match, nomes: [], eventos: 0, peso: 0 };
+          updatesExpByKey[k] = entry;
+          updatesExp.push(entry);
+        }
+        updatesExpByKey[k].nomes.push(nome);
+        updatesExpByKey[k].eventos += info.eventos;
+        updatesExpByKey[k].peso += info.peso;
+      } else if (!match){
+        novosExp.push({ nome, produtos: [], paises: [], eventos: info.eventos, cnpj: '' });
+      }
+    });
+    // Now that every name-variant pointing at the same exporter is combined into one true
+    // total, keep only the ones where that total actually differs from what's on record.
+    const finalUpdatesExp = updatesExp
+      .map(u => ({ d: u.d, nome: u.nomes.join(' / '), before: { shipments: u.d.shipments, tier: u.d.tier, active: u.d.active }, after: { shipments: u.eventos, tier: tierForShipmentCount(u.eventos), active: true } }))
+      .filter(u => u.before.shipments !== u.after.shipments)
+      .sort((a,b) => b.after.shipments - a.after.shipments);
+    novosExp.sort((a,b) => b.eventos - a.eventos);
+
+    const updatesImp = [];
+    const updatesImpByKey = {};
+    const novosImp = [];
+    Object.entries(byConsignee).forEach(([nome, info]) => {
+      const match = findExporterMatch(nome, matchCandidates);
+      if (match && IMPORTERS.includes(match)){
+        const k = exporterKey(match);
+        if (!updatesImpByKey[k]){
+          const entry = { d: match, nomes: [], eventos: 0, peso: 0 };
+          updatesImpByKey[k] = entry;
+          updatesImp.push(entry);
+        }
+        updatesImpByKey[k].nomes.push(nome);
+        updatesImpByKey[k].eventos += info.eventos;
+        updatesImpByKey[k].peso += info.peso;
+      } else if (!match){
+        novosImp.push({ nome, produtos: [], paises: [], eventos: info.eventos });
+      }
+    });
+    const finalUpdatesImp = updatesImp
+      .map(u => ({ d: u.d, nome: u.nomes.join(' / '), before: { shipments: u.d.shipments, weight: u.d.weight }, after: { shipments: u.eventos, weight: u.peso } }))
+      .filter(u => u.before.shipments !== u.after.shipments)
+      .sort((a,b) => b.after.shipments - a.after.shipments);
+    novosImp.sort((a,b) => b.eventos - a.eventos);
+
+    statusEl.textContent = `${finalUpdatesExp.length} exportador(es) e ${finalUpdatesImp.length} importador(es) com embarques desatualizados · ${novosExp.length} exportador(es) e ${novosImp.length} importador(es) novos encontrados`;
+    openShipmentsReview(finalUpdatesExp, finalUpdatesImp, novosExp, novosImp);
+  } catch(err){
+    statusEl.textContent = 'Erro ao ler a planilha: ' + err.message;
+  }
+}
+
+function openShipmentsReview(updatesExp, updatesImp, novosExp, novosImp){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  let sidCounter = 0;
+  novosExp.forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
+  novosImp.forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
+
+  const updateRow = (u, isImp) => `<label style="display:flex; align-items:center; gap:8px; font-size:12.5px; padding:5px 0; border-bottom:1px solid var(--pf-border);">
+    <input type="checkbox" class="${isImp?'ship-upd-imp':'ship-upd-exp'}" data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}" checked style="flex:0 0 16px;">
+    <span style="flex:1;"><b>${u.d.trade}</b></span>
+    <span style="color:var(--pf-muted);">${u.before.shipments} → <b style="color:var(--pf-client-text);">${u.after.shipments}</b> embarques${!isImp ? (u.before.tier !== u.after.tier ? ` · ${ptTier(u.before.tier)} → <b>${ptTier(u.after.tier)}</b>` : '') : ''}${!isImp && !u.before.active ? ' · <b style="color:var(--pf-client-text);">vira Ativo</b>' : ''}</span>
+  </label>`;
+
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Atualizar histórico de embarques</h2>
+    <p style="font-size:13px; color:var(--pf-muted);">Isso corrige o número de embarques, status (ativo) e categoria de quem já está no seu cadastro, e separadamente mostra quem apareceu na planilha mas ainda não está cadastrado.</p>
+
+    ${(updatesExp.length || updatesImp.length) ? `
+      <h3 style="margin-top:16px;">Cadastros a atualizar</h3>
+      <div style="max-height:260px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:8px 12px; margin-bottom:16px;">
+        ${updatesExp.length ? `<b style="font-size:11px; text-transform:uppercase; color:var(--pf-navy);">Exportadores (${updatesExp.length})</b>${updatesExp.map(u => updateRow(u, false)).join('')}` : ''}
+        ${updatesImp.length ? `<b style="font-size:11px; text-transform:uppercase; color:var(--pf-navy); display:block; margin-top:${updatesExp.length?'10px':'0'};">Importadores (${updatesImp.length})</b>${updatesImp.map(u => updateRow(u, true)).join('')}` : ''}
+      </div>
+    ` : '<p style="font-size:13px; color:var(--pf-muted);">Nenhum cadastro existente precisa de atualização — todos já batem com a planilha.</p>'}
+
+    ${novosExp.length ? `
+      <h3>Exportadores novos (${novosExp.length})</h3>
+      <div style="max-height:220px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="shipExpList">
+        ${novosExp.map((n, i) => dueRowHtml(n, i, 'shipexp')).join('')}
+      </div>
+    ` : ''}
+    ${novosImp.length ? `
+      <h3>Importadores novos (${novosImp.length})</h3>
+      <div style="max-height:220px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="shipImpList">
+        ${novosImp.map((n, i) => dueRowHtml(n, i, 'shipimp')).join('')}
+      </div>
+    ` : ''}
+    <datalist id="allExportersDatalist2">
+      ${[...EXPORTERS, ...IMPORTERS].map(d => `<option value="${d.trade.replace(/"/g,'&quot;')}">`).join('')}
+    </datalist>
+    <div class="new-exp-actions">
+      <button id="shipmentsConfirm">Aplicar atualizações</button>
+      <button class="cancel" onclick="closeModal()">Cancelar</button>
+    </div>
+    <span class="fs-status" id="shipmentsStatus" style="display:block; margin-top:8px;"></span>
+  `;
+  overlay.classList.add('visible');
+
+  function wireAliasButtons(prefix, list){
+    document.querySelectorAll(`.${prefix}-alias-btn`).forEach(btn => {
+      btn.onclick = async () => {
+        const sid = btn.dataset.sid;
+        const input = document.querySelector(`.${prefix}-alias-input[data-sid="${sid}"]`);
+        const typed = input.value.trim();
+        if (!typed) return;
+        const existing = [...EXPORTERS, ...IMPORTERS].find(d => d.trade.toLowerCase() === typed.toLowerCase());
+        if (!existing){ alert('Não achei esse nome no cadastro. Confira a grafia.'); return; }
+        const entry = list.find(x => x._sid === sid);
+        if (!entry) return;
+        await addExporterAlias(entry.nome, exporterKey(existing));
+        const idx = list.findIndex(x => x._sid === sid);
+        if (idx !== -1) list.splice(idx, 1);
+        const row = document.querySelector(`.due-review-row[data-row-sid="${sid}"]`);
+        if (row) row.remove();
+      };
+    });
+  }
+  wireAliasButtons('shipexp', novosExp);
+  wireAliasButtons('shipimp', novosImp);
+
+  document.getElementById('shipmentsConfirm').onclick = async () => {
+    const btn = document.getElementById('shipmentsConfirm');
+    btn.disabled = true;
+    const appliedExp = [];
+    const appliedImp = [];
+
+    updatesExp.forEach(u => {
+      const cb = document.querySelector(`.ship-upd-exp[data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}"]`);
+      if (!cb || !cb.checked) return;
+      u.d.shipments = u.after.shipments;
+      u.d.tier = u.after.tier;
+      u.d.active = true;
+      appliedExp.push(u.d);
+    });
+    updatesImp.forEach(u => {
+      const cb = document.querySelector(`.ship-upd-imp[data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}"]`);
+      if (!cb || !cb.checked) return;
+      u.d.shipments = u.after.shipments;
+      u.d.weight = u.after.weight;
+      appliedImp.push(u.d);
+    });
+    const updated = appliedExp.length + appliedImp.length;
+    await Promise.all([
+      ...appliedExp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier })),
+      ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight })),
+    ]);
+
+    const customExp = await getCustomExporters();
+    let addedExp = 0;
+    novosExp.forEach(n => {
+      const checkbox = document.querySelector(`.shipexp-check[data-sid="${n._sid}"]`);
+      if (!checkbox || !checkbox.checked) return;
+      const fruits = [...document.querySelectorAll(`.shipexp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
+      const key = uniqueExporterKey(n.nome);
+      const entry = {
+        name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
+        active: true, tier: tierForShipmentCount(n.eventos), shipments: n.eventos, all_fruits: fruits, variety_confirmed: {},
+        source: 'Planilha de embarques — importado automaticamente', custom: true
+      };
+      EXPORTERS.push(entry);
+      customExp.push(entry);
+      addedExp++;
+    });
+    await setCustomExporters(customExp);
+
+    const customImp = await getCustomImporters();
+    let addedImp = 0;
+    novosImp.forEach(n => {
+      const checkbox = document.querySelector(`.shipimp-check[data-sid="${n._sid}"]`);
+      if (!checkbox || !checkbox.checked) return;
+      const fruits = [...document.querySelectorAll(`.shipimp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
+      const entry = {
+        name: n.nome, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
+        active: true, shipments: n.eventos, weight: 0, products: fruits, all_fruits: fruits,
+        destinations: [], editable_fruits: true, variety_confirmed: {},
+        source: 'Planilha de embarques — importado automaticamente', custom: true
+      };
+      IMPORTERS.push(entry);
+      customImp.push(entry);
+      addedImp++;
+    });
+    await setCustomImporters(customImp);
+
+    document.getElementById('shipmentsStatus').textContent = `${updated} cadastro(s) atualizado(s), ${addedExp} exportador(es) e ${addedImp} importador(es) novo(s) adicionado(s) ✓`;
+    renderStats();
+    render();
+    if (currentNav === 'importers') renderImportersView();
+    setTimeout(closeModal, 1500);
+  };
+}
+
 async function handleDueFileImport(file){
   const statusEl = document.getElementById('importDueStatus');
   statusEl.textContent = 'Lendo arquivo…';
@@ -4974,6 +5231,8 @@ function renderImportersView(){
     <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
       <button id="importDueBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📎 Importar planilha semanal (DUE)</button>
       <input type="file" id="importDueInput" accept=".xlsx,.xls" style="display:none;">
+      <button id="importShipmentsBtn" style="background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📦 Atualizar histórico de embarques</button>
+      <input type="file" id="importShipmentsInput" accept=".xlsx,.xls" style="display:none;">
       <span class="fs-status" id="importDueStatus"></span>
     </div>
     <div class="nav-toggle" style="margin-bottom:8px;">
@@ -5038,6 +5297,10 @@ function renderImportersView(){
   document.getElementById('importDueInput').onchange = (e) => {
     if (e.target.files.length) handleDueFileImport(e.target.files[0]);
   };
+  document.getElementById('importShipmentsBtn').onclick = () => document.getElementById('importShipmentsInput').click();
+  document.getElementById('importShipmentsInput').onchange = (e) => {
+    if (e.target.files.length) handleShipmentsFileImport(e.target.files[0]);
+  };
 }
 
 /* ---------- New prospects (not yet a Hevile client) — shown via badge in the main Exportadores grid ---------- */
@@ -5092,6 +5355,8 @@ async function loadContactOverrides(){
     if (!d) return;
     try{
       const c = JSON.parse(value);
+      if (c.trade) d.trade = c.trade;
+      if (c.display) d.display = c.display;
       if (c.phone) d.phone = c.phone;
       if (c.email) d.email = c.email;
       if (c.site) d.site = c.site;
@@ -5126,6 +5391,8 @@ async function loadStatsOverrides(){
       const s = JSON.parse(value);
       if (typeof s.shipments === 'number') d.shipments = s.shipments;
       if (typeof s.weight === 'number') d.weight = s.weight;
+      if (typeof s.active === 'boolean') d.active = s.active;
+      if (typeof s.tier === 'string') d.tier = s.tier;
       if (Array.isArray(s.destinations)) d.destinations = [...new Set([...(d.destinations||[]), ...s.destinations])];
     } catch(e){ /* skip */ }
   });
