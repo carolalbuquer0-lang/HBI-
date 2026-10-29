@@ -1836,8 +1836,10 @@ function openNoShowForm(note){
     <div class="new-exp-form">
       <label>CIA</label>
       <input type="text" id="nsCia" value="${note?.cia || ''}" placeholder="ex: American Airlines">
-      <label>Observação</label>
+      <label>Observação (português)</label>
       <textarea id="nsTexto" placeholder="Descreva a política de no-show...">${note?.texto || ''}</textarea>
+      <label>Observação em inglês (opcional — usada no PDF em English; se deixar em branco, o PDF em inglês mostra o texto em português mesmo)</label>
+      <textarea id="nsTextoEn" placeholder="Describe the no-show policy...">${note?.textoEn || ''}</textarea>
       <div class="new-exp-actions">
         <button id="nsSave">Salvar</button>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
@@ -1848,12 +1850,13 @@ function openNoShowForm(note){
   document.getElementById('nsSave').onclick = async () => {
     const cia = document.getElementById('nsCia').value.trim();
     const texto = document.getElementById('nsTexto').value.trim();
+    const textoEn = document.getElementById('nsTextoEn').value.trim();
     if (!cia || !texto){ alert('Preencha CIA e Observação.'); return; }
     if (note){
       const idx = noShowCache.findIndex(n => n.id === note.id);
-      noShowCache[idx] = { ...noShowCache[idx], cia, texto };
+      noShowCache[idx] = { ...noShowCache[idx], cia, texto, textoEn };
     } else {
-      noShowCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, texto });
+      noShowCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, texto, textoEn });
     }
     await setNoShowNotes(noShowCache);
     closeModal();
@@ -2543,7 +2546,7 @@ const PDF_I18N = {
     thObs: 'OBSERVAÇÕES', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
     thCustoms: 'Desembaraço (USD)', thStorage: 'Armazenagem (USD/kg)', thTruckDl: 'Deadline caminhão', thAirDl: 'Deadline CIA', thFrequency: 'Frequência',
-    thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time',
+    thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Descrição das Taxas',
     pesoMinimo: (v) => `Peso mínimo: ${v}kg`, valido: (v) => `Válido: ${v}`,
     taxasCias: 'Taxas das Companhias', condicoesNoShow: 'Condições de No-Show',
     notesTitle: 'Notes:', notesFx: 'Taxa de câmbio apenas para fins de referência.',
@@ -2562,7 +2565,7 @@ const PDF_I18N = {
     thObs: 'NOTES', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
     thCustoms: 'Customs Clearance (USD)', thStorage: 'Storage (USD/kg)', thTruckDl: 'Truck Deadline', thAirDl: 'Air Line Deadline', thFrequency: 'Frequency',
-    thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time',
+    thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Fee Descriptions',
     pesoMinimo: (v) => `Minimum weight: ${v}kg`, valido: (v) => `Valid: ${v}`,
     taxasCias: 'Airline Fees', condicoesNoShow: 'No-Show Conditions',
     notesTitle: 'Notes:', notesFx: 'Exchange rate for reference purposes only.',
@@ -2599,7 +2602,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return Object.values(byDestProduto).map(group => {
       const { obs: lastObs } = parseCondicao(group.rows[0].condicao);
       const bodyRows = group.rows.map((r, i) => {
-        const fees = ciaFeesCache.filter(f => f.cia === r.cia);
+        const fees = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
         const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
         const { obs } = parseCondicao(r.condicao);
         return `<tr class="${i % 2 ? 'pl-odd' : ''}">
@@ -2652,7 +2655,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       { label: 'ETA', get: r => r.eta || '—' },
       { label: L.thFreight, get: r => `USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}/kg` },
       { label: L.thCarrierFees, get: r => {
-          const fees = ciaFeesCache.filter(f => f.cia === r.cia);
+          const fees = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
           return fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
         } },
       { label: L.thCustoms, get: r => r.desembaraco ? `USD ${r.desembaraco.toFixed(2)}` : '—' },
@@ -2678,6 +2681,24 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
 
   const ciasInQuote = [...new Set(rates.map(r => r.cia))];
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
+  const noShowTextFor = (n) => (lang === 'en' && n.textoEn) ? n.textoEn : n.texto;
+
+  // Lists each distinct CIA fee that has a description (obs) attached, for the CIAs actually
+  // in this quote — so the client sees WHY a fee applies (e.g. "Collect, cobrada se BL direto")
+  // instead of just a bare dollar amount. CCA is never shown, by request.
+  function feeDescriptionsFor(allRates){
+    const seen = new Set();
+    const out = [];
+    allRates.forEach(r => {
+      ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA' && f.obs).forEach(f => {
+        const key = f.cia + '|' + f.nome;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ cia: f.cia, nome: f.nome, obs: f.obs });
+      });
+    });
+    return out;
+  }
 
   const html = `<!DOCTYPE html><html lang="${L.htmlLang}"><head><meta charset="UTF-8">
   <title>${L.title(cliente)}</title>
@@ -2685,7 +2706,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     @page { size: A4; margin: 0; }
     *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
     body{ font-family: Arial, Helvetica, sans-serif; margin:0; color:#2A2A2A; }
-    .pq-page{ width:210mm; min-height:297mm; padding:14mm 10mm; box-sizing:border-box; page-break-after:always; position:relative; }
+    .pq-page{ width:210mm; min-height:auto; padding:14mm 10mm; box-sizing:border-box; position:relative; }
     .pq-cover{ background:#5A7A94; color:#fff; }
     .pq-cover .eyebrow{ font-size:11px; letter-spacing:.1em; font-weight:bold; }
     .pq-cover h1{ font-size:46px; margin:6px 0 0; letter-spacing:-1px; }
@@ -2717,65 +2738,36 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     .pq-footer b{ display:block; margin-top:14px; }
   </style></head><body>
 
-  <div class="pq-page pq-cover" style="display:flex; flex-direction:column; justify-content:center;">
-    <div class="eyebrow">WE DELIVER THE BEST</div>
-    <h1>HEVILE</h1>
-  </div>
-
   <div class="pq-page">
-    ${layout === 'porlinha' ? `
-      <div class="pq-logo-header">
-        <div class="hevile-wordmark">HEVILE<span>WE DELIVER THE BEST</span></div>
-        <div class="pq-meta" style="margin-bottom:0;"><div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div></div>
-      </div>
-    ` : `
-      <div class="pq-title">${L.proposta}</div>
-      <div class="pq-meta">
-        <div>${todayStr};</div>
-        <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div>
-      </div>
-    `}
+    <div class="pq-logo-header">
+      <div class="hevile-wordmark">HEVILE<span>WE DELIVER THE BEST</span></div>
+      <div class="pq-meta" style="margin-bottom:0;"><div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div></div>
+    </div>
     <div class="pq-intro">${L.intro(cliente)}</div>
     ${layout === 'porlinha' ? `
       ${rowTableFor(groups['To Door'])}
       ${rowTableFor(groups['Aeroporto'])}
-      ${relevantNoShow.length ? `
-        <div class="pq-noshow-title">${L.condicoesNoShow}</div>
-        <div class="pq-noshow-box">
-          ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br>')}
-        </div>
-      ` : ''}
     ` : `
       ${comparisonTableFor(groups['To Door'], L.toDoor)}
       ${comparisonTableFor(groups['Aeroporto'], L.aeroporto)}
-      ${relevantNoShow.length ? `
-        <div class="pc-title" style="margin-top:6px;">${L.condicoesNoShow}</div>
-        <div class="pq-notes" style="margin-top:8px;">
-          ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br><br>')}
-        </div>
-      ` : ''}
     `}
+    ${feeDescriptionsFor(rates).length ? `
+      <div class="pq-noshow-title">${L.feeDescriptionsTitle}</div>
+      <div class="pq-noshow-box">
+        ${feeDescriptionsFor(rates).map(f => `<b>${f.cia} — ${f.nome}:</b> ${f.obs}`).join('<br>')}
+      </div>
+    ` : ''}
+    ${relevantNoShow.length ? `
+      <div class="pq-noshow-title">${L.condicoesNoShow}</div>
+      <div class="pq-noshow-box">
+        ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${noShowTextFor(n)}`).join('<br>')}
+      </div>
+    ` : ''}
     <div class="pq-notes">
       ${L.notesTitle}<br>
       - ${L.notesFx}<br>
       - ${L.notesPtax}
     </div>
-  </div>
-
-  <div class="pq-page">
-    <b style="font-size:12px;">${L.termsTitle}</b>
-    <p class="pq-terms">
-      ${L.terms}
-    </p>
-  </div>
-
-  <div class="pq-page pq-footer">
-    <h2>${L.footerH2}</h2>
-    <b>RECIFE, PERNAMBUCO</b>${L.tel}: +55 81 3465.1017 · ${L.email}: hevile@hevile.com.br
-    <b>${L.filial}: BELÉM, PARÁ</b>${L.tel}: +55 91 99112.3369 · ${L.email}: belem@hevile.com.br
-    <b>${L.filial}: NATAL, RIO GRANDE DO NORTE</b>${L.tel}: +55 84 3301.8499 · ${L.email}: natal@hevile.com.br
-    <b>${L.filial}: RIO DE JANEIRO, RJ</b>${L.tel}: +55 21 3795.7523 · ${L.email}: rio@hevile.com.br
-    <b>${L.filial}: RECIFE, PERNAMBUCO - AEROPORTO</b>${L.tel}: +55 81 3322.4277 · ${L.email}: air.ops.rec@hevile.com.br
   </div>
 
   <script>window.onload = () => { ${autoprint ? 'window.print();' : ''} };<\/script>
