@@ -2161,6 +2161,15 @@ function openRateForm(rate){
         }).join('')}
       </div>
       <div style="font-size:11px; color:var(--muted); margin:2px 0 8px;">Todos marcados = vale todos os dias. Desmarque os que não valem (ex: só Seg a Sex).</div>
+      <label>Horários (opcional — usado no PDF de comparação)</label>
+      <div class="cf-row">
+        <input type="text" id="rfEtd" placeholder="ETD (ex: 20:00)" value="${rate?.etd||''}">
+        <input type="text" id="rfEta" placeholder="ETA (ex: 08:00 (+2 dias))" value="${rate?.eta||''}">
+      </div>
+      <div class="cf-row">
+        <input type="text" id="rfDeadlineCaminhao" placeholder="Deadline caminhão (ex: 5:00)" value="${rate?.deadlineCaminhao||''}">
+        <input type="text" id="rfDeadlineCia" placeholder="Deadline CIA (ex: 10:00)" value="${rate?.deadlineCia||''}">
+      </div>
       <label>Observações (frequência, transit time, etc.)</label>
       <input type="text" id="rfObs" placeholder="ex: Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
       <label style="margin-top:10px;">Taxas da CIA</label>
@@ -2212,6 +2221,10 @@ function openRateForm(rate){
     const desembaraco = parseFloat(document.getElementById('rfDesembaraco').value) || 0;
     const armazenagem = parseFloat(document.getElementById('rfArmazenagem').value) || 0;
     const validade = document.getElementById('rfValidade').value.trim();
+    const etd = document.getElementById('rfEtd').value.trim();
+    const eta = document.getElementById('rfEta').value.trim();
+    const deadlineCaminhao = document.getElementById('rfDeadlineCaminhao').value.trim();
+    const deadlineCia = document.getElementById('rfDeadlineCia').value.trim();
     const pesoMinimoToDoor = tipo === 'To Door' ? (parseFloat(document.getElementById('rfPesoMinToDoor').value) || 0) : 0;
     const allDias = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
     const checkedDias = [...document.querySelectorAll('.rf-dia:checked')].map(cb => cb.value);
@@ -2247,9 +2260,9 @@ function openRateForm(rate){
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
-      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana };
+      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia };
     } else {
-      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana });
+      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia });
     }
     await setRates(ratesCache);
     editingRateId = null;
@@ -2346,6 +2359,13 @@ function openQuoteBuilder(){
             <option value="en">🇺🇸 English</option>
           </select>
         </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px;">
+          Layout da tabela:
+          <select id="qbLayout" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px;">
+            <option value="comparativo">Comparativo (CIA em coluna)</option>
+            <option value="porlinha">Por linha (CIA em linha)</option>
+          </select>
+        </label>
       </div>
 
       <div class="new-exp-actions">
@@ -2438,7 +2458,8 @@ function openQuoteBuilder(){
     }
 
     const lang = document.getElementById('qbLang').value;
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true, lang });
+    const layout = document.getElementById('qbLayout').value;
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true, lang, layout });
     if (showQuotePDF(html)) closeModal();
   };
 
@@ -2470,7 +2491,8 @@ function openQuoteBuilder(){
     // Preview never saves a cotação or touches Agendor — it just shows what the PDF would look
     // like, and doesn't auto-trigger the print dialog. The modal stays open so she can adjust.
     const lang = document.getElementById('qbLang').value;
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false, lang });
+    const layout = document.getElementById('qbLayout').value;
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false, lang, layout });
     showQuotePDF(html);
   };
 }
@@ -2519,6 +2541,9 @@ const PDF_I18N = {
     toDoor: 'Opção To Door', aeroporto: 'Opções aeroporto',
     thCia: 'CIA', thOrigem: 'ORIGEM', thConexao: 'CONEXÃO', thDestino: 'DESTINO', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'OBSERVAÇÕES', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
+    thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
+    thCustoms: 'Desembaraço (USD)', thStorage: 'Armazenagem (USD/kg)', thTruckDl: 'Deadline caminhão', thAirDl: 'Deadline CIA', thFrequency: 'Frequência',
+    thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time',
     pesoMinimo: (v) => `Peso mínimo: ${v}kg`, valido: (v) => `Válido: ${v}`,
     taxasCias: 'Taxas das Companhias', condicoesNoShow: 'Condições de No-Show',
     notesTitle: 'Notes:', notesFx: 'Taxa de câmbio apenas para fins de referência.',
@@ -2535,6 +2560,9 @@ const PDF_I18N = {
     toDoor: 'To Door Option', aeroporto: 'Airport Options',
     thCia: 'AIRLINE', thOrigem: 'ORIGIN', thConexao: 'CONNECTION', thDestino: 'DESTINATION', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'NOTES', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
+    thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
+    thCustoms: 'Customs Clearance (USD)', thStorage: 'Storage (USD/kg)', thTruckDl: 'Truck Deadline', thAirDl: 'Air Line Deadline', thFrequency: 'Frequency',
+    thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time',
     pesoMinimo: (v) => `Minimum weight: ${v}kg`, valido: (v) => `Valid: ${v}`,
     taxasCias: 'Airline Fees', condicoesNoShow: 'No-Show Conditions',
     notesTitle: 'Notes:', notesFx: 'Exchange rate for reference purposes only.',
@@ -2546,61 +2574,110 @@ const PDF_I18N = {
   },
 };
 
-function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang }){
+function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout }){
   const L = PDF_I18N[lang] || PDF_I18N.pt;
   const todayStr = new Date().toLocaleDateString(L.dateLocale, { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
   rates.forEach(r => { (groups[r.tipo] || (groups[r.tipo] = [])).push(r); });
 
-  function tableFor(rows){
+  // "Por linha" layout: each CIA/route is its own ROW (classic comparison-sheet style), grouped
+  // into one table per destination+product combination, with a title like "Destino: DXB — Manga".
+  function transitTimeFor(r){
+    const { obs } = parseCondicao(r.condicao);
+    const m = obs.match(/Transit:\s*([^·]+)/i);
+    return m ? m[1].trim() : '—';
+  }
+  function rowTableFor(rows){
     if (!rows.length) return '';
-    // group same route + same observations together, spreading weight tiers into columns
-    const groupsMap = {};
-    const faixaSet = new Map(); // faixaKey -> { label, sortKey }, for consistent column ordering
+    const byDestProduto = {};
     rows.forEach(r => {
-      const { faixaKey, faixaLabel, faixaSortKey, obs } = parseCondicao(r.condicao);
-      const key = [r.cia, r.origem, r.conexao, r.destino, obs].join('|');
-      if (!groupsMap[key]) groupsMap[key] = { r, obs, faixas: {} };
-      const colKey = faixaKey || 'ÚNICA';
-      groupsMap[key].faixas[colKey] = r.tarifaVenda;
-      faixaSet.set(colKey, { label: faixaKey ? faixaLabel : '', sortKey: faixaSortKey });
+      const produto = getEffectiveProduto(r) || '—';
+      const key = r.destino + '|' + produto;
+      if (!byDestProduto[key]) byDestProduto[key] = { destino: r.destino, produto, rows: [] };
+      byDestProduto[key].rows.push(r);
     });
-    const faixaCols = [...faixaSet.entries()].sort((a,b) => a[1].sortKey - b[1].sortKey).map(e => e[0]);
-    const faixaHeaders = faixaCols.map(f => `<th>${L.thTarifa} ${faixaSet.get(f).label}<br>${L.thUsdKg}</th>`).join('');
-
-    const bodyRows = Object.values(groupsMap).map(g => {
-      const r = g.r;
-      const faixaCells = faixaCols.map(f => g.faixas[f] != null ? `<td>USD ${g.faixas[f].toFixed(2)}</td>` : `<td>—</td>`).join('');
-      const minToDoorText = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? L.pesoMinimo(Number(r.pesoMinimoToDoor).toLocaleString(L.dateLocale)) : '';
-      const diasText = (r.diasSemana && r.diasSemana.length) ? L.valido(r.diasSemana.join(', ')) : '';
-      const obsCombined = [g.obs, diasText, minToDoorText].filter(Boolean).join(' · ');
-      return `<tr>
-        <td>${r.cia}</td><td>${r.origem}</td><td>${r.conexao||'—'}</td><td>${r.destino}</td>
-        ${faixaCells}
-        <td class="pq-obs">${obsCombined || '—'}</td>
-        <td>${r.desembaraco?('USD '+r.desembaraco.toFixed(2)):'—'}</td>
-        <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
-      </tr>`;
+    return Object.values(byDestProduto).map(group => {
+      const { obs: lastObs } = parseCondicao(group.rows[0].condicao);
+      const bodyRows = group.rows.map((r, i) => {
+        const fees = ciaFeesCache.filter(f => f.cia === r.cia);
+        const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
+        const { obs } = parseCondicao(r.condicao);
+        return `<tr class="${i % 2 ? 'pl-odd' : ''}">
+          <td><b>${r.cia}</b></td>
+          <td>${r.origem}</td>
+          <td>${r.conexao || '—'}</td>
+          <td>${r.destino}</td>
+          <td>USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}</td>
+          <td>${feesText}</td>
+          <td>${r.desembaraco ? 'USD ' + r.desembaraco.toFixed(2) : '—'}</td>
+          <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
+          <td>${transitTimeFor(r)}</td>
+          <td>${obs || '—'}</td>
+        </tr>`;
+      }).join('');
+      return `
+        <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + group.produto : ''}</div>
+        <table class="pl-table">
+          <colgroup>
+            <col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:7%">
+            <col style="width:9%"><col style="width:12%"><col style="width:9%"><col style="width:9%">
+            <col style="width:7%"><col style="width:24%">
+          </colgroup>
+          <thead><tr>
+            <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thTransito}</th><th>${L.thDestino}</th>
+            <th>${L.thFreight}</th><th>${L.thCarrierFees}</th><th>${L.thCustoms}</th><th>${L.thStorage}</th>
+            <th>${L.thTransitTime}</th><th>${L.thObs}</th>
+          </tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>`;
     }).join('');
+  }
 
-    return `<table class="pq-table">
-      <colgroup>
-        <col style="width:11%"><col style="width:7%"><col style="width:7%"><col style="width:7%">
-        ${faixaCols.map(() => `<col style="width:${34/faixaCols.length}%">`).join('')}
-        <col style="width:20%"><col style="width:9%"><col style="width:9%">
-      </colgroup>
-      <thead><tr>
-        <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thConexao}</th><th>${L.thDestino}</th>
-        ${faixaHeaders}
-        <th>${L.thObs}</th><th>${L.thDesembaraco}<br>${L.thPawb}</th><th>${L.thArmazenagem}<br>USD/kg</th>
-      </tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>`;
+  // Comparison-table layout: each selected rate becomes one COLUMN, and a fixed set of
+  // criteria (route, schedule, pricing) becomes the ROWS — lets Carol put 2-6 CIA options for
+  // the same shipment side by side and see at a glance which wins on price, timing, etc.
+  function frequencyFor(r){
+    if (r.diasSemana && r.diasSemana.length) return r.diasSemana.join(', ');
+    const { obs } = parseCondicao(r.condicao);
+    const m = obs.match(/Freq:\s*([^·]+)/i);
+    return m ? m[1].trim() : (obs || '—');
+  }
+  function comparisonTableFor(rows, sectionLabel){
+    if (!rows.length) return '';
+    const destinos = [...new Set(rows.map(r => r.destino))];
+    const titleSuffix = destinos.length === 1 ? ` (${destinos[0]})` : '';
+    const criteria = [
+      { label: L.thRoute, get: r => `${r.origem}${r.conexao ? ' x ' + r.conexao : ''} x ${r.destino}` },
+      { label: 'ETD', get: r => r.etd || '—' },
+      { label: 'ETA', get: r => r.eta || '—' },
+      { label: L.thFreight, get: r => `USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}/kg` },
+      { label: L.thCarrierFees, get: r => {
+          const fees = ciaFeesCache.filter(f => f.cia === r.cia);
+          return fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
+        } },
+      { label: L.thCustoms, get: r => r.desembaraco ? `USD ${r.desembaraco.toFixed(2)}` : '—' },
+      { label: L.thStorage, get: r => `USD ${(r.armazenagem||0).toFixed(3)}` },
+      { label: L.thTruckDl, get: r => r.deadlineCaminhao || '—' },
+      { label: L.thAirDl, get: r => r.deadlineCia || '—' },
+      { label: L.thFrequency, get: r => frequencyFor(r) },
+    ];
+    const headerCells = rows.map(r => `<th>${r.cia}</th>`).join('');
+    const bodyRows = criteria.map((c, i) => `<tr class="${i % 2 ? 'pc-odd' : 'pc-even'}">
+      <td class="pc-crit">${c.label}</td>
+      ${rows.map(r => `<td>${c.get(r)}</td>`).join('')}
+    </tr>`).join('');
+    const nCols = rows.length + 1;
+    return `
+      <div class="pc-title">${sectionLabel}${titleSuffix}</div>
+      <table class="pc-table" style="table-layout:fixed;">
+        <colgroup><col style="width:${100/nCols*1.2}%">${rows.map(()=>`<col style="width:${(100-100/nCols*1.2)/rows.length}%">`).join('')}</colgroup>
+        <thead><tr><th class="pc-crit-head">${L.thCriteria}</th>${headerCells}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>`;
   }
 
   const ciasInQuote = [...new Set(rates.map(r => r.cia))];
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
-  const relevantFees = ciaFeesCache.filter(f => ciasInQuote.includes(f.cia));
 
   const html = `<!DOCTYPE html><html lang="${L.htmlLang}"><head><meta charset="UTF-8">
   <title>${L.title(cliente)}</title>
@@ -2615,12 +2692,24 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang }){
     .pq-title{ color:#F47920; font-size:32px; font-weight:bold; margin:0 0 14px; }
     .pq-meta{ display:flex; justify-content:space-between; font-size:12px; margin-bottom:12px; }
     .pq-intro{ font-size:11px; line-height:1.5; margin-bottom:14px; }
-    .pq-fee-hint{ font-size:10px; font-style:italic; color:#555; margin-bottom:10px; }
-    table.pq-table{ width:100%; border-collapse:collapse; font-size:6.5px; margin-bottom:12px; table-layout:fixed; }
-    table.pq-table th{ background:#26344D; color:#fff; padding:4px 3px; text-align:left; font-size:6px; line-height:1.2; word-wrap:break-word; }
-    table.pq-table td{ padding:4px 3px; border-bottom:1px solid #E0E0E0; word-wrap:break-word; vertical-align:top; }
-    table.pq-table td.pq-obs{ font-size:6px; color:#444; }
-    .pq-section-label{ background:#EDEDED; font-weight:bold; padding:5px 8px; font-size:11px; margin:10px 0 4px; }
+    .pc-title{ background:#26344D; color:#fff; text-align:center; padding:7px; font-size:12px; font-weight:bold; margin:14px 0 0; border-radius:4px 4px 0 0; }
+    .pc-table{ width:100%; border-collapse:collapse; font-size:9px; margin-bottom:14px; }
+    .pc-table th{ background:#F47920; color:#fff; padding:6px 6px; text-align:center; font-weight:bold; border:1px solid #fff; }
+    .pc-table th.pc-crit-head{ background:#26344D; text-align:left; }
+    .pc-table td{ padding:5px 6px; text-align:center; border:1px solid #fff; background:#EAF1F8; color:#2A5F75; }
+    .pc-table td.pc-crit{ background:#D6E4F0; font-weight:bold; color:#26344D; text-align:left; }
+    .pc-table tr.pc-odd td:not(.pc-crit){ background:#F5F9FC; }
+    .pq-logo-header{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+    .pq-logo-header .hevile-wordmark{ font-size:19px; font-weight:bold; color:#26344D; letter-spacing:1px; }
+    .pq-logo-header .hevile-wordmark span{ display:block; font-size:7.5px; font-weight:normal; color:#7A88A3; letter-spacing:1.4px; margin-top:1px; }
+    .pl-title{ font-size:13px; font-weight:bold; margin:16px 0 7px; color:#1D2635; }
+    .pl-table{ width:100%; border-collapse:collapse; font-size:8.5px; margin-bottom:6px; table-layout:fixed; }
+    .pl-table th{ background:#3D6B9C; color:#fff; padding:6px 5px; text-align:left; font-weight:bold; word-wrap:break-word; }
+    .pl-table td{ padding:6px 5px; border-bottom:1px solid #E3E8EF; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
+    .pl-table tr.pl-odd td{ background:#F4F7FB; }
+    .pq-noshow-title{ font-size:11px; font-weight:bold; color:#1D2635; margin:14px 0 6px; }
+    .pq-noshow-box{ background:#FBF6EE; border:1px solid #EDE1CC; border-radius:6px; padding:10px 14px; font-size:10px; }
+    .pq-noshow-box b{ color:#8A6D4E; }
     .pq-notes{ font-size:10px; color:#555; margin-top:14px; }
     .pq-terms{ font-size:9px; line-height:1.5; color:#333; }
     .pq-footer{ background:#5A7A94; color:#fff; font-size:11px; }
@@ -2634,30 +2723,38 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang }){
   </div>
 
   <div class="pq-page">
-    <div class="pq-title">${L.proposta}</div>
-    <div class="pq-meta">
-      <div>${todayStr};</div>
-      <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div>
-    </div>
+    ${layout === 'porlinha' ? `
+      <div class="pq-logo-header">
+        <div class="hevile-wordmark">HEVILE<span>WE DELIVER THE BEST</span></div>
+        <div class="pq-meta" style="margin-bottom:0;"><div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div></div>
+      </div>
+    ` : `
+      <div class="pq-title">${L.proposta}</div>
+      <div class="pq-meta">
+        <div>${todayStr};</div>
+        <div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div>
+      </div>
+    `}
     <div class="pq-intro">${L.intro(cliente)}</div>
-    ${relevantFees.length ? `<div class="pq-fee-hint">${L.feeHint}</div>` : ''}
-    ${groups['To Door'].length ? `<div class="pq-section-label">${L.toDoor}</div>${tableFor(groups['To Door'])}` : ''}
-    ${groups['Aeroporto'].length ? `<div class="pq-section-label">${L.aeroporto}</div>${tableFor(groups['Aeroporto'])}` : ''}
-    ${relevantFees.length ? `
-      <div class="pq-section-label">${L.taxasCias}</div>
-      <div class="pq-notes" style="margin-top:0;">
-        ${ciasInQuote.filter(cia => relevantFees.some(f => f.cia === cia)).map(cia => {
-          const feesForCia = relevantFees.filter(f => f.cia === cia);
-          return `<b>${cia}:</b> ${feesForCia.map(f => `<b>${f.nome}</b> USD ${Number(f.valor).toFixed(2)}${f.obs ? ' ('+f.obs+')' : ''}`).join('; ')}`;
-        }).join('<br>')}
-      </div>
-    ` : ''}
-    ${relevantNoShow.length ? `
-      <div class="pq-section-label">${L.condicoesNoShow}</div>
-      <div class="pq-notes" style="margin-top:0;">
-        ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br><br>')}
-      </div>
-    ` : ''}
+    ${layout === 'porlinha' ? `
+      ${rowTableFor(groups['To Door'])}
+      ${rowTableFor(groups['Aeroporto'])}
+      ${relevantNoShow.length ? `
+        <div class="pq-noshow-title">${L.condicoesNoShow}</div>
+        <div class="pq-noshow-box">
+          ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br>')}
+        </div>
+      ` : ''}
+    ` : `
+      ${comparisonTableFor(groups['To Door'], L.toDoor)}
+      ${comparisonTableFor(groups['Aeroporto'], L.aeroporto)}
+      ${relevantNoShow.length ? `
+        <div class="pc-title" style="margin-top:6px;">${L.condicoesNoShow}</div>
+        <div class="pq-notes" style="margin-top:8px;">
+          ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${n.texto}`).join('<br><br>')}
+        </div>
+      ` : ''}
+    `}
     <div class="pq-notes">
       ${L.notesTitle}<br>
       - ${L.notesFx}<br>
@@ -3163,6 +3260,16 @@ function openModal(d, initialTab){
         </div>
       </div>
       <div class="actions-card">
+        ${d.tier === 'Prospect' ? `
+          <div class="merge-box">
+            <label>✅ Já embarcamos com esse exportador?</label>
+            <div class="merge-row">
+              <input type="number" id="prospectShipCount" placeholder="Quantos embarques (ex: 1)" min="1" value="1">
+              <button id="prospectClearBtn" type="button" class="btn-navy">Tirar de Prospect</button>
+            </div>
+            <div class="merge-hint">Marca como Ativo e muda a categoria de acordo com o número de embarques.</div>
+          </div>
+        ` : ''}
         <div class="actions-row">
           <button id="agendorPushBtn" type="button" class="btn-navy">📇 Enviar para o Agendor</button>
           <span class="fs-status" id="agendorPushStatus"></span>
@@ -3203,7 +3310,7 @@ function openModal(d, initialTab){
             <div class="merge-hint">Frutas, contato e histórico de embarque somam no cadastro escolhido; esse aqui é removido.</div>
           </div>
         ` : ''}
-        ${(d.tier === 'Manually added' || (IMPORTERS.includes(d) && d.custom)) ? `
+        ${(d.custom || d.tier === 'Manually added') ? `
           <div class="actions-row">
             <button id="removeExporterBtn" type="button" class="btn-danger-outline">🗑 Remover ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}</button>
           </div>
@@ -3432,6 +3539,18 @@ function openModal(d, initialTab){
     });
   });
 
+  const prospectClearBtn = document.getElementById('prospectClearBtn');
+  if (prospectClearBtn){
+    prospectClearBtn.onclick = async () => {
+      const n = parseInt(document.getElementById('prospectShipCount').value, 10) || 1;
+      d.active = true;
+      d.shipments = n;
+      d.tier = tierForShipmentCount(n);
+      await setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier });
+      renderCards();
+      openModal(d, 'perfil');
+    };
+  }
   const contactSaveBtn = document.getElementById('contactSaveBtn');
   if (contactSaveBtn){
     contactSaveBtn.onclick = async () => {
