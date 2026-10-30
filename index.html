@@ -2353,7 +2353,7 @@ function openQuoteBuilder(){
           <div style="flex:1;"><label>Desembaraço (USD)</label><input type="number" step="0.01" id="qbDesembaraco" value="50.00"></div>
           <div style="flex:1;"><label>Armazenagem (USD/kg)</label><input type="number" step="0.001" id="qbArmazenagem" value="0.035"></div>
         </div>
-        <div style="font-size:11px; color:var(--muted); margin-top:6px;">A armazenagem entra somada na tarifa final por kg; o desembaraço fica como taxa fixa por AWB na tabela.</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">Tarifa de venda = tarifa base + profit. Armazenagem (por kg) e desembaraço (fixo por AWB) saem cada um na sua própria coluna do PDF, sem serem somados na tarifa.</div>
       </div>
 
       <div class="qb-section">
@@ -2436,9 +2436,9 @@ function openQuoteBuilder(){
       const noTaxInput = document.querySelector(`.qb-notax[data-id="${id}"]`);
       const profit = parseFloat(profitInput.value) || 0;
       const removeTax = noTaxInput.checked;
-      // Tarifa final de venda = base + profit + armazenagem padrão (por kg). Desembaraço é fixo por AWB,
-      // fica listado como linha própria (não é por kg, então não entra direto na tarifa/kg).
-      const tarifaVenda = r.tarifaBase + profit + armazenagemPadrao;
+      // Tarifa de venda = base + profit. Armazenagem e desembaraço aparecem em colunas próprias no PDF,
+      // então não entram na tarifa/kg (senão o cliente veria a armazenagem cobrada duas vezes).
+      const tarifaVenda = r.tarifaBase + profit;
       return {
         ...r,
         tarifaVenda,
@@ -2496,7 +2496,7 @@ function openQuoteBuilder(){
       const noTaxInput = document.querySelector(`.qb-notax[data-id="${id}"]`);
       const profit = parseFloat(profitInput.value) || 0;
       const removeTax = noTaxInput.checked;
-      const tarifaVenda = r.tarifaBase + profit + armazenagemPadrao;
+      const tarifaVenda = r.tarifaBase + profit;
       return {
         ...r,
         tarifaVenda,
