@@ -1868,6 +1868,28 @@ function openNoShowForm(note){
   };
 }
 
+// Best-effort Portuguese -> English for the product name shown in the English PDF. Uses the app's
+// own fruit dictionary (inverted) plus common generic words. Anything it doesn't recognise stays
+// as typed — and a rate's own "Produto em inglês" field always wins over this.
+const PRODUCT_EN_EXTRA = [
+  ['fruta leve ou delicada', 'Light or delicate fruit'], ['fruta pesada', 'Heavy fruit'], ['fruta leve', 'Light fruit'],
+  ['frutas', 'Fruits'], ['fruta', 'Fruit'], ['pescado', 'Fish'], ['peixe', 'Fish'], ['atum', 'Tuna'],
+  ['lagosta', 'Lobster'], ['limão', 'Lime'], ['destino', 'destination'], ['voo direto', 'direct flight'], ['outros exportadores', 'other exporters']
+];
+function translateProductToEn(text){
+  if (!text) return text;
+  const fromDict = Object.entries(FRUIT_PT)
+    .filter(([en]) => en !== 'Fresh (unspecified)' && en !== 'Lemon / Lime')
+    .map(([en, pt]) => [pt.toLowerCase(), en]);
+  const entries = [...PRODUCT_EN_EXTRA, ...fromDict].sort((a, b) => b[0].length - a[0].length);
+  let out = text;
+  entries.forEach(([pt, en]) => {
+    const re = new RegExp('(^|[^\\p{L}])' + pt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\p{L}])', 'giu');
+    out = out.replace(re, (m, pre) => pre + en);
+  });
+  return out.replace(/\s+e\s+/g, ' and ');
+}
+
 // Returns the product a rate refers to — from the dedicated field if set, or by pulling
 // "Produto: X" out of the older free-text condicao (for rates entered before this field existed).
 function getEffectiveProduto(r){
@@ -2146,6 +2168,7 @@ function openRateForm(rate){
       </div>
       <div class="cf-row">
         <input type="text" id="rfProduto" placeholder="Produto (ex: Gengibre, Fruta, Mamão...)" value="${effectiveProduto}">
+        <input type="text" id="rfProdutoEn" placeholder="Produto em inglês (opcional — se vazio, o PDF em inglês traduz sozinho os nomes comuns)" value="${rate?.produtoEn || ''}">
       </div>
       <label style="margin-top:10px;">Tarifa e faixa de peso</label>
       <div class="cf-row">
@@ -2223,6 +2246,7 @@ function openRateForm(rate){
     const conexao = document.getElementById('rfConexao').value.trim().toUpperCase();
     const destino = document.getElementById('rfDestino').value.trim().toUpperCase();
     const produto = document.getElementById('rfProduto').value.trim();
+    const produtoEn = document.getElementById('rfProdutoEn').value.trim();
     const tarifaBase = parseFloat(document.getElementById('rfTarifa').value);
     const faixaNumVal = document.getElementById('rfFaixaNum').value.trim();
     const faixaUnidade = document.getElementById('rfFaixaUnidade').value;
@@ -2270,9 +2294,9 @@ function openRateForm(rate){
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
-      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime };
+      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn };
     } else {
-      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime });
+      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn });
     }
     await setRates(ratesCache);
     editingRateId = null;
@@ -2557,8 +2581,8 @@ const PDF_I18N = {
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
     feeHint: 'As taxas da companhia aérea (CIA) estão detalhadas na seção "Taxas das Companhias", nas observações abaixo.',
     toDoor: 'Opção To Door', aeroporto: 'Opções aeroporto',
-    thCia: 'CIA', thOrigem: 'ORIGEM', thConexao: 'CONEXÃO', thDestino: 'DESTINO', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
-    thObs: 'OBSERVAÇÕES', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
+    thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
+    thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
     thCustoms: 'Desembaraço (USD)', thStorage: 'Armazenagem (USD/kg)', thTruckDl: 'Deadline caminhão', thAirDl: 'Deadline CIA', thFrequency: 'Frequência',
     thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Descrição das Taxas', thMinWeight: 'Peso mínimo',
@@ -2576,8 +2600,8 @@ const PDF_I18N = {
     proposta: 'PROPOSAL', validadeLabel: 'Valid until', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
     feeHint: 'Airline (CIA) fees are detailed in the "Airline Fees" section, in the notes below.',
     toDoor: 'To Door Option', aeroporto: 'Airport Options',
-    thCia: 'AIRLINE', thOrigem: 'ORIGIN', thConexao: 'CONNECTION', thDestino: 'DESTINATION', thTarifa: 'RATE', thUsdKg: 'USD/kg',
-    thObs: 'NOTES', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
+    thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
+    thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
     thCustoms: 'Customs Clearance (USD)', thStorage: 'Storage (USD/kg)', thTruckDl: 'Truck Deadline', thAirDl: 'Air Line Deadline', thFrequency: 'Frequency',
     thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Fee Descriptions', thMinWeight: 'Min. weight',
@@ -2634,6 +2658,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     });
     return Object.values(byDestProduto).map(group => {
       const { obs: lastObs } = parseCondicao(group.rows[0].condicao);
+      const produtoShown = lang === 'en' ? ((group.rows.find(r => r.produtoEn) || {}).produtoEn || translateProductToEn(group.produto)) : group.produto;
       const bodyRows = group.rows.map((r, i) => {
         const fees = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
         const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
@@ -2653,12 +2678,12 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
         </tr>`;
       }).join('');
       return `
-        <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + group.produto : ''}</div>
+        <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + produtoShown : ''}</div>
         <table class="pl-table">
           <colgroup>
-            <col style="width:8%"><col style="width:6%"><col style="width:6%"><col style="width:6%">
-            <col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:9%"><col style="width:9%">
-            <col style="width:7%"><col style="width:22%">
+            <col style="width:7%"><col style="width:6%"><col style="width:7%"><col style="width:9.5%">
+            <col style="width:8%"><col style="width:7%"><col style="width:11%"><col style="width:10%"><col style="width:10%">
+            <col style="width:7%"><col style="width:17.5%">
           </colgroup>
           <thead><tr>
             <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thTransito}</th><th>${L.thDestino}</th>
@@ -2762,7 +2787,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     .pq-logo-header .hevile-wordmark span{ display:block; font-size:7.5px; font-weight:normal; color:#7A88A3; letter-spacing:1.4px; margin-top:1px; }
     .pl-title{ font-size:13px; font-weight:bold; margin:16px 0 7px; color:#1D2635; }
     .pl-table{ width:100%; border-collapse:collapse; font-size:8.5px; margin-bottom:6px; table-layout:fixed; }
-    .pl-table th{ background:#3D6B9C; color:#fff; padding:6px 5px; text-align:left; font-weight:bold; word-wrap:break-word; }
+    .pl-table th{ background:#3D6B9C; color:#fff; padding:6px 5px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
     .pl-table td{ padding:6px 5px; border-bottom:1px solid #E3E8EF; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
     .pl-table tr.pl-odd td{ background:#F4F7FB; }
     .pq-noshow-title{ font-size:11px; font-weight:bold; color:#1D2635; margin:14px 0 6px; }
