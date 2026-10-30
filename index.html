@@ -2561,7 +2561,7 @@ const PDF_I18N = {
     thObs: 'OBSERVAÇÕES', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
     thCustoms: 'Desembaraço (USD)', thStorage: 'Armazenagem (USD/kg)', thTruckDl: 'Deadline caminhão', thAirDl: 'Deadline CIA', thFrequency: 'Frequência',
-    thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Descrição das Taxas',
+    thDestinoLabel: 'Destino', thTransito: 'Trânsito', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Descrição das Taxas', thMinWeight: 'Peso mínimo',
     pesoMinimo: (v) => `Peso mínimo: ${v}kg`, valido: (v) => `Válido: ${v}`,
     taxasCias: 'Taxas das Companhias', condicoesNoShow: 'Condições de No-Show',
     notesTitle: 'Notes:', notesFx: 'Taxa de câmbio apenas para fins de referência.',
@@ -2580,7 +2580,7 @@ const PDF_I18N = {
     thObs: 'NOTES', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
     thCustoms: 'Customs Clearance (USD)', thStorage: 'Storage (USD/kg)', thTruckDl: 'Truck Deadline', thAirDl: 'Air Line Deadline', thFrequency: 'Frequency',
-    thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Fee Descriptions',
+    thDestinoLabel: 'Destination', thTransito: 'Transit', thTransitTime: 'Transit Time', feeDescriptionsTitle: 'Fee Descriptions', thMinWeight: 'Min. weight',
     pesoMinimo: (v) => `Minimum weight: ${v}kg`, valido: (v) => `Valid: ${v}`,
     taxasCias: 'Airline Fees', condicoesNoShow: 'No-Show Conditions',
     notesTitle: 'Notes:', notesFx: 'Exchange rate for reference purposes only.',
@@ -2610,6 +2610,19 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   function notesWithoutTransit(obs){
     return (obs || '').replace(/\s*·?\s*Transit:\s*[^·]+/ig, '').replace(/^\s*·\s*/, '').trim();
   }
+  // Minimum weight = the weight tier ("+5.999KG") and/or the To Door minimum; falls back to a
+  // "Mín. X kg" written in the validity text of older rates.
+  function minWeightFor(r){
+    const parts = [];
+    const { faixaKey } = parseCondicao(r.condicao);
+    if (faixaKey) parts.push(`${parseInt(faixaKey, 10).toLocaleString(L.dateLocale)} kg`);
+    if (r.tipo === 'To Door' && r.pesoMinimoToDoor) parts.push(`To Door: ${Number(r.pesoMinimoToDoor).toLocaleString(L.dateLocale)} kg`);
+    if (!parts.length){
+      const m = (r.validade || '').match(/m[ií]n\.?\s*([\d.,]+\s*kg)/i);
+      if (m) parts.push(m[1]);
+    }
+    return parts.join(' · ') || '—';
+  }
   function rowTableFor(rows){
     if (!rows.length) return '';
     const byDestProduto = {};
@@ -2631,6 +2644,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
           <td>${r.conexao || '—'}</td>
           <td>${r.destino}</td>
           <td>USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}</td>
+          <td>${minWeightFor(r)}</td>
           <td>${feesText}</td>
           <td>${r.desembaraco ? 'USD ' + r.desembaraco.toFixed(2) : '—'}</td>
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
@@ -2642,13 +2656,13 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
         <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + group.produto : ''}</div>
         <table class="pl-table">
           <colgroup>
-            <col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:7%">
-            <col style="width:9%"><col style="width:12%"><col style="width:9%"><col style="width:9%">
-            <col style="width:7%"><col style="width:24%">
+            <col style="width:8%"><col style="width:6%"><col style="width:6%"><col style="width:6%">
+            <col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:9%"><col style="width:9%">
+            <col style="width:7%"><col style="width:22%">
           </colgroup>
           <thead><tr>
             <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thTransito}</th><th>${L.thDestino}</th>
-            <th>${L.thFreight}</th><th>${L.thCarrierFees}</th><th>${L.thCustoms}</th><th>${L.thStorage}</th>
+            <th>${L.thFreight}</th><th>${L.thMinWeight}</th><th>${L.thCarrierFees}</th><th>${L.thCustoms}</th><th>${L.thStorage}</th>
             <th>${L.thTransitTime}</th><th>${L.thObs}</th>
           </tr></thead>
           <tbody>${bodyRows}</tbody>
@@ -2701,7 +2715,9 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
 
   const ciasInQuote = [...new Set(rates.map(r => r.cia))];
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
-  const noShowTextFor = (n) => (lang === 'en' && n.textoEn) ? n.textoEn : n.texto;
+  // Texts typed in a textarea keep their line breaks (escaped first, so stray < or & can't break the page)
+  const nl2br = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\r?\n/g, '<br>');
+  const noShowTextFor = (n) => nl2br((lang === 'en' && n.textoEn) ? n.textoEn : n.texto);
 
   // Lists each distinct CIA fee that has a description (obs) attached, for the CIAs actually
   // in this quote — so the client sees WHY a fee applies (e.g. "Collect, cobrada se BL direto")
@@ -2775,13 +2791,13 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     ${feeDescriptionsFor(rates).length ? `
       <div class="pq-noshow-title">${L.feeDescriptionsTitle}</div>
       <div class="pq-noshow-box">
-        ${feeDescriptionsFor(rates).map(f => `<b>${f.cia} — ${f.nome}:</b> ${f.obs}`).join('<br>')}
+        ${feeDescriptionsFor(rates).map(f => `<b>${f.cia} — ${f.nome}:</b> ${nl2br(f.obs)}`).join('<br>')}
       </div>
     ` : ''}
     ${relevantNoShow.length ? `
       <div class="pq-noshow-title">${L.condicoesNoShow}</div>
       <div class="pq-noshow-box">
-        ${relevantNoShow.map(n => `<b>${n.cia}:</b> ${noShowTextFor(n)}`).join('<br>')}
+        ${relevantNoShow.map(n => `<b>${n.cia}:</b><br>${noShowTextFor(n)}`).join('<br><br>')}
       </div>
     ` : ''}
     <div class="pq-notes">
