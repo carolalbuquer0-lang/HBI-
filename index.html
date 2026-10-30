@@ -209,6 +209,13 @@
   .merge-row input{flex:1; font-size:12.5px; padding:7px 9px; border:1px solid var(--pf-border); border-radius:6px; font-family:inherit;}
   .merge-row input:focus{outline:none; border-color:var(--pf-navy); box-shadow:0 0 0 3px rgba(38,52,77,0.08);}
   .merge-hint{font-size:11px; color:var(--pf-muted); margin-top:6px;}
+  .qb-fee-block{border:1px solid var(--pf-border); border-radius:8px; margin-bottom:8px; background:#fff; overflow:hidden;}
+  .qb-fee-head{background:var(--pf-navy-light); padding:6px 10px; font-size:12px; color:var(--pf-text); border-bottom:1px solid var(--pf-border);}
+  .qb-fee-row, .new-exp-form label.qb-fee-row{display:flex; gap:8px; align-items:flex-start; padding:6px 10px; margin:0; font-size:12.5px; font-weight:normal; color:var(--pf-text); border-bottom:1px solid #F0F2F6; cursor:pointer;}
+  .qb-fee-row:last-child{border-bottom:none;}
+  .qb-fee-row input{margin-top:3px; flex:0 0 auto;}
+  .qb-fee-note{font-size:11px; color:var(--pf-opp-text); font-weight:normal;}
+  .qb-fee-desc{font-size:11.5px; color:var(--pf-muted); font-weight:normal; margin-top:1px;}
 
   footer{text-align:center; padding:26px; color:var(--muted); font-size:12px; background:#fff; border-top:1px solid var(--line);}
   footer a{color:var(--teal-deep);}
@@ -1709,6 +1716,62 @@ function openCiaMeetingForm(meeting){
   };
 }
 
+// ---- Fee rules: WHEN does each CIA fee enter a quote? --------------------------------------
+// Each fee can carry `regras` = { doc, eawb, pagamento, conexaoNacional, conexao, produtos[], padrao }.
+// Fees without explicit rules get rules *suggested* from the observation text already written on them
+// (e.g. "caso tenha HAWB sem transmissão de e-AWB" -> House + sem e-AWB), so nothing has to be set up
+// fee by fee: the quote builder pre-selects the right fees from the answers to 4 quick questions,
+// and she reviews the final list once before generating.
+const DEFAULT_FEE_RULES = { doc: 'any', eawb: 'any', pagamento: 'any', conexaoNacional: 'any', conexao: 'any', produtos: [], padrao: true };
+function normTxt(s){ return (s == null ? '' : String(s)).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+const RULE_PRODUCT_WORDS = ['lagosta', 'animal vivo', 'atum', 'pescado', 'peixe', 'gengibre', 'fruta', 'flores'];
+function suggestFeeRules(fee){
+  const t = normTxt((fee.nome || '') + ' ' + (fee.obs || ''));
+  const r = { ...DEFAULT_FEE_RULES, produtos: [] };
+  if (/(caso|se)\s+(tenha|houver|tiver)\s+(hawb|house)|\bcom\s+hawb\b/.test(t)) r.doc = 'house';
+  else if (/\bsem\s+hawb\b|\bmaster\s+direto\b/.test(t)) r.doc = 'master';
+  if (/sem\s+transmissao(\s+de)?\s+e-?awb/.test(t)) r.eawb = 'nao';
+  else if (/com\s+transmissao(\s+de)?\s+e-?awb/.test(t)) r.eawb = 'sim';
+  if (/\bcollect\b/.test(t)) r.pagamento = 'collect';
+  else if (/\b(prepaid|pre-paid|prepago)\b/.test(t)) r.pagamento = 'prepaid';
+  if (/conexao\s+(nacional|domestica)|conexao\s+(em|via)\s+(gru|gig|vcp|bsb|rec|for|vix|cnf|poa|nat|ssa|bel|bps|sdu)\b/.test(t)) r.conexaoNacional = 'sim';
+  if (r.conexaoNacional === 'any' && /(^|\s)(em|com)\s+conexao\b/.test(t)) r.conexao = 'com';
+  const m = t.match(/(?:apenas|somente|exclusiv\w+|\bso\b)\s+(?:para\s+)?([a-z\s\/,]+?)(?:[.;()]|$)/);
+  if (m) r.produtos = RULE_PRODUCT_WORDS.filter(w => m[1].includes(w));
+  return r;
+}
+function getFeeRules(fee){
+  return fee.regras ? { ...DEFAULT_FEE_RULES, ...fee.regras, produtos: [...(fee.regras.produtos || [])] } : suggestFeeRules(fee);
+}
+function ruleSummary(g){
+  const p = [];
+  if (g.doc === 'house') p.push('House (HAWB)'); else if (g.doc === 'master') p.push('Master direto');
+  if (g.eawb === 'sim') p.push('e-AWB transmitido'); else if (g.eawb === 'nao') p.push('sem e-AWB');
+  if (g.pagamento === 'collect') p.push('Collect'); else if (g.pagamento === 'prepaid') p.push('Prepaid');
+  if (g.conexaoNacional === 'sim') p.push('com conexão nacional'); else if (g.conexaoNacional === 'nao') p.push('sem conexão nacional');
+  if (g.conexao === 'com') p.push('com conexão'); else if (g.conexao === 'direto') p.push('voo direto');
+  if (g.produtos.length) p.push('produto: ' + g.produtos.join(', '));
+  if (g.padrao === false) p.push('só quando solicitado');
+  return p.join(' · ');
+}
+// Does this fee enter THIS rate, given the answers to the quote questions? -> { ok, reason }
+function feeApplies(fee, rate, a){
+  const g = getFeeRules(fee);
+  if (g.doc !== 'any' && g.doc !== a.doc) return { ok: false, reason: g.doc === 'house' ? 'só quando é House (HAWB)' : 'só quando é Master direto' };
+  if (g.eawb !== 'any' && g.eawb !== a.eawb) return { ok: false, reason: g.eawb === 'sim' ? 'só com e-AWB transmitido' : 'só sem e-AWB transmitido' };
+  if (g.pagamento !== 'any' && g.pagamento !== a.pagamento) return { ok: false, reason: g.pagamento === 'collect' ? 'só Collect' : 'só Prepaid' };
+  if (g.conexaoNacional !== 'any' && g.conexaoNacional !== a.conexaoNacional) return { ok: false, reason: g.conexaoNacional === 'sim' ? 'só com conexão nacional' : 'só sem conexão nacional' };
+  if (g.conexao === 'com' && !rate.conexao) return { ok: false, reason: 'só em rota com conexão' };
+  if (g.conexao === 'direto' && rate.conexao) return { ok: false, reason: 'só em voo direto' };
+  if (g.produtos.length){
+    const hay = normTxt(getEffectiveProduto(rate) + ' ' + (rate.condicao || ''));
+    if (!g.produtos.some(w => hay.includes(normTxt(w)))) return { ok: false, reason: 'só pra ' + g.produtos.join(' / ') };
+  }
+  if (g.padrao === false) return { ok: false, reason: 'só quando solicitado' };
+  return { ok: true, reason: '' };
+}
+function qbEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
 function renderCiaFeesView(){
   const wrap = document.getElementById('ciaFeesWrap');
   const byCia = {};
@@ -1719,7 +1782,10 @@ function renderCiaFeesView(){
     <div style="background:#EEF5F1; border:1px solid #C9E0D2; border-radius:10px; padding:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
         <h4 style="margin:0;">Taxas por CIA (nome, valor e observação)</h4>
-        <button id="addCiaFeeTopBtn" style="background:var(--orange); color:#fff; border:none; padding:7px 13px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">+ Nova taxa</button>
+        <span style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="reviewFeeRulesBtn" style="background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); padding:7px 13px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">🔎 Revisar regras</button>
+          <button id="addCiaFeeTopBtn" style="background:var(--orange); color:#fff; border:none; padding:7px 13px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">+ Nova taxa</button>
+        </span>
       </div>
       ${cias.map(cia => `
         <div style="margin-bottom:12px;">
@@ -1735,6 +1801,7 @@ function renderCiaFeesView(){
               </div>
               <div class="le-top"><span><b>${f.nome}</b> — USD ${Number(f.valor).toFixed(2)}</span></div>
               ${f.obs ? `<div class="le-notes">${f.obs}</div>` : ''}
+              ${ruleSummary(getFeeRules(f)) ? `<div style="font-size:11px; color:var(--pf-muted); margin-top:3px;">🔎 Entra: ${ruleSummary(getFeeRules(f))}${f.regras ? '' : ' <i>(sugerido)</i>'}</div>` : ''}
             </div>
           `).join('')}
         </div>
@@ -1744,6 +1811,7 @@ function renderCiaFeesView(){
   `;
   document.getElementById('addCiaFeeBtn').onclick = () => openCiaFeeForm(null);
   document.getElementById('addCiaFeeTopBtn').onclick = () => openCiaFeeForm(null);
+  document.getElementById('reviewFeeRulesBtn').onclick = () => openFeeRulesReview();
   wrap.querySelectorAll('.cf-add-cia').forEach(btn => {
     btn.onclick = () => openCiaFeeForm(null, btn.dataset.cia);
   });
@@ -1780,6 +1848,26 @@ function openCiaFeeForm(fee, presetCia){
       <input type="text" id="cfeeObs" value="${fee?.obs || ''}" placeholder="ex: por HAWB, só quando solicitado...">
       <label>Observação em inglês (opcional — usada no PDF em English; se deixar em branco, mostra o texto em português mesmo)</label>
       <input type="text" id="cfeeObsEn" value="${fee?.obsEn || ''}" placeholder="ex: per HAWB, only when requested...">
+      ${(() => {
+        const g = fee ? getFeeRules(fee) : { ...DEFAULT_FEE_RULES };
+        const sel = (cur, opts) => opts.map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('');
+        return `<div class="qb-section" style="margin-top:14px;">
+          <div class="qb-section-title">Quando essa taxa entra na cotação?${fee && !fee.regras ? ' <span style="text-transform:none; font-weight:normal;">(sugerido pelas suas observações — confira)</span>' : ''}</div>
+          <div class="cf-row">
+            <div style="flex:1;"><label>Documento</label><select id="cfeeRDoc">${sel(g.doc, [['any','Qualquer'],['master','Só Master direto'],['house','Só House (HAWB)']])}</select></div>
+            <div style="flex:1;"><label>e-AWB</label><select id="cfeeREawb">${sel(g.eawb, [['any','Qualquer'],['sim','Só transmitido'],['nao','Só não transmitido']])}</select></div>
+          </div>
+          <div class="cf-row">
+            <div style="flex:1;"><label>Pagamento</label><select id="cfeeRPag">${sel(g.pagamento, [['any','Qualquer'],['collect','Só Collect'],['prepaid','Só Prepaid']])}</select></div>
+            <div style="flex:1;"><label>Conexão nacional</label><select id="cfeeRConNac">${sel(g.conexaoNacional, [['any','Qualquer'],['sim','Só com'],['nao','Só sem']])}</select></div>
+          </div>
+          <div class="cf-row">
+            <div style="flex:1;"><label>Rota</label><select id="cfeeRCon">${sel(g.conexao, [['any','Qualquer'],['com','Só com conexão'],['direto','Só voo direto']])}</select></div>
+            <div style="flex:1;"><label>Produtos (vazio = todos)</label><input type="text" id="cfeeRProdutos" value="${qbEsc(g.produtos.join(', '))}" placeholder="ex: lagosta, animal vivo"></div>
+          </div>
+          <label style="display:flex; align-items:center; gap:6px; margin-top:8px;"><input type="checkbox" id="cfeeRPadrao" ${g.padrao !== false ? 'checked' : ''} style="width:auto;"> Entra automaticamente (desmarque se só entra quando eu pedir)</label>
+        </div>`;
+      })()}
       <div class="new-exp-actions">
         <button id="cfeeSave">Salvar</button>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
@@ -1793,12 +1881,21 @@ function openCiaFeeForm(fee, presetCia){
     const valor = parseFloat(document.getElementById('cfeeValor').value) || 0;
     const obs = document.getElementById('cfeeObs').value.trim();
     const obsEn = document.getElementById('cfeeObsEn').value.trim();
+    const regras = {
+      doc: document.getElementById('cfeeRDoc').value,
+      eawb: document.getElementById('cfeeREawb').value,
+      pagamento: document.getElementById('cfeeRPag').value,
+      conexaoNacional: document.getElementById('cfeeRConNac').value,
+      conexao: document.getElementById('cfeeRCon').value,
+      produtos: document.getElementById('cfeeRProdutos').value.split(',').map(s => s.trim()).filter(Boolean),
+      padrao: document.getElementById('cfeeRPadrao').checked
+    };
     if (!cia || !nome){ alert('Preencha ao menos CIA e Nome da taxa.'); return; }
     if (fee){
       const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
-      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, obsEn, updatedAt: Date.now() };
+      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, obsEn, regras, updatedAt: Date.now() };
     } else {
-      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, obsEn, updatedAt: Date.now() });
+      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, obsEn, regras, updatedAt: Date.now() });
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
@@ -2316,6 +2413,47 @@ function openRateForm(rate){
   };
 }
 
+
+// One-time review of the rules (suggested ones are tagged) — accept all in one click or adjust any.
+function openFeeRulesReview(){
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modalContent');
+  const byCia = {};
+  ciaFeesCache.filter(f => f.nome.toUpperCase() !== 'CCA').forEach(f => { (byCia[f.cia] || (byCia[f.cia] = [])).push(f); });
+  const pending = ciaFeesCache.filter(f => !f.regras).length;
+  modal.innerHTML = `
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h2>Regras das taxas</h2>
+    <p style="font-size:13px; color:var(--pf-muted); margin-top:0;">Aqui você vê <b>quando cada taxa entra</b> numa cotação. As marcadas <i>(sugerido)</i> eu deduzi das observações que você já escreveu. Taxa sem restrição aparece como "sempre entra". Confira uma vez e ajuste o que estiver errado.</p>
+    ${pending ? `<button id="feeRulesAcceptAll" class="btn-navy" style="margin-bottom:12px;">✔ Aceitar todas as sugestões (${pending})</button>` : '<div style="font-size:12.5px; color:var(--pf-client-text); margin-bottom:12px;">✔ Todas as regras já estão confirmadas.</div>'}
+    <div style="max-height:420px; overflow-y:auto;">
+    ${Object.keys(byCia).sort().map(cia => `
+      <div style="margin-bottom:12px;">
+        <b style="font-size:12.5px;">${qbEsc(cia)}</b>
+        <div class="rel-list" style="margin-top:4px;">
+          ${byCia[cia].map(f => { const s = ruleSummary(getFeeRules(f)); return `
+            <div class="rel-item">
+              <span class="rel-name">${qbEsc(f.nome)} <span style="font-weight:normal; color:var(--pf-muted);">USD ${Number(f.valor).toFixed(2)}</span>
+                <br><span style="font-weight:normal; font-size:11.5px; color:${s ? 'var(--pf-navy)' : 'var(--pf-muted)'};">${s ? 'Entra: ' + qbEsc(s) : 'Sempre entra'}${f.regras ? '' : ' <i>(sugerido)</i>'}</span></span>
+              <button class="fr-adjust btn-navy-outline" data-id="${f.id}" style="padding:4px 10px; font-size:11.5px;">ajustar</button>
+            </div>`; }).join('')}
+        </div>
+      </div>`).join('') || '<div class="empty">Nenhuma taxa cadastrada.</div>'}
+    </div>
+    <div class="new-exp-actions"><button class="cancel" onclick="closeModal()">Fechar</button></div>
+  `;
+  overlay.classList.add('visible');
+  const accept = document.getElementById('feeRulesAcceptAll');
+  if (accept) accept.onclick = async () => {
+    ciaFeesCache.forEach(f => { if (!f.regras) f.regras = suggestFeeRules(f); });
+    await setCiaFees(ciaFeesCache);
+    openFeeRulesReview();
+  };
+  modal.querySelectorAll('.fr-adjust').forEach(b => {
+    b.onclick = () => openCiaFeeForm(ciaFeesCache.find(f => f.id === b.dataset.id));
+  });
+}
+
 function openQuoteBuilder(){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
@@ -2335,7 +2473,6 @@ function openQuoteBuilder(){
           ${r.condicao ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${r.condicao}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
         <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
-        <label style="flex:0 0 150px; font-size:11.5px; display:flex; align-items:center; gap:4px; margin-top:4px;"><input type="checkbox" class="qb-notax" data-id="${r.id}"> remover taxa CIA</label>
       </div>
     `;
     }).join('') || '<div class="empty">Nenhuma tarifa encontrada pra essa rota.</div>';
@@ -2357,6 +2494,19 @@ function openQuoteBuilder(){
           <div style="flex:1;"><label>REF (opcional)</label><input type="text" id="qbRef"></div>
           <div style="flex:1;"><label>Validade</label><input type="text" id="qbValidade" value="30 dias"></div>
         </div>
+      </div>
+
+      <div class="qb-section">
+        <div class="qb-section-title">Perguntas da cotação (definem quais taxas entram)</div>
+        <div class="cf-row">
+          <div style="flex:1;"><label>Documento</label><select id="qbQDoc"><option value="master">Master direto</option><option value="house">House (HAWB)</option></select></div>
+          <div style="flex:1;"><label>e-AWB</label><select id="qbQEawb"><option value="sim">Transmitido</option><option value="nao">Não transmitido</option></select></div>
+        </div>
+        <div class="cf-row">
+          <div style="flex:1;"><label>Pagamento</label><select id="qbQPag"><option value="collect">Collect</option><option value="prepaid">Prepaid</option></select></div>
+          <div style="flex:1;"><label>Conexão nacional?</label><select id="qbQConNac"><option value="nao">Não</option><option value="sim">Sim</option></select></div>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">Suas últimas respostas ficam lembradas. Conexão internacional e produto o sistema já sabe pela tarifa escolhida.</div>
       </div>
 
       <div class="qb-section">
@@ -2401,6 +2551,13 @@ function openQuoteBuilder(){
         </div>
       </div>
 
+      <div class="qb-section">
+        <div class="qb-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Taxas desta cotação — confira uma última vez</span>
+        </div>
+        <div id="qbFeesPanel"></div>
+      </div>
+
       <div class="cf-row" style="margin-top:10px;">
         <label style="display:flex; align-items:center; gap:8px; font-size:13px;">
           Idioma do PDF:
@@ -2428,6 +2585,66 @@ function openQuoteBuilder(){
   `;
   overlay.classList.add('visible');
 
+  // ---- answers (remembered between quotes) + per-rate fee panel ----
+  const QB_ANS_KEY = 'hevile_qb_answers';
+  try {
+    const saved = JSON.parse(localStorage.getItem(QB_ANS_KEY) || '{}');
+    if (saved.doc) document.getElementById('qbQDoc').value = saved.doc;
+    if (saved.eawb) document.getElementById('qbQEawb').value = saved.eawb;
+    if (saved.pagamento) document.getElementById('qbQPag').value = saved.pagamento;
+    if (saved.conexaoNacional) document.getElementById('qbQConNac').value = saved.conexaoNacional;
+  } catch(e){}
+  const feeOverrides = {}; // rateId -> { feeId: true/false } (manual choices on the final review)
+  function readAnswers(){
+    return {
+      doc: document.getElementById('qbQDoc').value, eawb: document.getElementById('qbQEawb').value,
+      pagamento: document.getElementById('qbQPag').value, conexaoNacional: document.getElementById('qbQConNac').value
+    };
+  }
+  function renderFeesPanel(){
+    const panel = document.getElementById('qbFeesPanel');
+    const a = readAnswers();
+    const ids = [...document.querySelectorAll('#qbRatesList .qb-check:checked')].map(c => c.dataset.id);
+    if (!ids.length){
+      panel.innerHTML = '<div style="font-size:12.5px; color:var(--muted); padding:4px 0;">Selecione as tarifas acima — aqui aparecem as taxas de cada uma, já marcadas conforme as respostas.</div>';
+      return;
+    }
+    panel.innerHTML = '<div style="max-height:320px; overflow-y:auto;">' + ids.map(id => {
+      const r = ratesCache.find(x => x.id === id);
+      const feeList = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
+      const produto = getEffectiveProduto(r);
+      const head = `<div class="qb-fee-head"><b>${qbEsc(r.cia)}</b> ${qbEsc(r.origem)}${r.conexao ? ' → ' + qbEsc(r.conexao) : ''} → ${qbEsc(r.destino)} · ${r.tipo === 'To Door' ? '🚚 To Door' : '✈ Aeroporto'}${produto ? ' · ' + qbEsc(produto) : ''}</div>`;
+      if (!feeList.length) return `<div class="qb-fee-block">${head}<div class="qb-fee-row" style="color:var(--muted);">Nenhuma taxa cadastrada pra essa CIA.</div></div>`;
+      return `<div class="qb-fee-block">${head}${feeList.map(f => {
+        const ap = feeApplies(f, r, a);
+        const ov = feeOverrides[id] && feeOverrides[id][f.id];
+        const checked = ov !== undefined ? ov : ap.ok;
+        let note = '';
+        if (ov !== undefined && ov !== ap.ok) note = ov ? `incluída por você (${ap.reason})` : 'retirada por você';
+        else if (!ap.ok) note = 'fora: ' + ap.reason;
+        const desc = f.obs ? `<div class="qb-fee-desc">${qbEsc(f.obs)}</div>` : '';
+        return `<label class="qb-fee-row"><input type="checkbox" class="qb-fee-cb" data-rate="${id}" data-fee="${f.id}" ${checked ? 'checked' : ''}>
+          <span><b>${qbEsc(f.nome)}</b> USD ${Number(f.valor).toFixed(2)}${note ? ` <span class="qb-fee-note">${qbEsc(note)}</span>` : ''}${desc}</span></label>`;
+      }).join('')}</div>`;
+    }).join('') + '</div>';
+  }
+  document.getElementById('qbFeesPanel').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('qb-fee-cb')) return;
+    (feeOverrides[e.target.dataset.rate] = feeOverrides[e.target.dataset.rate] || {})[e.target.dataset.fee] = e.target.checked;
+    renderFeesPanel();
+  });
+  ['qbQDoc', 'qbQEawb', 'qbQPag', 'qbQConNac'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      Object.keys(feeOverrides).forEach(k => delete feeOverrides[k]); // new answers -> recalculate from the rules
+      try { localStorage.setItem(QB_ANS_KEY, JSON.stringify(readAnswers())); } catch(e){}
+      renderFeesPanel();
+    });
+  });
+  document.getElementById('qbRatesList').addEventListener('change', (e) => {
+    if (e.target.classList.contains('qb-check')) renderFeesPanel();
+  });
+  renderFeesPanel();
+
   function refilter(){
     const o = document.getElementById('qbFiltroOrigem').value.trim().toUpperCase();
     const d = document.getElementById('qbFiltroDestino').value.trim().toUpperCase();
@@ -2441,6 +2658,7 @@ function openQuoteBuilder(){
     );
     document.getElementById('qbRatesList').innerHTML = rowsHtml(filtered);
     document.getElementById('qbSelectAll').checked = false;
+    renderFeesPanel();
   }
   document.getElementById('qbFiltroOrigem').addEventListener('input', refilter);
   document.getElementById('qbFiltroDestino').addEventListener('input', refilter);
@@ -2449,6 +2667,7 @@ function openQuoteBuilder(){
 
   document.getElementById('qbSelectAll').onchange = (e) => {
     document.querySelectorAll('#qbRatesList .qb-check').forEach(cb => { cb.checked = e.target.checked; });
+    renderFeesPanel();
   };
 
   document.getElementById('qbApplyProfit').onclick = () => {
@@ -2457,6 +2676,7 @@ function openQuoteBuilder(){
   };
 
   document.getElementById('qbGenerate').onclick = async () => {
+    renderFeesPanel();
     const selectedIds = [...document.querySelectorAll('.qb-check:checked')].map(el => el.dataset.id);
     if (!selectedIds.length){ alert('Selecione ao menos uma tarifa.'); return; }
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
@@ -2468,16 +2688,15 @@ function openQuoteBuilder(){
     const selectedRates = selectedIds.map(id => {
       const r = ratesCache.find(x => x.id === id);
       const profitInput = document.querySelector(`.qb-profit[data-id="${id}"]`);
-      const noTaxInput = document.querySelector(`.qb-notax[data-id="${id}"]`);
       const profit = parseFloat(profitInput.value) || 0;
-      const removeTax = noTaxInput.checked;
+      const feeIds = [...document.querySelectorAll(`.qb-fee-cb[data-rate="${id}"]:checked`)].map(cb => cb.dataset.fee);
       // Tarifa de venda = base + profit. Armazenagem e desembaraço aparecem em colunas próprias no PDF,
       // então não entram na tarifa/kg (senão o cliente veria a armazenagem cobrada duas vezes).
       const tarifaVenda = r.tarifaBase + profit;
       return {
         ...r,
         tarifaVenda,
-        taxasCiaVenda: removeTax ? 0 : r.taxasCia,
+        feeIds,
         desembaraco: desembacoPadrao,
         armazenagem: armazenagemPadrao
       };
@@ -2517,6 +2736,7 @@ function openQuoteBuilder(){
   };
 
   document.getElementById('qbPreview').onclick = () => {
+    renderFeesPanel();
     const selectedIds = [...document.querySelectorAll('.qb-check:checked')].map(el => el.dataset.id);
     if (!selectedIds.length){ alert('Selecione ao menos uma tarifa.'); return; }
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
@@ -2528,14 +2748,13 @@ function openQuoteBuilder(){
     const selectedRates = selectedIds.map(id => {
       const r = ratesCache.find(x => x.id === id);
       const profitInput = document.querySelector(`.qb-profit[data-id="${id}"]`);
-      const noTaxInput = document.querySelector(`.qb-notax[data-id="${id}"]`);
       const profit = parseFloat(profitInput.value) || 0;
-      const removeTax = noTaxInput.checked;
+      const feeIds = [...document.querySelectorAll(`.qb-fee-cb[data-rate="${id}"]:checked`)].map(cb => cb.dataset.fee);
       const tarifaVenda = r.tarifaBase + profit;
       return {
         ...r,
         tarifaVenda,
-        taxasCiaVenda: removeTax ? 0 : r.taxasCia,
+        feeIds,
         desembaraco: desembacoPadrao,
         armazenagem: armazenagemPadrao
       };
@@ -2671,7 +2890,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       const { obs: lastObs } = parseCondicao(group.rows[0].condicao);
       const produtoShown = lang === 'en' ? ((group.rows.find(r => r.produtoEn) || {}).produtoEn || translateProductToEn(group.produto)) : group.produto;
       const bodyRows = group.rows.map((r, i) => {
-        const fees = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
+        const fees = feesFor(r);
         const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
         const { obs } = parseCondicao(r.condicao);
         return `<tr class="${i % 2 ? 'pl-odd' : ''}">
@@ -2709,6 +2928,13 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   // Comparison-table layout: each selected rate becomes one COLUMN, and a fixed set of
   // criteria (route, schedule, pricing) becomes the ROWS — lets Carol put 2-6 CIA options for
   // the same shipment side by side and see at a glance which wins on price, timing, etc.
+  // Fees that actually enter each rate = the ones ticked in the quote builder's final review
+  // (falls back to every fee of the CIA, minus CCA, if the quote didn't come from the builder).
+  function feesFor(r){
+    return Array.isArray(r.feeIds)
+      ? ciaFeesCache.filter(f => r.feeIds.includes(f.id))
+      : ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
+  }
   function frequencyFor(r){
     if (r.diasSemana && r.diasSemana.length) return r.diasSemana.join(', ');
     const { obs } = parseCondicao(r.condicao);
@@ -2725,7 +2951,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       { label: 'ETA', get: r => r.eta || '—' },
       { label: L.thFreight, get: r => `USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}/kg` },
       { label: L.thCarrierFees, get: r => {
-          const fees = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
+          const fees = feesFor(r);
           return fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
         } },
       { label: L.thCustoms, get: r => r.desembaraco ? `USD ${r.desembaraco.toFixed(2)}` : '—' },
@@ -2762,7 +2988,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     const seen = new Set();
     const out = [];
     allRates.forEach(r => {
-      ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA' && f.obs).forEach(f => {
+      feesFor(r).filter(f => f.obs).forEach(f => {
         const key = f.cia + '|' + f.nome;
         if (seen.has(key)) return;
         seen.add(key);
