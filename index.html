@@ -1765,8 +1765,10 @@ function openCiaFeeForm(fee){
         <div style="flex:1;"><label>Nome da taxa</label><input type="text" id="cfeeNome" value="${fee?.nome || ''}" placeholder="ex: AWC"></div>
         <div style="flex:1;"><label>Valor (USD)</label><input type="number" step="0.01" id="cfeeValor" value="${fee?.valor || ''}" placeholder="ex: 18.00"></div>
       </div>
-      <label>Observação (opcional)</label>
+      <label>Observação (português)</label>
       <input type="text" id="cfeeObs" value="${fee?.obs || ''}" placeholder="ex: por HAWB, só quando solicitado...">
+      <label>Observação em inglês (opcional — usada no PDF em English; se deixar em branco, mostra o texto em português mesmo)</label>
+      <input type="text" id="cfeeObsEn" value="${fee?.obsEn || ''}" placeholder="ex: per HAWB, only when requested...">
       <div class="new-exp-actions">
         <button id="cfeeSave">Salvar</button>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
@@ -1779,12 +1781,13 @@ function openCiaFeeForm(fee){
     const nome = document.getElementById('cfeeNome').value.trim();
     const valor = parseFloat(document.getElementById('cfeeValor').value) || 0;
     const obs = document.getElementById('cfeeObs').value.trim();
+    const obsEn = document.getElementById('cfeeObsEn').value.trim();
     if (!cia || !nome){ alert('Preencha ao menos CIA e Nome da taxa.'); return; }
     if (fee){
       const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
-      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, updatedAt: Date.now() };
+      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, obsEn, updatedAt: Date.now() };
     } else {
-      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, updatedAt: Date.now() });
+      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, obsEn, updatedAt: Date.now() });
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
@@ -2173,6 +2176,9 @@ function openRateForm(rate){
         <input type="text" id="rfDeadlineCaminhao" placeholder="Deadline caminhão (ex: 5:00)" value="${rate?.deadlineCaminhao||''}">
         <input type="text" id="rfDeadlineCia" placeholder="Deadline CIA (ex: 10:00)" value="${rate?.deadlineCia||''}">
       </div>
+      <div class="cf-row">
+        <input type="text" id="rfTransitTime" placeholder="Transit time (ex: 15h, 3 dias) — vai na coluna Transit Time do PDF" value="${rate?.transitTime||''}">
+      </div>
       <label>Observações (frequência, transit time, etc.)</label>
       <input type="text" id="rfObs" placeholder="ex: Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
       <label style="margin-top:10px;">Taxas da CIA</label>
@@ -2228,6 +2234,7 @@ function openRateForm(rate){
     const eta = document.getElementById('rfEta').value.trim();
     const deadlineCaminhao = document.getElementById('rfDeadlineCaminhao').value.trim();
     const deadlineCia = document.getElementById('rfDeadlineCia').value.trim();
+    const transitTime = document.getElementById('rfTransitTime').value.trim();
     const pesoMinimoToDoor = tipo === 'To Door' ? (parseFloat(document.getElementById('rfPesoMinToDoor').value) || 0) : 0;
     const allDias = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
     const checkedDias = [...document.querySelectorAll('.rf-dia:checked')].map(cb => cb.value);
@@ -2263,9 +2270,9 @@ function openRateForm(rate){
     saveBtn.disabled = true;
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
-      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia };
+      ratesCache[idx] = { ...ratesCache[idx], tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime };
     } else {
-      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia });
+      ratesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), tipo, cia, origem, conexao, destino, produto, tarifaBase, condicao, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime });
     }
     await setRates(ratesCache);
     editingRateId = null;
@@ -2287,7 +2294,9 @@ function openQuoteBuilder(){
         <input type="checkbox" class="qb-check" data-id="${r.id}" style="flex:0 0 20px; margin-top:2px;">
         <span style="flex:1.6; font-size:12.5px; line-height:1.4;">
           <b>${r.cia}</b> ${r.origem}${r.conexao?(' → '+r.conexao):''} → ${r.destino} <span style="color:var(--muted);">(USD ${r.tarifaBase.toFixed(2)}/kg base)</span>
-          ${produto ? `<br><span style="font-size:10.5px; background:var(--teal); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold;">${produto}</span>` : ''}
+          <br>${r.tipo === 'To Door'
+            ? `<span style="font-size:10.5px; background:var(--orange); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold; margin-right:4px;">🚚 To Door</span>`
+            : `<span style="font-size:10.5px; background:#5A7A94; color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold; margin-right:4px;">✈ Aeroporto</span>`}${produto ? `<span style="font-size:10.5px; background:var(--teal); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold;">${produto}</span>` : ''}
           ${r.condicao ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${r.condicao}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
         <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
@@ -2316,12 +2325,15 @@ function openQuoteBuilder(){
       </div>
 
       <div class="qb-section">
-        <div class="qb-section-title">Filtrar por rota e produto (opcional — deixe em branco pra ver tudo)</div>
+        <div class="qb-section-title">Filtrar por rota, CIA e produto (opcional — deixe em branco pra ver tudo)</div>
         <div class="cf-row">
           <div style="flex:1;"><label>Origem</label><input type="text" id="qbFiltroOrigem" placeholder="ex: GRU"></div>
           <div style="flex:1;"><label>Destino</label><input type="text" id="qbFiltroDestino" placeholder="ex: AMS"></div>
         </div>
         <div class="cf-row">
+          <div style="flex:1;"><label>CIA</label><input type="text" id="qbFiltroCia" list="qbFiltroCiaList" placeholder="ex: LATAM">
+            <datalist id="qbFiltroCiaList">${[...new Set(ratesCache.map(r => r.cia))].sort().map(c => `<option value="${c.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+          </div>
           <div style="flex:1;"><label>Produto</label><input type="text" id="qbFiltroProduto" placeholder="ex: Gengibre"></div>
         </div>
       </div>
@@ -2385,9 +2397,11 @@ function openQuoteBuilder(){
     const o = document.getElementById('qbFiltroOrigem').value.trim().toUpperCase();
     const d = document.getElementById('qbFiltroDestino').value.trim().toUpperCase();
     const p = document.getElementById('qbFiltroProduto').value.trim().toLowerCase();
+    const c = document.getElementById('qbFiltroCia').value.trim().toLowerCase();
     const filtered = ratesCache.filter(r =>
       (!o || r.origem.toUpperCase().includes(o)) &&
       (!d || r.destino.toUpperCase().includes(d)) &&
+      (!c || r.cia.toLowerCase().includes(c)) &&
       (!p || getEffectiveProduto(r).toLowerCase().includes(p))
     );
     document.getElementById('qbRatesList').innerHTML = rowsHtml(filtered);
@@ -2396,6 +2410,7 @@ function openQuoteBuilder(){
   document.getElementById('qbFiltroOrigem').addEventListener('input', refilter);
   document.getElementById('qbFiltroDestino').addEventListener('input', refilter);
   document.getElementById('qbFiltroProduto').addEventListener('input', refilter);
+  document.getElementById('qbFiltroCia').addEventListener('input', refilter);
 
   document.getElementById('qbSelectAll').onchange = (e) => {
     document.querySelectorAll('#qbRatesList .qb-check').forEach(cb => { cb.checked = e.target.checked; });
@@ -2586,9 +2601,14 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   // "Por linha" layout: each CIA/route is its own ROW (classic comparison-sheet style), grouped
   // into one table per destination+product combination, with a title like "Destino: DXB — Manga".
   function transitTimeFor(r){
+    if (r.transitTime) return r.transitTime;
     const { obs } = parseCondicao(r.condicao);
     const m = obs.match(/Transit:\s*([^·]+)/i);
     return m ? m[1].trim() : '—';
+  }
+  // Notes column shouldn't repeat what already has its own column
+  function notesWithoutTransit(obs){
+    return (obs || '').replace(/\s*·?\s*Transit:\s*[^·]+/ig, '').replace(/^\s*·\s*/, '').trim();
   }
   function rowTableFor(rows){
     if (!rows.length) return '';
@@ -2615,7 +2635,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
           <td>${r.desembaraco ? 'USD ' + r.desembaraco.toFixed(2) : '—'}</td>
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
           <td>${transitTimeFor(r)}</td>
-          <td>${obs || '—'}</td>
+          <td>${notesWithoutTransit(obs) || '—'}</td>
         </tr>`;
       }).join('');
       return `
@@ -2694,7 +2714,8 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
         const key = f.cia + '|' + f.nome;
         if (seen.has(key)) return;
         seen.add(key);
-        out.push({ cia: f.cia, nome: f.nome, obs: f.obs });
+        const obsShown = (lang === 'en' && f.obsEn) ? f.obsEn : f.obs;
+        out.push({ cia: f.cia, nome: f.nome, obs: obsShown });
       });
     });
     return out;
