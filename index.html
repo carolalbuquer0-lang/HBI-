@@ -1717,10 +1717,16 @@ function renderCiaFeesView(){
 
   wrap.innerHTML = `
     <div style="background:#EEF5F1; border:1px solid #C9E0D2; border-radius:10px; padding:16px;">
-      <h4 style="margin:0 0 10px;">Taxas por CIA (nome, valor e observação)</h4>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+        <h4 style="margin:0;">Taxas por CIA (nome, valor e observação)</h4>
+        <button id="addCiaFeeTopBtn" style="background:var(--orange); color:#fff; border:none; padding:7px 13px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">+ Nova taxa</button>
+      </div>
       ${cias.map(cia => `
         <div style="margin-bottom:12px;">
-          <b style="font-size:12.5px;">${cia}</b>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <b style="font-size:12.5px;">${cia}</b>
+            <button class="cf-add-cia" data-cia="${cia.replace(/"/g,'&quot;')}" style="background:none; border:1px solid var(--pf-navy); color:var(--pf-navy); border-radius:6px; padding:3px 9px; font-size:11.5px; font-weight:bold; cursor:pointer;">+ taxa nessa CIA</button>
+          </div>
           ${byCia[cia].map(f => `
             <div class="log-entry" data-id="${f.id}" style="position:relative; background:#fff; margin-top:6px;">
               <div style="display:flex; gap:10px; position:absolute; top:10px; right:12px;">
@@ -1737,6 +1743,10 @@ function renderCiaFeesView(){
     </div>
   `;
   document.getElementById('addCiaFeeBtn').onclick = () => openCiaFeeForm(null);
+  document.getElementById('addCiaFeeTopBtn').onclick = () => openCiaFeeForm(null);
+  wrap.querySelectorAll('.cf-add-cia').forEach(btn => {
+    btn.onclick = () => openCiaFeeForm(null, btn.dataset.cia);
+  });
   wrap.querySelectorAll('.cf-edit').forEach(btn => {
     btn.onclick = () => openCiaFeeForm(ciaFeesCache.find(f => f.id === btn.dataset.id));
   });
@@ -1752,7 +1762,7 @@ function renderCiaFeesView(){
   });
 }
 
-function openCiaFeeForm(fee){
+function openCiaFeeForm(fee, presetCia){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
   modal.innerHTML = `
@@ -1760,7 +1770,8 @@ function openCiaFeeForm(fee){
     <h2>${fee ? 'Editar taxa' : 'Nova taxa'}</h2>
     <div class="new-exp-form">
       <label>CIA</label>
-      <input type="text" id="cfeeCia" value="${fee?.cia || ''}" placeholder="ex: American Airlines">
+      <input type="text" id="cfeeCia" value="${fee?.cia || presetCia || ''}" list="cfeeCiaList" placeholder="ex: American Airlines (escolha uma da lista ou digite uma nova)">
+      <datalist id="cfeeCiaList">${[...new Set([...ciaFeesCache.map(f => f.cia), ...ratesCache.map(r => r.cia)])].sort().map(c => `<option value="${c.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <div class="cf-row">
         <div style="flex:1;"><label>Nome da taxa</label><input type="text" id="cfeeNome" value="${fee?.nome || ''}" placeholder="ex: AWC"></div>
         <div style="flex:1;"><label>Valor (USD)</label><input type="number" step="0.01" id="cfeeValor" value="${fee?.valor || ''}" placeholder="ex: 18.00"></div>
