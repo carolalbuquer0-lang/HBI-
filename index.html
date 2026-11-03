@@ -3036,7 +3036,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
         if (seen.has(key)) return;
         seen.add(key);
         const obsShown = (lang === 'en' && f.obsEn) ? f.obsEn : f.obs;
-        out.push({ cia: f.cia, nome: f.nome, obs: obsShown });
+        out.push({ cia: f.cia, nome: f.nome, valor: f.valor, obs: obsShown });
       });
     });
     return out;
@@ -3095,7 +3095,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     ${feeDescriptionsFor(rates).length ? `
       <div class="pq-noshow-title">${L.feeDescriptionsTitle}</div>
       <div class="pq-noshow-box">
-        ${feeDescriptionsFor(rates).map(f => `<b>${f.cia} — ${f.nome}:</b> ${nl2br(f.obs)}`).join('<br>')}
+        ${feeDescriptionsFor(rates).map(f => `<b>${f.cia} — ${f.nome} (USD ${Number(f.valor).toFixed(2)}):</b> ${nl2br(f.obs)}`).join('<br>')}
       </div>
     ` : ''}
     ${relevantNoShow.length ? `
