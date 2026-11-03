@@ -1789,17 +1789,27 @@ function splitProductParts(str){
   parts.push(cur.trim());
   return parts.filter(Boolean);
 }
+// Same fruit written twice (any case/spacing) is shown once: "Fruta Pesada + Gengibre / Fruta Pesada" -> "Fruta Pesada + Gengibre"
+function dedupeProductParts(parts){
+  const seen = new Set();
+  return parts.filter(p => { const k = normTxt(p).replace(/\s+/g, ' ').trim(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
+}
+function cleanProductText(str){
+  const parts = splitProductParts(str);
+  return parts.length > 1 ? dedupeProductParts(parts).join(' + ') : String(str || '').trim();
+}
 // The product text reduced to the fruits that were asked for ("Fruta Pesada + Gengibre", asking Fruta Pesada -> "Fruta Pesada")
 function shownProductText(full, filterList){
-  if (!full || !filterList || !filterList.length) return full;
-  const parts = splitProductParts(full);
+  if (!full) return full;
+  const parts = dedupeProductParts(splitProductParts(full));
+  if (!filterList || !filterList.length) return parts.length > 1 ? parts.join(' + ') : full;
   const keep = parts.filter(part => filterList.some(f => normTxt(part).includes(normTxt(f))));
-  return (keep.length && keep.length < parts.length) ? keep.join(' + ') : full;
+  return (keep.length ? keep : parts).join(' + ');
 }
 function parseProductString(str){
   const chips = [], others = [];
-  splitProductParts(str).forEach(part => {
-    const opt = PRODUCT_OPTIONS.find(o => normTxt(o.pt) === normTxt(part));
+  dedupeProductParts(splitProductParts(str)).forEach(part => {
+    const opt = PRODUCT_OPTIONS.find(o => normTxt(o.pt).replace(/\s+/g, ' ') === normTxt(part).replace(/\s+/g, ' '));
     if (opt){ if (!chips.includes(opt.pt)) chips.push(opt.pt); } else others.push(part);
   });
   return { chips, others };
@@ -1821,7 +1831,7 @@ function productPickerHtml(current){
 }
 function readProductPicker(root){
   if (!root) return '';
-  return [...root.querySelectorAll('.pp-chip:checked, .pp-legacy:checked')].map(i => i.value).join(' + ');
+  return dedupeProductParts([...root.querySelectorAll('.pp-chip:checked, .pp-legacy:checked')].map(i => i.value)).join(' + ');
 }
 
 // Deletes a whole route (every weight tier and variation of that CIA/route/product) after confirming
@@ -1864,9 +1874,9 @@ function openRouteEditor(group){
 
   // One block per tariff = fruit (+ optional variation like "Seg a Sex") with its weight tiers
   const blocksMap = {};
-  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
+  group.forEach(r => { const k = cleanProductText(getEffectiveProduto(r)) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
   const blocks = Object.values(blocksMap).map(rs => ({
-    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [], rs: rs.slice().sort(byWeight)
+    produto: cleanProductText(getEffectiveProduto(rs[0])), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [], rs: rs.slice().sort(byWeight)
   })).sort((a, b) => a.produto.localeCompare(b.produto));
   const fruitsList = [...new Set(blocks.map(b => b.produto).filter(Boolean))];
   const voosAll = group.map(r => r.frequenciaVoos || []).filter(a => a.length);
@@ -2065,7 +2075,7 @@ function routeKeyOf(r){
 
 function rateCardGroup(group){
   const first = group[0];
-  const produto = getEffectiveProduto(first);
+  const produto = cleanProductText(getEffectiveProduto(first));
   const groupIds = group.map(r => r.id).join(',');
   const tipoTag = first.tipo === 'To Door'
     ? `<span class="importer-tag rate-tipo-toggle" data-ids="${groupIds}" title="Toca pra trocar pra Aeroporto" style="background:var(--orange); font-size:12px; padding:4px 10px; cursor:pointer;">🚚 TO DOOR${first.pesoMinimoToDoor ? ' · MÍN. ' + Number(first.pesoMinimoToDoor).toLocaleString('pt-BR') + 'KG' : ''}</span>`
@@ -2085,9 +2095,9 @@ function rateCardGroup(group){
   // Sáb e Dom, Fresh+2/25 / Fresh+2/48...). They live in the same card, each with its own heading,
   // and the tiers inside are sorted by weight.
   const blocksMap = {};
-  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
+  group.forEach(r => { const k = cleanProductText(getEffectiveProduto(r)) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
   const variants = Object.values(blocksMap).map(rs => ({
-    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [],
+    produto: cleanProductText(getEffectiveProduto(rs[0])), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [],
     rs: rs.slice().sort((a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey)
   })).sort((a, b) => a.produto.localeCompare(b.produto));
   const multi = variants.length > 1;
@@ -3059,13 +3069,15 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   function minWeightFor(r){
     const parts = [];
     const { faixaKey } = parseCondicao(r.condicao);
-    if (faixaKey) parts.push(`${parseInt(faixaKey, 10).toLocaleString(L.dateLocale)} kg`);
-    if (r.tipo === 'To Door' && r.pesoMinimoToDoor) parts.push(`To Door: ${Number(r.pesoMinimoToDoor).toLocaleString(L.dateLocale)} kg`);
+    const tier = faixaKey ? parseInt(faixaKey, 10) : 0;
+    const toDoorMin = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? Number(r.pesoMinimoToDoor) : 0;
+    if (tier) parts.push(`${tier.toLocaleString(L.dateLocale)} kg`);
+    if (toDoorMin && toDoorMin !== tier) parts.push(`To Door: ${toDoorMin.toLocaleString(L.dateLocale)} kg`); // only when it adds information
     if (!parts.length){
       const m = (r.validade || '').match(/m[ií]n\.?\s*([\d.,]+\s*kg)/i);
       if (m) parts.push(m[1]);
     }
-    return parts.join(' · ') || '—';
+    return parts.join('<br>') || '—';
   }
   // When fruits were picked in the quote builder, a tariff that also covers other fruits is shown as ONLY the
   // picked ones (e.g. a "Limão + Abacate" tariff, with Abacate picked -> "Abacate").
@@ -3105,9 +3117,9 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
         <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + produtoShown : ''}</div>
         <table class="pl-table">
           <colgroup>
-            <col style="width:7%"><col style="width:6.2%"><col style="width:6.5%"><col style="width:9%">
-            <col style="width:7.5%"><col style="width:6.5%"><col style="width:10%"><col style="width:9.5%"><col style="width:10%">
-            <col style="width:6.5%"><col style="width:9%"><col style="width:12.3%">
+            <col style="width:9%"><col style="width:5.8%"><col style="width:6.2%"><col style="width:8.8%">
+            <col style="width:7.2%"><col style="width:6.8%"><col style="width:9.8%"><col style="width:9.2%"><col style="width:9.8%">
+            <col style="width:6.2%"><col style="width:8.8%"><col style="width:12.4%">
           </colgroup>
           <thead><tr>
             <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thTransito}</th><th>${L.thDestino}</th>
@@ -3215,8 +3227,9 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     .pl-section{ background:#EAF1F5; border-left:4px solid #ff671f; border-radius:0 6px 6px 0; padding:7px 12px; font-size:12.5px; font-weight:bold; color:#2f4a5b; margin:18px 0 2px; }
     .pl-title{ font-size:13px; font-weight:bold; margin:16px 0 7px; color:#1F2D36; }
     .pl-table{ width:100%; border-collapse:collapse; font-size:8.5px; margin-bottom:6px; table-layout:fixed; }
-    .pl-table th{ background:#4f758b; color:#fff; padding:6px 5px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
-    .pl-table td{ padding:6px 5px; border-bottom:1px solid #DCE5EB; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
+    .pl-table th{ background:#4f758b; color:#fff; padding:6px 4px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
+    .pl-table td{ padding:6px 4px; border-bottom:1px solid #DCE5EB; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
+    .pl-table td:first-child{ overflow-wrap:normal; word-break:normal; hyphens:none; }
     .pl-table tr.pl-odd td{ background:#F3F7F9; }
     .pq-noshow-title{ font-size:11px; font-weight:bold; color:#1F2D36; margin:14px 0 6px; }
     .pq-noshow-box{ background:#F2F6F8; border:1px solid #D8E2E9; border-left:3px solid #ff671f; border-radius:6px; padding:10px 14px; font-size:10px; line-height:1.5; }
