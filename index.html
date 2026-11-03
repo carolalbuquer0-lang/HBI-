@@ -118,7 +118,8 @@
   }
   .rate-card-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; margin:14px 16px 0;}
   .rate-card{border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff;}
-  .rate-card-head{background:#4f758b; color:#fff; font-weight:bold; font-size:14px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;}
+  .rate-card-head{background:#4f758b; color:#fff; font-weight:bold; font-size:14px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px 10px;}
+  .rate-card-head .rate-edit-all, .rate-card-head .rate-tipo-toggle{white-space:nowrap;}
   .rate-card-actions button{background:none; border:none; color:#fff; opacity:.75; cursor:pointer; font-size:13px; margin-left:8px;}
   .rate-card-actions button:hover{opacity:1;}
   .rate-card-body{padding:6px 14px 10px;}
@@ -2061,7 +2062,7 @@ function getEffectiveProduto(r){
 }
 
 // ---- Edit a WHOLE route card at once: route data, every weight tier, variations, schedule, flight frequency ----
-function coarseRouteKey(r){ return [r.cia, r.tipo, r.origem, r.conexao, r.destino, getEffectiveProduto(r)].join('|'); }
+function coarseRouteKey(r){ return [r.cia, r.tipo, r.origem, r.conexao, r.destino].join('|'); }
 function buildCondicao(produto, obs, num, unit){
   const parts = [];
   if (produto) parts.push(`Produto: ${produto}`);
@@ -2092,17 +2093,30 @@ function wireDayChips(root){
   });
 }
 
+// Deletes a whole route (every weight tier and variation of that CIA/route/product) after confirming
+async function deleteWholeRoute(seedId){
+  const seed = ratesCache.find(r => r.id === seedId);
+  if (!seed) return false;
+  const key = coarseRouteKey(seed);
+  const doomed = ratesCache.filter(r => coarseRouteKey(r) === key);
+  const prods = [...new Set(doomed.map(r => getEffectiveProduto(r)).filter(Boolean))];
+  const label = `${seed.cia} ${seed.origem}${seed.conexao ? ' → ' + seed.conexao : ''} → ${seed.destino}${prods.length ? ' (' + prods.join(', ') + ')' : ''}`;
+  if (!confirm(`Excluir a rota ${label}?\n\nIsso apaga ${doomed.length} faixa(s) com todas as variações dela. Não dá pra desfazer.`)) return false;
+  ratesCache = ratesCache.filter(r => coarseRouteKey(r) !== key);
+  await setRates(ratesCache);
+  return true;
+}
+
 function openRouteEditor(group){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
   const first = group[0];
-  const produto0 = getEffectiveProduto(first);
   const byWeight = (a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey;
 
   // Fields that can legitimately differ between tiers: show the shared value, or leave blank when they
   // vary (blank = "keep each tier as it is"). A field is only written back if it was changed here.
-  const shared = (key) => {
-    const vals = [...new Set(group.map(r => r[key]).filter(v => v !== undefined && v !== null && v !== '' && v !== 0))];
+  const sharedOf = (rs, key) => {
+    const vals = [...new Set(rs.map(r => r[key]).filter(v => v !== undefined && v !== null && v !== '' && v !== 0))];
     return { value: vals.length === 1 ? vals[0] : '', varies: vals.length > 1 };
   };
   const GLOBALS = [
@@ -2110,41 +2124,52 @@ function openRouteEditor(group){
     ['validade', 'text', null, 'Validade (ex: 30 dias, ou uma data)'], ['etd', 'text', null, 'ETD (ex: 20:00)'],
     ['eta', 'text', null, 'ETA (ex: 08:00 (+2 dias))'], ['deadlineCaminhao', 'text', null, 'Deadline caminhão (ex: 5:00)'],
     ['deadlineCia', 'text', null, 'Deadline CIA (ex: 10:00)'], ['transitTime', 'text', null, 'Transit time (ex: 15h, 3 dias)'],
-    ['produtoEn', 'text', null, 'Produto em inglês (opcional)'], ['pesoMinimoToDoor', 'number', '1', 'Peso mínimo pra To Door (kg)']
+    ['pesoMinimoToDoor', 'number', '1', 'Peso mínimo pra To Door (kg)']
   ];
   const gInput = (key) => {
-    const g = GLOBALS.find(x => x[0] === key), s = shared(key);
+    const g = GLOBALS.find(x => x[0] === key), s = sharedOf(group, key);
     return `<input type="${g[1]}" ${g[2] ? `step="${g[2]}"` : ''} id="re_${key}" data-init="${attrEsc(s.value)}" value="${attrEsc(s.value)}" placeholder="${attrEsc(s.varies ? g[3] + ' — varia entre as faixas; em branco = manter' : g[3])}">`;
   };
 
-  const variantsMap = {};
-  group.forEach(r => { const o = parseCondicao(r.condicao).obs; (variantsMap[o] = variantsMap[o] || []).push(r); });
-  const variants = Object.entries(variantsMap).map(([obs, rs]) => ({ obs, rs: rs.slice().sort(byWeight) }));
+  // One block per tariff = fruit (+ optional variation like "Seg a Sex") with its weight tiers
+  const blocksMap = {};
+  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs; (blocksMap[k] = blocksMap[k] || []).push(r); });
+  const blocks = Object.values(blocksMap).map(rs => ({
+    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, rs: rs.slice().sort(byWeight)
+  })).sort((a, b) => a.produto.localeCompare(b.produto));
+  const fruitsList = [...new Set(blocks.map(b => b.produto).filter(Boolean))];
 
   const tierRowHtml = (r) => {
     const pc = r ? parseCondicao(r.condicao) : { faixaKey: '' };
     const num = pc.faixaKey ? parseInt(pc.faixaKey, 10) : '';
     return `<div class="cf-row re-tier" ${r ? `data-id="${r.id}"` : ''}>
       <input type="number" step="0.01" class="re-t-tarifa" placeholder="Tarifa USD/kg" value="${r ? r.tarifaBase : ''}">
-      <input type="number" step="1" class="re-t-faixa" placeholder="Faixa de peso (vazio = tarifa única)" value="${num}" style="flex:0.9;">
+      <input type="number" step="1" class="re-t-faixa" placeholder="Faixa de peso" value="${num}" style="flex:0.9;">
       <select class="re-t-unit" style="flex:0 0 90px;"><option value="KG" selected>KG</option><option value="TONS">TONS</option></select>
       <button type="button" class="re-t-del" title="Remover essa faixa" style="flex:0 0 auto; background:none; border:none; color:#B3413B; cursor:pointer; font-size:15px;">✕</button>
     </div>`;
   };
-  const varHtml = (v) => {
+  const blockHtml = (v) => {
     const r0 = v.rs[0];
     const voos = ((v.rs.find(r => r.frequenciaVoos && r.frequenciaVoos.length)) || {}).frequenciaVoos || [];
+    const en = sharedOf(v.rs, 'produtoEn');
     return `<div class="re-var" data-tpl="${r0 ? r0.id : ''}">
-      <label style="margin-top:0;">Variação — observação</label>
-      <input type="text" class="re-var-obs" value="${attrEsc(v.obs)}" placeholder="ex: Seg a Sex, Fresh+2/25... (vazio = tarifa geral)">
-      <label>Faixas de peso e tarifas</label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div style="flex:1 1 170px;"><label style="margin-top:0;">🍎 Fruta / produto desta tarifa</label>
+          <input type="text" class="re-var-prod" list="reFruitList" value="${attrEsc(v.produto)}" placeholder="ex: Gengibre, Fruta pesada, Costeiro..."></div>
+        <div style="flex:1 1 170px;"><label style="margin-top:0;">Produto em inglês (opcional)</label>
+          <input type="text" class="re-var-en" data-init="${attrEsc(en.value)}" value="${attrEsc(en.value)}" placeholder="${en.varies ? 'varia entre as faixas; em branco = manter' : 'ex: Ginger, Heavy fruit'}"></div>
+      </div>
+      <label>Observação / variação (opcional — ex: Seg a Sex, Fresh+2/25)</label>
+      <input type="text" class="re-var-obs" value="${attrEsc(v.obs)}" placeholder="vazio = tarifa geral">
+      <label>Faixas de peso e tarifas <span style="text-transform:none; font-weight:normal;">(deixe o peso vazio pra tarifa única)</span></label>
       <div class="re-tiers">${v.rs.length ? v.rs.map(tierRowHtml).join('') : tierRowHtml(null)}</div>
-      <button type="button" class="re-add-tier btn-navy-outline" style="padding:5px 11px; font-size:12px;">+ faixa nessa variação</button>
+      <button type="button" class="re-add-tier btn-navy-outline" style="padding:5px 11px; font-size:12px;">+ faixa nessa tarifa</button>
       <label style="margin-top:10px;">Frequência dos voos</label>
       <div class="re-chips">${dayChipsHtml('re-voo', voos, false)}</div>
       <label>Dias da semana em que a tarifa vale</label>
       <div class="re-chips">${dayChipsHtml('re-dia', r0 ? r0.diasSemana : [], true)}</div>
-      <div style="text-align:right; margin-top:8px;"><button type="button" class="re-del-var" style="background:none; border:none; color:#B3413B; cursor:pointer; font-size:12px; text-decoration:underline;">Remover essa variação</button></div>
+      <div style="text-align:right; margin-top:8px;"><button type="button" class="re-del-var" style="background:none; border:none; color:#B3413B; cursor:pointer; font-size:12px; text-decoration:underline;">Remover essa tarifa</button></div>
     </div>`;
   };
 
@@ -2152,8 +2177,9 @@ function openRouteEditor(group){
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>Editar rota inteira</h2>
     <div style="font-size:12.5px; background:var(--pf-navy-light); border:1px solid var(--pf-border); border-left:3px solid var(--orange); border-radius:8px; padding:8px 12px; margin-bottom:10px;">
-      <b>${qbEsc(first.cia)}</b> ${qbEsc(first.origem)}${first.conexao ? ' → ' + qbEsc(first.conexao) : ''} → ${qbEsc(first.destino)} · ${group.length} faixa(s). Ajuste tudo de uma vez e salve uma vez só. As taxas da CIA ficam em <b>💰 Taxas por CIA</b>.
+      <b>${qbEsc(first.cia)}</b> ${qbEsc(first.origem)}${first.conexao ? ' → ' + qbEsc(first.conexao) : ''} → ${qbEsc(first.destino)} · ${group.length} faixa(s)${fruitsList.length ? ' · ' + fruitsList.map(qbEsc).join(', ') : ''}. Cada tarifa leva a sua fruta junto das faixas de peso — ajuste tudo e salve uma vez só. As taxas da CIA ficam em <b>💰 Taxas por CIA</b>.
     </div>
+    <datalist id="reFruitList">${[...new Set(ratesCache.map(r => getEffectiveProduto(r)).filter(Boolean))].sort().map(f => `<option value="${attrEsc(f)}">`).join('')}</datalist>
     <div class="new-exp-form" id="reRoot">
       <label>Rota</label>
       <div class="cf-row">
@@ -2165,11 +2191,10 @@ function openRouteEditor(group){
         <input type="text" id="reConexao" placeholder="Conexão (opcional)" value="${attrEsc(first.conexao || '')}">
         <input type="text" id="reDestino" placeholder="Destino" value="${attrEsc(first.destino)}">
       </div>
-      <div class="cf-row"><input type="text" id="reProduto" placeholder="Produto" value="${attrEsc(produto0)}">${gInput('produtoEn')}</div>
       <div class="cf-row" id="reToDoorRow" style="display:${first.tipo === 'To Door' ? 'flex' : 'none'};">${gInput('pesoMinimoToDoor')}</div>
 
-      <div id="reVars">${variants.map(varHtml).join('')}</div>
-      <button type="button" id="reAddVar" class="btn-navy-outline" style="padding:6px 12px; font-size:12px; margin:2px 0 10px;">+ Nova variação (ex: Sáb e Dom, outro serviço)</button>
+      <div id="reVars">${blocks.map(blockHtml).join('')}</div>
+      <button type="button" id="reAddVar" class="btn-navy-outline" style="padding:6px 12px; font-size:12px; margin:2px 0 10px;">+ Nova tarifa (outra fruta ou variação)</button>
 
       <label>Horários (valem pra todas as faixas)</label>
       <div class="cf-row">${gInput('etd')}${gInput('eta')}</div>
@@ -2182,6 +2207,7 @@ function openRouteEditor(group){
       <div class="new-exp-actions">
         <button id="reSave">Salvar tudo</button>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
+        <button type="button" id="reDeleteRoute" style="margin-left:auto; background:#fff; color:#B3413B; border:1px solid #B3413B;">🗑 Excluir rota inteira</button>
       </div>
     </div>`;
   overlay.classList.add('visible');
@@ -2197,16 +2223,22 @@ function openRouteEditor(group){
       box.lastElementChild.querySelector('.re-t-faixa').focus();
     }
     else if (t.classList.contains('re-del-var')){
-      if (root.querySelectorAll('.re-var').length <= 1){ alert('A rota precisa ter ao menos uma variação.'); return; }
+      if (root.querySelectorAll('.re-var').length <= 1){ alert('A rota precisa ter ao menos uma tarifa.'); return; }
       t.closest('.re-var').remove();
     }
     else if (t.id === 'reAddVar'){
-      document.getElementById('reVars').insertAdjacentHTML('beforeend', varHtml({ obs: '', rs: [] }));
+      const all = root.querySelectorAll('.re-var-prod');
+      const lastFruit = all.length ? all[all.length - 1].value : '';
+      document.getElementById('reVars').insertAdjacentHTML('beforeend', blockHtml({ produto: lastFruit, obs: '', rs: [] }));
       const el = document.getElementById('reVars').lastElementChild;
       wireDayChips(el);
-      el.querySelector('.re-var-obs').focus();
+      el.querySelector('.re-var-prod').focus();
+      el.querySelector('.re-var-prod').select();
     }
   });
+  document.getElementById('reDeleteRoute').onclick = async () => {
+    if (await deleteWholeRoute(first.id)){ closeModal(); refreshRatesList(); }
+  };
 
   document.getElementById('reSave').onclick = async () => {
     const btn = document.getElementById('reSave');
@@ -2216,18 +2248,20 @@ function openRouteEditor(group){
     const origem = document.getElementById('reOrigem').value.trim().toUpperCase();
     const conexao = document.getElementById('reConexao').value.trim().toUpperCase();
     const destino = document.getElementById('reDestino').value.trim().toUpperCase();
-    const produto = document.getElementById('reProduto').value.trim();
     if (!cia || !origem || !destino){ alert('Preencha ao menos CIA, Origem e Destino.'); return; }
 
     const vars = [];
+    const seenAll = new Set();
     for (const el of root.querySelectorAll('.re-var')){
       const checkedDias = [...el.querySelectorAll('.re-dia:checked')].map(cb => cb.value);
+      const enEl = el.querySelector('.re-var-en');
       const v = {
-        tpl: el.dataset.tpl, obs: el.querySelector('.re-var-obs').value.trim(),
+        tpl: el.dataset.tpl, produto: el.querySelector('.re-var-prod').value.trim(), obs: el.querySelector('.re-var-obs').value.trim(),
+        en: enEl.value.trim(), enChanged: enEl.value.trim() !== enEl.dataset.init,
         voos: [...el.querySelectorAll('.re-voo:checked')].map(cb => cb.value),
         dias: checkedDias.length === WEEK_PT.length ? [] : checkedDias, rows: []
       };
-      const seen = new Set();
+      const name = `${v.produto || 'sem fruta'}${v.obs ? ' · ' + v.obs : ''}`;
       for (const row of el.querySelectorAll('.re-tier')){
         const tarifa = parseFloat(row.querySelector('.re-t-tarifa').value);
         const faixa = row.querySelector('.re-t-faixa').value.trim();
@@ -2235,8 +2269,9 @@ function openRouteEditor(group){
         if (!row.dataset.id && !faixa && isNaN(tarifa)) continue; // untouched blank row
         if (isNaN(tarifa)){ alert('Toda faixa precisa de uma tarifa (ou remova a linha com o ✕).'); return; }
         const kg = faixa ? String(unit === 'TONS' ? parseFloat(faixa) * 1000 : parseFloat(faixa)) : 'unica';
-        if (seen.has(kg)){ alert(`A faixa ${faixa ? '+' + faixa + ' ' + unit : '"tarifa única"'} aparece duas vezes na variação "${v.obs || 'Tarifa geral'}".`); return; }
-        seen.add(kg);
+        const sig = v.produto.toLowerCase() + '|' + v.obs.toLowerCase() + '|' + kg;
+        if (seenAll.has(sig)){ alert(`A faixa ${faixa ? '+' + faixa + ' ' + unit : '"tarifa única"'} aparece duas vezes na tarifa "${name}".`); return; }
+        seenAll.add(sig);
         v.rows.push({ id: row.dataset.id || null, tarifa, faixa, unit });
       }
       vars.push(v);
@@ -2258,12 +2293,13 @@ function openRouteEditor(group){
     if (tipo !== 'To Door') changed.pesoMinimoToDoor = 0;
 
     btn.disabled = true;
-    const routeCommon = { tipo, cia, origem, conexao, destino, produto };
+    const routeCommon = { tipo, cia, origem, conexao, destino };
     const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     vars.forEach(v => {
       const tpl = ratesCache.find(r => r.id === v.tpl) || group[0];
       v.rows.forEach(row => {
-        const patch = { ...routeCommon, ...changed, tarifaBase: row.tarifa, condicao: buildCondicao(produto, v.obs, row.faixa, row.unit), frequenciaVoos: v.voos, diasSemana: v.dias };
+        const patch = { ...routeCommon, ...changed, produto: v.produto, tarifaBase: row.tarifa, condicao: buildCondicao(v.produto, v.obs, row.faixa, row.unit), frequenciaVoos: v.voos, diasSemana: v.dias };
+        if (v.enChanged) patch.produtoEn = v.en;
         if (row.id){ const r = ratesCache.find(x => x.id === row.id); if (r) Object.assign(r, patch); }
         else ratesCache.push({ ...JSON.parse(JSON.stringify(tpl)), id: newId(), ...patch });
       });
@@ -2323,12 +2359,14 @@ function rateCardGroup(group){
   // Weight tiers of one route can come in several "variations" (the observation differs: Seg a Sex /
   // Sáb e Dom, Fresh+2/25 / Fresh+2/48...). They live in the same card, each with its own heading,
   // and the tiers inside are sorted by weight.
-  const variantsMap = {};
-  group.forEach(r => { const o = parseCondicao(r.condicao).obs; (variantsMap[o] = variantsMap[o] || []).push(r); });
-  const variants = Object.entries(variantsMap).map(([obs, rs]) => ({
-    obs, rs: rs.slice().sort((a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey)
-  }));
+  const blocksMap = {};
+  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs; (blocksMap[k] = blocksMap[k] || []).push(r); });
+  const variants = Object.values(blocksMap).map(rs => ({
+    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs,
+    rs: rs.slice().sort((a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey)
+  })).sort((a, b) => a.produto.localeCompare(b.produto));
   const multi = variants.length > 1;
+  const multiProd = new Set(variants.map(v => v.produto)).size > 1;
   const addTierBtn = (r) => `<div style="text-align:right; margin-top:4px;"><button class="rate-add-tier" data-id="${r.id}" title="Adicionar outra faixa de peso nessa rota (o resto já vem preenchido)" style="background:none; border:none; color:var(--teal-deep); cursor:pointer; font-size:11.5px; font-weight:bold; text-decoration:underline;">+ faixa de peso</button></div>`;
   const variantMeta = (r) => {
     const bits = [];
@@ -2340,7 +2378,7 @@ function rateCardGroup(group){
     ? variants.map((v, i) => {
         const meta = variantMeta(v.rs[0]);
         return `<div style="${i ? 'border-top:1px dashed #F0C7B2; margin-top:6px; ' : ''}padding-top:6px;">
-          <div style="font-size:11px; font-weight:bold; color:var(--teal-deep);">${qbEsc(v.obs || 'Tarifa geral')}</div>
+          <div style="font-size:11.5px; font-weight:bold; color:var(--teal-deep);">${multiProd ? qbEsc(v.produto || 'Sem produto') + (v.obs ? ` <span style="font-weight:normal;">· ${qbEsc(v.obs)}</span>` : '') : qbEsc(v.obs || 'Tarifa geral')}</div>
           ${meta ? `<div style="font-size:10.5px; color:var(--muted);">${meta}</div>` : ''}
           ${v.rs.map(tierRow).join('')}${addTierBtn(v.rs[0])}
         </div>`;
@@ -2367,7 +2405,7 @@ function rateCardGroup(group){
       </span>
     </div>
     <div class="rate-card-body">
-      ${produto ? `<div class="rate-row"><span class="rate-label">PRODUTO</span><span class="rate-val">${produto}</span></div>` : ''}
+      ${(produto && !multiProd) ? `<div class="rate-row"><span class="rate-label">PRODUTO</span><span class="rate-val">${produto}</span></div>` : ''}
       <div style="background:#FFF3EC; border-radius:8px; padding:6px 10px; margin:6px 0;">${tarifasHtml}</div>
       <div class="rate-row"><span class="rate-label">ORIGEM</span><span class="rate-val">${first.origem}</span></div>
       <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
@@ -2377,18 +2415,18 @@ function rateCardGroup(group){
       ${(!multi && obsSet.length) ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
       ${feesHtml}
       ${first.validade ? `<div class="rate-row"><span class="rate-label">VALIDADE</span><span class="rate-val">${first.validade}</span></div>` : ''}
+      <div style="text-align:right; margin-top:10px;"><button class="rate-del-route" data-id="${first.id}" title="Excluir essa rota inteira (todas as faixas e variações)" style="background:none; border:none; color:#B3413B; cursor:pointer; font-size:11.5px; text-decoration:underline;">🗑 Excluir rota</button></div>
     </div>
   </div>`;
 }
 
-// Groups every rate of the same CIA/tipo/origem/conexão/destino/produto into ONE card — all its weight
-// tiers (+300, +500, +1000...) together. Tiers whose observation differs (Seg a Sex / Sáb e Dom,
-// Fresh+2/25 / Fresh+2/48...) stay in the same card as separate "variations" (see rateCardGroup).
+// Groups every rate of the same CIA/tipo/origem/conexão/destino into ONE card. Inside it, each fruit
+// has its own tariff block with its weight tiers (+300, +500, +1000...), and tiers whose observation
+// differs (Seg a Sex / Sáb e Dom, Fresh+2/25...) stay as separate "variations" (see rateCardGroup).
 function groupByRoute(list){
   const map = {};
   list.forEach(r => {
-    const produto = getEffectiveProduto(r);
-    const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, produto].join('|');
+    const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino].join('|');
     (map[k] || (map[k] = [])).push(r);
   });
   return Object.values(map);
@@ -2426,6 +2464,11 @@ function renderList(filterText){
     btn.onclick = () => openRateForm(ratesCache.find(r => r.id === btn.dataset.id));
   });
   // "+ faixa de peso": opens the form pre-filled from this route (CIA, product, schedule, fees...) so only weight + price are typed
+  wrap.querySelectorAll('.rate-del-route').forEach(btn => {
+    btn.onclick = async () => {
+      if (await deleteWholeRoute(btn.dataset.id)) renderList(document.getElementById('ratesSearch').value);
+    };
+  });
   wrap.querySelectorAll('.rate-edit-all').forEach(btn => {
     btn.onclick = () => {
       const seed = ratesCache.find(r => r.id === btn.dataset.ids.split(',')[0]);
