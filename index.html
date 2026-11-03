@@ -1772,9 +1772,33 @@ const PRODUCT_OPTIONS = [
   { pt: 'Fruta Leve', en: 'Soft Fruit' }, { pt: 'Fruta Pesada', en: 'Heavy Fruit' }, { pt: 'Limão', en: 'Limes' },
   { pt: 'Gengibre', en: 'Ginger' }, { pt: 'Abacate', en: 'Avocado' }, { pt: 'Batata Doce', en: 'Sweet Potatoes' }
 ];
+// Splits "Limão + Abacate", "Gengibre / Fruta Pesada" or "Fruta e Gengibre" into its fruits — but never inside
+// parentheses, so "Fruta pesada (mamão e manga)" stays one product.
+function splitProductParts(str){
+  const s = String(str || ''), parts = [];
+  let depth = 0, cur = '', i = 0;
+  while (i < s.length){
+    const ch = s[i];
+    if (ch === '(') depth++; else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (depth === 0){
+      const m = s.slice(i).match(/^\s+(?:\+|\/|e)\s+/);
+      if (m){ parts.push(cur.trim()); cur = ''; i += m[0].length; continue; }
+    }
+    cur += ch; i++;
+  }
+  parts.push(cur.trim());
+  return parts.filter(Boolean);
+}
+// The product text reduced to the fruits that were asked for ("Fruta Pesada + Gengibre", asking Fruta Pesada -> "Fruta Pesada")
+function shownProductText(full, filterList){
+  if (!full || !filterList || !filterList.length) return full;
+  const parts = splitProductParts(full);
+  const keep = parts.filter(part => filterList.some(f => normTxt(part).includes(normTxt(f))));
+  return (keep.length && keep.length < parts.length) ? keep.join(' + ') : full;
+}
 function parseProductString(str){
   const chips = [], others = [];
-  String(str || '').split(' + ').map(s => s.trim()).filter(Boolean).forEach(part => {
+  splitProductParts(str).forEach(part => {
     const opt = PRODUCT_OPTIONS.find(o => normTxt(o.pt) === normTxt(part));
     if (opt){ if (!chips.includes(opt.pt)) chips.push(opt.pt); } else others.push(part);
   });
@@ -1840,9 +1864,9 @@ function openRouteEditor(group){
 
   // One block per tariff = fruit (+ optional variation like "Seg a Sex") with its weight tiers
   const blocksMap = {};
-  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs; (blocksMap[k] = blocksMap[k] || []).push(r); });
+  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
   const blocks = Object.values(blocksMap).map(rs => ({
-    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, rs: rs.slice().sort(byWeight)
+    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [], rs: rs.slice().sort(byWeight)
   })).sort((a, b) => a.produto.localeCompare(b.produto));
   const fruitsList = [...new Set(blocks.map(b => b.produto).filter(Boolean))];
   const voosAll = group.map(r => r.frequenciaVoos || []).filter(a => a.length);
@@ -1960,7 +1984,7 @@ function openRouteEditor(group){
         tpl: el.dataset.tpl, prodInit: el.dataset.prodInit || '', produto: readProductPicker(el.querySelector('.re-prod')), obs: el.querySelector('.re-var-obs').value.trim(),
         dias: checkedDias.length === WEEK_PT.length ? [] : checkedDias, rows: []
       };
-      const name = `${v.produto || 'sem fruta'}${v.obs ? ' · ' + v.obs : ''}`;
+      const name = `${v.produto || 'sem fruta'}${v.obs ? ' · ' + v.obs : ''}${v.dias.length ? ' · vale ' + formatFlightFrequency(v.dias, 'pt') : ''}`;
       for (const row of el.querySelectorAll('.re-tier')){
         const tarifa = parseFloat(row.querySelector('.re-t-tarifa').value);
         const faixa = row.querySelector('.re-t-faixa').value.trim();
@@ -1968,7 +1992,7 @@ function openRouteEditor(group){
         if (!row.dataset.id && !faixa && isNaN(tarifa)) continue; // untouched blank row
         if (isNaN(tarifa)){ alert('Toda faixa precisa de uma tarifa (ou remova a linha com o ✕).'); return; }
         const kg = faixa ? String(unit === 'TONS' ? parseFloat(faixa) * 1000 : parseFloat(faixa)) : 'unica';
-        const sig = v.produto.toLowerCase() + '|' + v.obs.toLowerCase() + '|' + kg;
+        const sig = v.produto.toLowerCase() + '|' + v.obs.toLowerCase() + '|' + v.dias.join(',') + '|' + kg;
         if (seenAll.has(sig)){ alert(`A faixa ${faixa ? '+' + faixa + ' ' + unit : '"tarifa única"'} aparece duas vezes na tarifa "${name}".`); return; }
         seenAll.add(sig);
         v.rows.push({ id: row.dataset.id || null, tarifa, faixa, unit });
@@ -2036,7 +2060,7 @@ function formatFlightFrequency(days, lang){
 // Same key the Tarifas cards use to group weight tiers of one route
 function routeKeyOf(r){
   const { obs } = parseCondicao(r.condicao);
-  return [r.cia, r.tipo, r.origem, r.conexao, r.destino, getEffectiveProduto(r), obs].join('|');
+  return [r.cia, r.tipo, r.origem, r.conexao, r.destino, getEffectiveProduto(r), obs, (r.diasSemana || []).join(',')].join('|');
 }
 
 function rateCardGroup(group){
@@ -2061,14 +2085,20 @@ function rateCardGroup(group){
   // Sáb e Dom, Fresh+2/25 / Fresh+2/48...). They live in the same card, each with its own heading,
   // and the tiers inside are sorted by weight.
   const blocksMap = {};
-  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs; (blocksMap[k] = blocksMap[k] || []).push(r); });
+  group.forEach(r => { const k = getEffectiveProduto(r) + '\u0001' + parseCondicao(r.condicao).obs + '\u0001' + (r.diasSemana || []).join(','); (blocksMap[k] = blocksMap[k] || []).push(r); });
   const variants = Object.values(blocksMap).map(rs => ({
-    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs,
+    produto: getEffectiveProduto(rs[0]), obs: parseCondicao(rs[0].condicao).obs, dias: rs[0].diasSemana || [],
     rs: rs.slice().sort((a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey)
   })).sort((a, b) => a.produto.localeCompare(b.produto));
   const multi = variants.length > 1;
   const multiProd = new Set(variants.map(v => v.produto)).size > 1;
   const addTierBtn = (r) => `<div style="text-align:right; margin-top:4px;"><button class="rate-add-tier" data-id="${r.id}" title="Adicionar outra faixa de peso nessa rota (o resto já vem preenchido)" style="background:none; border:none; color:var(--teal-deep); cursor:pointer; font-size:11.5px; font-weight:bold; text-decoration:underline;">+ faixa de peso</button></div>`;
+  // block title = fruit (when the card has several) + observation + the days the tariff is valid
+  const blockHeading = (v) => {
+    const extra = [v.obs, (v.dias && v.dias.length) ? 'vale ' + formatFlightFrequency(v.dias, 'pt') : ''].filter(Boolean);
+    if (multiProd) return qbEsc(v.produto || 'Sem produto') + (extra.length ? ` <span style="font-weight:normal;">· ${qbEsc(extra.join(' · '))}</span>` : '');
+    return qbEsc(extra.join(' · ') || 'Tarifa geral');
+  };
   const variantMeta = (r) => {
     const bits = [];
     if (r.diasSemana && r.diasSemana.length) bits.push('tarifa vale: ' + r.diasSemana.join(', '));
@@ -2076,10 +2106,8 @@ function rateCardGroup(group){
   };
   const tarifasHtml = multi
     ? variants.map((v, i) => {
-        const meta = variantMeta(v.rs[0]);
         return `<div style="${i ? 'border-top:1px dashed #F0C7B2; margin-top:6px; ' : ''}padding-top:6px;">
-          <div style="font-size:11.5px; font-weight:bold; color:var(--teal-deep);">${multiProd ? qbEsc(v.produto || 'Sem produto') + (v.obs ? ` <span style="font-weight:normal;">· ${qbEsc(v.obs)}</span>` : '') : qbEsc(v.obs || 'Tarifa geral')}</div>
-          ${meta ? `<div style="font-size:10.5px; color:var(--muted);">${meta}</div>` : ''}
+          <div style="font-size:11.5px; font-weight:bold; color:var(--teal-deep);">${blockHeading(v)}</div>
           ${v.rs.map(tierRow).join('')}${addTierBtn(v.rs[0])}
         </div>`;
       }).join('')
@@ -2278,8 +2306,8 @@ function findDuplicateRateGroups(){
   const norm = (s) => (s || '').toString().trim().toUpperCase().replace(/\s+/g, ' ');
   const groups = {};
   ratesCache.forEach(r => {
-    const { faixaKey } = parseCondicao(r.condicao);
-    const key = [norm(r.cia), norm(r.tipo), norm(r.origem), norm(r.conexao), norm(r.destino), faixaKey || 'UNICA', Number(r.tarifaBase).toFixed(2)].join('|');
+    const { faixaKey, obs } = parseCondicao(r.condicao);
+    const key = [norm(r.cia), norm(r.tipo), norm(r.origem), norm(r.conexao), norm(r.destino), norm(getEffectiveProduto(r)), norm(obs), norm((r.diasSemana || []).join(',')), faixaKey || 'UNICA', Number(r.tarifaBase).toFixed(2)].join('|');
     (groups[key] || (groups[key] = [])).push(r);
   });
   return Object.values(groups).filter(g => g.length > 1);
@@ -2293,11 +2321,11 @@ function openDuplicateRatesReview(){
   modal.innerHTML = `
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>Tarifas duplicadas</h2>
-    <p style="font-size:13px; color:var(--muted);">${dupGroups.length ? `Encontrei ${dupGroups.length} grupo(s) com o mesmo CIA/rota/faixa/preço (${totalExtra} tarifa(s) a mais que o necessário). Já deixei uma marcada como "manter" em cada grupo — desmarque/marque conforme quiser, e remove o resto.` : 'Nenhuma tarifa duplicada encontrada — tudo certo por aqui.'}</p>
+    <p style="font-size:13px; color:var(--muted);">${dupGroups.length ? `Encontrei ${dupGroups.length} grupo(s) com a mesma CIA/rota/produto/dias/faixa/preço (${totalExtra} tarifa(s) a mais que o necessário). Já deixei uma marcada como "manter" em cada grupo — desmarque/marque conforme quiser, e remove o resto.` : 'Nenhuma tarifa duplicada encontrada — tudo certo por aqui.'}</p>
     <div style="max-height:420px; overflow-y:auto;">
       ${dupGroups.map((g, gi) => `
         <div style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px;">
-          <div style="font-size:12.5px; font-weight:bold; margin-bottom:6px;">${g[0].cia} · ${g[0].origem}${g[0].conexao ? ' → ' + g[0].conexao : ''} → ${g[0].destino} · USD ${Number(g[0].tarifaBase).toFixed(2)}/kg</div>
+          <div style="font-size:12.5px; font-weight:bold; margin-bottom:6px;">${g[0].cia} · ${g[0].origem}${g[0].conexao ? ' → ' + g[0].conexao : ''} → ${g[0].destino} · ${qbEsc(getEffectiveProduto(g[0]) || 'sem produto')}${(g[0].diasSemana && g[0].diasSemana.length) ? ' · vale ' + formatFlightFrequency(g[0].diasSemana, 'pt') : ''} · USD ${Number(g[0].tarifaBase).toFixed(2)}/kg</div>
           ${g.map((r, ri) => `
             <label style="display:flex; align-items:center; gap:8px; font-size:12px; padding:4px 0; ${ri > 0 ? 'color:#B3413B;' : ''}">
               <input type="checkbox" class="dup-del-check" data-gi="${gi}" data-id="${r.id}" ${ri > 0 ? 'checked' : ''}>
@@ -2611,7 +2639,11 @@ function openQuoteBuilder(){
   function rowsHtml(list){
     const sorted = [...list].sort((a,b) => a.cia.localeCompare(b.cia) || a.tarifaBase - b.tarifaBase);
     return sorted.map(r => {
-      const produto = getEffectiveProduto(r);
+      const produtoFull = getEffectiveProduto(r);
+      const selFruits = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => i.value);
+      const produto = shownProductText(produtoFull, selFruits);
+      const condShown = [(r.condicao || '').replace('Produto: ' + produtoFull, 'Produto: ' + produto),
+        (r.diasSemana && r.diasSemana.length) ? 'Válido: ' + formatFlightFrequency(r.diasSemana, 'pt') : ''].filter(Boolean).join(' · ');
       return `
       <div class="cf-row" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:8px 0;" data-rate-id="${r.id}">
         <input type="checkbox" class="qb-check" data-id="${r.id}" style="flex:0 0 20px; margin-top:2px;">
@@ -2620,7 +2652,7 @@ function openQuoteBuilder(){
           <br>${r.tipo === 'To Door'
             ? `<span style="font-size:10.5px; background:var(--orange); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold; margin-right:4px;">🚚 To Door</span>`
             : `<span style="font-size:10.5px; background:#4f758b; color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold; margin-right:4px;">✈ Aeroporto</span>`}${produto ? `<span style="font-size:10.5px; background:var(--teal); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold;">${produto}</span>` : ''}
-          ${r.condicao ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${r.condicao}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
+          ${condShown ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${condShown}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
         <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
       </div>
@@ -2968,7 +3000,7 @@ const PDF_I18N = {
   pt: {
     htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
-    toDoor: 'Opção To Door', aeroporto: 'Opções aeroporto',
+    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida',
     thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
@@ -2982,7 +3014,7 @@ const PDF_I18N = {
   en: {
     htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
     proposta: 'PROPOSAL', validadeLabel: 'Valid until', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
-    toDoor: 'To Door Option', aeroporto: 'Airport Options',
+    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid',
     thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
@@ -3014,6 +3046,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return (obs || '').replace(/\s*·?\s*(?:Transit|Freq):\s*[^·]+/ig, '').replace(/^\s*·\s*/, '').trim();
   }
   // Flight frequency column: the day buttons if filled in, else a legacy "Freq: ..." typed in the observations
+  const validDaysText = (r) => (r.diasSemana && r.diasSemana.length) ? `${L.validDays}: <span style="white-space:nowrap;">${formatFlightFrequency(r.diasSemana, lang)}</span>` : '';
   function flightFreqCell(r){
     if (r.frequenciaVoos && r.frequenciaVoos.length) return formatFlightFrequency(r.frequenciaVoos, lang);
     const m = parseCondicao(r.condicao).obs.match(/Freq:\s*([^·]+)/i);
@@ -3036,12 +3069,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   }
   // When fruits were picked in the quote builder, a tariff that also covers other fruits is shown as ONLY the
   // picked ones (e.g. a "Limão + Abacate" tariff, with Abacate picked -> "Abacate").
-  function shownProductFor(r){
-    const full = getEffectiveProduto(r);
-    if (!productFilter || !productFilter.length || !full) return full;
-    const keep = full.split(' + ').filter(part => productFilter.some(f => normTxt(part).includes(normTxt(f))));
-    return keep.length ? keep.join(' + ') : full;
-  }
+  function shownProductFor(r){ return shownProductText(getEffectiveProduto(r), productFilter); }
   function rowTableFor(rows){
     if (!rows.length) return '';
     const byDestProduto = {};
@@ -3070,7 +3098,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
           <td>${transitTimeFor(r)}</td>
           <td>${flightFreqCell(r)}</td>
-          <td>${notesWithoutTransit(obs) || '—'}</td>
+          <td>${[notesWithoutTransit(obs), validDaysText(r)].filter(Boolean).join(' · ') || '—'}</td>
         </tr>`;
       }).join('');
       return `
@@ -3103,7 +3131,6 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   }
   function frequencyFor(r){
     if (r.frequenciaVoos && r.frequenciaVoos.length) return formatFlightFrequency(r.frequenciaVoos, lang);
-    if (r.diasSemana && r.diasSemana.length) return r.diasSemana.join(', ');
     const { obs } = parseCondicao(r.condicao);
     const m = obs.match(/Freq:\s*([^·]+)/i);
     return m ? m[1].trim() : (obs || '—');
@@ -3126,6 +3153,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       { label: L.thTruckDl, get: r => r.deadlineCaminhao || '—' },
       { label: L.thAirDl, get: r => r.deadlineCia || '—' },
       { label: L.thFrequency, get: r => frequencyFor(r) },
+      ...(rows.some(r => r.diasSemana && r.diasSemana.length) ? [{ label: L.validDays, get: r => formatFlightFrequency(r.diasSemana, lang) || '—' }] : []),
     ];
     const headerCells = rows.map(r => `<th>${r.cia}</th>`).join('');
     const bodyRows = criteria.map((c, i) => `<tr class="${i % 2 ? 'pc-odd' : 'pc-even'}">
@@ -3184,6 +3212,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     .pc-table td.pc-crit{ background:#D3E1E9; font-weight:bold; color:#2f4a5b; text-align:left; }
     .pc-table tr.pc-odd td:not(.pc-crit){ background:#F4F8FA; }
     .pq-logo-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:12px; border-bottom:2px solid #ff671f; }
+    .pl-section{ background:#EAF1F5; border-left:4px solid #ff671f; border-radius:0 6px 6px 0; padding:7px 12px; font-size:12.5px; font-weight:bold; color:#2f4a5b; margin:18px 0 2px; }
     .pl-title{ font-size:13px; font-weight:bold; margin:16px 0 7px; color:#1F2D36; }
     .pl-table{ width:100%; border-collapse:collapse; font-size:8.5px; margin-bottom:6px; table-layout:fixed; }
     .pl-table th{ background:#4f758b; color:#fff; padding:6px 5px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
@@ -3202,8 +3231,8 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     </div>
     <div class="pq-intro">${L.intro(cliente)}</div>
     ${layout === 'porlinha' ? `
-      ${rowTableFor(groups['To Door'])}
-      ${rowTableFor(groups['Aeroporto'])}
+      ${groups['To Door'].length ? `<div class="pl-section">${L.toDoor}</div>${rowTableFor(groups['To Door'])}` : ''}
+      ${groups['Aeroporto'].length ? `<div class="pl-section">${L.aeroporto}</div>${rowTableFor(groups['Aeroporto'])}` : ''}
     ` : `
       ${comparisonTableFor(groups['To Door'], L.toDoor)}
       ${comparisonTableFor(groups['Aeroporto'], L.aeroporto)}
