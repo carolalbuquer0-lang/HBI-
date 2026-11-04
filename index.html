@@ -485,10 +485,8 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
   <div class="sidebar">
     <div class="sidebar-import">
       <h3>Importar dados</h3>
-      <button id="importDueBtn" type="button" class="side-btn side-btn-primary">📎 Importar planilha semanal (DUE)</button>
+      <button id="importDueBtn" type="button" class="side-btn side-btn-primary">📎 Importar planilha LPCO / DU-E</button>
       <input type="file" id="importDueInput" accept=".xlsx,.xls" style="display:none;">
-      <button id="importShipmentsBtn" type="button" class="side-btn">📦 Atualizar histórico de embarques</button>
-      <input type="file" id="importShipmentsInput" accept=".xlsx,.xls" style="display:none;">
       <div class="fs-status" id="importDueStatus"></div>
     </div>
     <h3>Filtrar por fruta</h3>
@@ -908,23 +906,50 @@ const FEEDBACK_LABEL_PT = { 'Positive': 'Positivo', 'Negative': 'Negativo', 'Neu
 // Best-effort sync: creates/updates the deal for a referral, and logs the feedback as a
 // history entry (task) on that deal. Returns { ok, agendorOrgId, agendorDealId, error }.
 // Never throws — Agendor sync failures shouldn't block using the tool locally.
+// A deal that already exists for the same exporter<->importer connection (opened from either
+// side's profile) is reused instead of opening a second one.
+async function findExistingConnectionDeal(owner, otherName, entry){
+  const norm = s => (s || '').toString().toLowerCase().trim();
+  const other = [...IMPORTERS, ...EXPORTERS].find(x => norm(x.trade) === norm(otherName));
+  const logs = [await getReferrals(exporterKey(owner))];
+  if (other && other !== owner) logs.push(await getReferrals(exporterKey(other)));
+  for (const lg of logs){
+    for (const e of lg){
+      if (e.id === entry.id || !e.agendorDealId || norm(e.season) !== norm(entry.season)) continue;
+      if (norm(e.importer) === norm(otherName) || norm(e.importer) === norm(owner.trade)) return e.agendorDealId;
+    }
+  }
+  return null;
+}
+
 async function syncReferralToAgendor(d, entry){
   if (!getSheetsUrl() || !getAgendorToken()) return { ok: false, skipped: true };
   try{
-    let orgId = d.agendorOrgId;
+    // ONE deal per connection: it lives on the exporter that stays in the catalog; the other
+    // party's name goes in the deal title. (Registered from an importer's profile, the deal is
+    // still opened on the linked exporter, with the importer's name in the title.)
+    let owner = d, otherName = entry.importer;
+    if (IMPORTERS.includes(d)){
+      const ex = (entry.importerKey && EXPORTERS.find(x => exporterKey(x) === entry.importerKey))
+        || EXPORTERS.find(x => x.trade.toLowerCase() === (entry.importer || '').toLowerCase());
+      if (ex){ owner = ex; otherName = d.trade; }
+    }
+    let orgId = owner.agendorOrgId;
     if (!orgId){
-      const pushResult = await agendorPushOrg(d);
+      const pushResult = await agendorPushOrg(owner);
       orgId = extractOrgId(pushResult);
-      if (orgId){ d.agendorOrgId = orgId; await setContactOverride(exporterKey(d), { phone: d.phone, email: d.email, agendorOrgId: orgId }); }
+      if (orgId){ owner.agendorOrgId = orgId; await setContactOverride(exporterKey(owner), { phone: owner.phone, email: owner.email, agendorOrgId: orgId }); }
       if (!orgId) return { ok: false, error: friendlyAgendorError(pushResult) };
     }
 
     let dealId = entry.agendorDealId;
+    if (!dealId && otherName) dealId = await findExistingConnectionDeal(owner, otherName, entry);
+    if (dealId) entry.agendorDealId = dealId;
     if (!dealId){
       const dealResult = await agendorApiCall('agendorCreateDeal', {
         organizationId: orgId,
-        title: entry.importer
-          ? `${entry.tipo || 'Indicação'}: ${entry.importer} (${entry.season})`
+        title: otherName
+          ? `${entry.tipo || 'Indicação'}: ${otherName} (${entry.season})`
           : `${entry.tipo || 'Indicação'}: ${entry.titulo || 'sem título'} (${entry.season})`,
         dealStage: 1
       });
@@ -2064,7 +2089,7 @@ function openRouteEditor(group){
 // ---- Flight frequency (days the CIA flies a route) ----
 const WEEK_PT = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
 const WEEK_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-// ['Seg','Ter','Qua','Qui','Sex'] -> "Seg–Sex"; all seven -> "Diário"/"Daily"; otherwise the list ("Seg, Qua, Sáb")
+// 4+ consecutive days -> "Seg–Sex"; all seven -> "Diário"/"Daily"; otherwise each day ("Seg, Qua, Sex, Sáb, Dom")
 function formatFlightFrequency(days, lang){
   if (!days || !days.length) return '';
   const idx = WEEK_PT.map((d, i) => days.includes(d) ? i : -1).filter(i => i >= 0);
@@ -2075,7 +2100,7 @@ function formatFlightFrequency(days, lang){
   while (i < idx.length){
     let j = i;
     while (j + 1 < idx.length && idx[j + 1] === idx[j] + 1) j++;
-    if (j - i >= 2) parts.push(names[idx[i]] + '–' + names[idx[j]]);
+    if (j - i >= 3) parts.push(names[idx[i]] + '–' + names[idx[j]]);   // a range only for 4+ days in a row; 3 days are spelled out ("Sex, Sáb, Dom")
     else for (let k = i; k <= j; k++) parts.push(names[idx[k]]);
     i = j + 1;
   }
@@ -5193,10 +5218,7 @@ function guessFruitsForProducts(produtos){
   return [...found];
 }
 
-// ---- Weekly shipment history spreadsheet (real Hevile shipments — Shipper/Consignee columns)
-// — updates the active/tier/shipments status of exporters and importers already in the
-// registry, and offers to add genuinely new ones found in the file. This is what keeps
-// "Prospect" from lingering on companies Hevile has actually already shipped with. ----
+// ---- Tier by number of shipments (used by the LPCO / DU-E import below) ----
 function tierForShipmentCount(n){
   if (n >= 100) return 'High volume';
   if (n >= 20) return 'Regular';
@@ -5204,245 +5226,13 @@ function tierForShipmentCount(n){
   return 'Prospect';
 }
 
-async function handleShipmentsFileImport(file){
-  const statusEl = document.getElementById('importDueStatus');
-  statusEl.textContent = 'Lendo planilha de embarques…';
-  try{
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const sheetName = wb.SheetNames.find(n => /^in$/i.test(n)) || wb.SheetNames.find(n => {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: '', range: 0 });
-      return rows.length && 'Shipper' in rows[0];
-    }) || wb.SheetNames[0];
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
-    if (!rows.length || !('Shipper' in rows[0])){
-      statusEl.textContent = 'Não encontrei uma aba com coluna "Shipper" nesse arquivo. Confira se é a planilha certa.';
-      return;
-    }
+const TIER_ORDER = ['Prospect', 'Occasional', 'Regular', 'High volume'];
+const maxTier = (a, b) => TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b;
 
-    const byShipper = {};
-    const byConsignee = {};
-    rows.forEach(r => {
-      const shipper = (r['Shipper'] || '').toString().trim();
-      const consignee = (r['Consignee'] || '').toString().trim();
-      const weight = parseFloat(r['Weight (kg)']) || 0;
-      if (shipper){
-        if (!byShipper[shipper]) byShipper[shipper] = { eventos: 0, peso: 0 };
-        byShipper[shipper].eventos++;
-        byShipper[shipper].peso += weight;
-      }
-      if (consignee){
-        if (!byConsignee[consignee]) byConsignee[consignee] = { eventos: 0, peso: 0 };
-        byConsignee[consignee].eventos++;
-        byConsignee[consignee].peso += weight;
-      }
-    });
-
-    statusEl.textContent = `Comparando ${Object.keys(byShipper).length + Object.keys(byConsignee).length} nomes com o cadastro…`;
-    await new Promise(r => setTimeout(r, 0));
-    const matchCandidates = buildMatchCandidates();
-
-    const updatesExp = [];
-    const updatesExpByKey = {};
-    const novosExp = [];
-    Object.entries(byShipper).forEach(([nome, info]) => {
-      const match = findExporterMatch(nome, matchCandidates);
-      if (match && EXPORTERS.includes(match)){
-        const k = exporterKey(match);
-        if (!updatesExpByKey[k]){
-          const entry = { d: match, nomes: [], eventos: 0, peso: 0 };
-          updatesExpByKey[k] = entry;
-          updatesExp.push(entry);
-        }
-        updatesExpByKey[k].nomes.push(nome);
-        updatesExpByKey[k].eventos += info.eventos;
-        updatesExpByKey[k].peso += info.peso;
-      } else if (!match){
-        novosExp.push({ nome, produtos: [], paises: [], eventos: info.eventos, cnpj: '' });
-      }
-    });
-    // Now that every name-variant pointing at the same exporter is combined into one true
-    // total, keep only the ones where that total actually differs from what's on record.
-    const finalUpdatesExp = updatesExp
-      .map(u => ({ d: u.d, nome: u.nomes.join(' / '), before: { shipments: u.d.shipments, tier: u.d.tier, active: u.d.active }, after: { shipments: u.eventos, tier: tierForShipmentCount(u.eventos), active: true } }))
-      .filter(u => u.before.shipments !== u.after.shipments)
-      .sort((a,b) => b.after.shipments - a.after.shipments);
-    novosExp.sort((a,b) => b.eventos - a.eventos);
-
-    const updatesImp = [];
-    const updatesImpByKey = {};
-    const novosImp = [];
-    Object.entries(byConsignee).forEach(([nome, info]) => {
-      const match = findExporterMatch(nome, matchCandidates);
-      if (match && IMPORTERS.includes(match)){
-        const k = exporterKey(match);
-        if (!updatesImpByKey[k]){
-          const entry = { d: match, nomes: [], eventos: 0, peso: 0 };
-          updatesImpByKey[k] = entry;
-          updatesImp.push(entry);
-        }
-        updatesImpByKey[k].nomes.push(nome);
-        updatesImpByKey[k].eventos += info.eventos;
-        updatesImpByKey[k].peso += info.peso;
-      } else if (!match){
-        novosImp.push({ nome, produtos: [], paises: [], eventos: info.eventos });
-      }
-    });
-    const finalUpdatesImp = updatesImp
-      .map(u => ({ d: u.d, nome: u.nomes.join(' / '), before: { shipments: u.d.shipments, weight: u.d.weight }, after: { shipments: u.eventos, weight: u.peso } }))
-      .filter(u => u.before.shipments !== u.after.shipments)
-      .sort((a,b) => b.after.shipments - a.after.shipments);
-    novosImp.sort((a,b) => b.eventos - a.eventos);
-
-    statusEl.textContent = `${finalUpdatesExp.length} exportador(es) e ${finalUpdatesImp.length} importador(es) com embarques desatualizados · ${novosExp.length} exportador(es) e ${novosImp.length} importador(es) novos encontrados`;
-    openShipmentsReview(finalUpdatesExp, finalUpdatesImp, novosExp, novosImp);
-  } catch(err){
-    statusEl.textContent = 'Erro ao ler a planilha: ' + err.message;
-  }
-}
-
-function openShipmentsReview(updatesExp, updatesImp, novosExp, novosImp){
-  const overlay = document.getElementById('overlay');
-  const modal = document.getElementById('modalContent');
-  let sidCounter = 0;
-  novosExp.forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
-  novosImp.forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
-
-  const updateRow = (u, isImp) => `<label style="display:flex; align-items:center; gap:8px; font-size:12.5px; padding:5px 0; border-bottom:1px solid var(--pf-border);">
-    <input type="checkbox" class="${isImp?'ship-upd-imp':'ship-upd-exp'}" data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}" checked style="flex:0 0 16px;">
-    <span style="flex:1;"><b>${u.d.trade}</b></span>
-    <span style="color:var(--pf-muted);">${u.before.shipments} → <b style="color:var(--pf-client-text);">${u.after.shipments}</b> embarques${!isImp ? (u.before.tier !== u.after.tier ? ` · ${ptTier(u.before.tier)} → <b>${ptTier(u.after.tier)}</b>` : '') : ''}${!isImp && !u.before.active ? ' · <b style="color:var(--pf-client-text);">vira Ativo</b>' : ''}</span>
-  </label>`;
-
-  modal.innerHTML = `
-    <button class="close" onclick="closeModal()">&times;</button>
-    <h2>Atualizar histórico de embarques</h2>
-    <p style="font-size:13px; color:var(--pf-muted);">Isso corrige o número de embarques, status (ativo) e categoria de quem já está no seu cadastro, e separadamente mostra quem apareceu na planilha mas ainda não está cadastrado.</p>
-
-    ${(updatesExp.length || updatesImp.length) ? `
-      <h3 style="margin-top:16px;">Cadastros a atualizar</h3>
-      <div style="max-height:260px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:8px 12px; margin-bottom:16px;">
-        ${updatesExp.length ? `<b style="font-size:11px; text-transform:uppercase; color:var(--pf-navy);">Exportadores (${updatesExp.length})</b>${updatesExp.map(u => updateRow(u, false)).join('')}` : ''}
-        ${updatesImp.length ? `<b style="font-size:11px; text-transform:uppercase; color:var(--pf-navy); display:block; margin-top:${updatesExp.length?'10px':'0'};">Importadores (${updatesImp.length})</b>${updatesImp.map(u => updateRow(u, true)).join('')}` : ''}
-      </div>
-    ` : '<p style="font-size:13px; color:var(--pf-muted);">Nenhum cadastro existente precisa de atualização — todos já batem com a planilha.</p>'}
-
-    ${novosExp.length ? `
-      <h3>Exportadores novos (${novosExp.length})</h3>
-      <div style="max-height:220px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="shipExpList">
-        ${novosExp.map((n, i) => dueRowHtml(n, i, 'shipexp')).join('')}
-      </div>
-    ` : ''}
-    ${novosImp.length ? `
-      <h3>Importadores novos (${novosImp.length})</h3>
-      <div style="max-height:220px; overflow-y:auto; border:1px solid var(--pf-border); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="shipImpList">
-        ${novosImp.map((n, i) => dueRowHtml(n, i, 'shipimp')).join('')}
-      </div>
-    ` : ''}
-    <datalist id="allExportersDatalist2">
-      ${[...EXPORTERS, ...IMPORTERS].map(d => `<option value="${d.trade.replace(/"/g,'&quot;')}">`).join('')}
-    </datalist>
-    <div class="new-exp-actions">
-      <button id="shipmentsConfirm">Aplicar atualizações</button>
-      <button class="cancel" onclick="closeModal()">Cancelar</button>
-    </div>
-    <span class="fs-status" id="shipmentsStatus" style="display:block; margin-top:8px;"></span>
-  `;
-  overlay.classList.add('visible');
-
-  function wireAliasButtons(prefix, list){
-    document.querySelectorAll(`.${prefix}-alias-btn`).forEach(btn => {
-      btn.onclick = async () => {
-        const sid = btn.dataset.sid;
-        const input = document.querySelector(`.${prefix}-alias-input[data-sid="${sid}"]`);
-        const typed = input.value.trim();
-        if (!typed) return;
-        const existing = [...EXPORTERS, ...IMPORTERS].find(d => d.trade.toLowerCase() === typed.toLowerCase());
-        if (!existing){ alert('Não achei esse nome no cadastro. Confira a grafia.'); return; }
-        const entry = list.find(x => x._sid === sid);
-        if (!entry) return;
-        await addExporterAlias(entry.nome, exporterKey(existing));
-        const idx = list.findIndex(x => x._sid === sid);
-        if (idx !== -1) list.splice(idx, 1);
-        const row = document.querySelector(`.due-review-row[data-row-sid="${sid}"]`);
-        if (row) row.remove();
-      };
-    });
-  }
-  wireAliasButtons('shipexp', novosExp);
-  wireAliasButtons('shipimp', novosImp);
-
-  document.getElementById('shipmentsConfirm').onclick = async () => {
-    const btn = document.getElementById('shipmentsConfirm');
-    btn.disabled = true;
-    const appliedExp = [];
-    const appliedImp = [];
-
-    updatesExp.forEach(u => {
-      const cb = document.querySelector(`.ship-upd-exp[data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}"]`);
-      if (!cb || !cb.checked) return;
-      u.d.shipments = u.after.shipments;
-      u.d.tier = u.after.tier;
-      u.d.active = true;
-      appliedExp.push(u.d);
-    });
-    updatesImp.forEach(u => {
-      const cb = document.querySelector(`.ship-upd-imp[data-id="${exporterKey(u.d).replace(/"/g,'&quot;')}"]`);
-      if (!cb || !cb.checked) return;
-      u.d.shipments = u.after.shipments;
-      u.d.weight = u.after.weight;
-      appliedImp.push(u.d);
-    });
-    const updated = appliedExp.length + appliedImp.length;
-    await Promise.all([
-      ...appliedExp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier })),
-      ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight })),
-    ]);
-
-    const customExp = await getCustomExporters();
-    let addedExp = 0;
-    novosExp.forEach(n => {
-      const checkbox = document.querySelector(`.shipexp-check[data-sid="${n._sid}"]`);
-      if (!checkbox || !checkbox.checked) return;
-      const fruits = [...document.querySelectorAll(`.shipexp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
-      const key = uniqueExporterKey(n.nome);
-      const entry = {
-        name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
-        active: true, tier: tierForShipmentCount(n.eventos), shipments: n.eventos, all_fruits: fruits, variety_confirmed: {},
-        source: 'Planilha de embarques — importado automaticamente', custom: true
-      };
-      EXPORTERS.push(entry);
-      customExp.push(entry);
-      addedExp++;
-    });
-    await setCustomExporters(customExp);
-
-    const customImp = await getCustomImporters();
-    let addedImp = 0;
-    novosImp.forEach(n => {
-      const checkbox = document.querySelector(`.shipimp-check[data-sid="${n._sid}"]`);
-      if (!checkbox || !checkbox.checked) return;
-      const fruits = [...document.querySelectorAll(`.shipimp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
-      const entry = {
-        name: n.nome, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
-        active: true, shipments: n.eventos, weight: 0, products: fruits, all_fruits: fruits,
-        destinations: [], editable_fruits: true, variety_confirmed: {},
-        source: 'Planilha de embarques — importado automaticamente', custom: true
-      };
-      IMPORTERS.push(entry);
-      customImp.push(entry);
-      addedImp++;
-    });
-    await setCustomImporters(customImp);
-
-    document.getElementById('shipmentsStatus').textContent = `${updated} cadastro(s) atualizado(s), ${addedExp} exportador(es) e ${addedImp} importador(es) novo(s) adicionado(s) ✓`;
-    renderStats();
-    render();
-    if (currentNav === 'importers') renderImportersView();
-    setTimeout(closeModal, 1500);
-  };
-}
-
+// ONE spreadsheet for everything: the LPCO report's "Detalhe DUEs" sheet. Its "Registro" column says
+// who the shipment belongs to ("Hevile" = ours, anything else, e.g. "Outro cliente" = competitor), so
+// the same file tells us (1) which registry companies are really ours (fixes lingering "Prospect"),
+// (2) Hevile clients missing from the registry and (3) genuinely new business.
 async function handleDueFileImport(file){
   const statusEl = document.getElementById('importDueStatus');
   statusEl.textContent = 'Lendo arquivo…';
@@ -5456,11 +5246,8 @@ async function handleDueFileImport(file){
     }
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
 
-    // Column names can vary a little between weekly exports, so match loosely instead of a
-    // single hardcoded string — avoids silently processing zero rows if a header is renamed.
-    // Careful: "CNPJ Exportador" also matches a loose /exportador/i search, so the name-column
-    // pattern must specifically exclude CNPJ columns (this was silently pulling in CNPJ numbers
-    // as if they were company names before).
+    // Column names can vary a little between weekly exports, so match loosely. Careful: "CNPJ Exportador"
+    // also matches a loose /exportador/i search, so the name-column pattern must exclude CNPJ columns.
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const findCol = (re) => cols.find(c => re.test(c)) || null;
     const exporterCol = findCol(/exportador.*nome|nome.*exportador/i) || cols.find(c => /exportador/i.test(c) && !/cnpj/i.test(c)) || 'Exportador Nome';
@@ -5468,69 +5255,99 @@ async function handleDueFileImport(file){
     const cnpjExpCol = findCol(/cnpj.*exportador|exportador.*cnpj/i);
     const productCol = findCol(/produto|esp[ée]cie/i) || 'Produto / Espécie';
     const countryCol = findCol(/pa[ií]s/i) || 'País Destino';
+    const registroCol = findCol(/regist/i);
+    const dueCol = findCol(/n[uú]mero.*due|^due$/i);
 
-    const byExporter = {};
-    const byImporter = {};
-    rows.forEach(r => {
+    // A shipment is a DU-E number, not a spreadsheet row (one DU-E has several item rows).
+    const mk = () => ({ produtos: new Set(), paises: new Set(), cnpj: '', all: new Set(), h: new Set(), o: new Set() });
+    const byExporter = {}, byImporter = {};
+    let rowsH = 0, rowsO = 0, rowsU = 0;
+    rows.forEach((r, idx) => {
       const nomeExp = (r[exporterCol] || '').toString().trim();
       const nomeImp = (r[importerCol] || '').toString().trim();
-      const cnpjExp = cnpjExpCol ? (r[cnpjExpCol] || '').toString().trim() : '';
       const produto = (r[productCol] || '').toString().trim();
-      const pais = (r[countryCol] || '').toString().trim();
       if (!isFruitRelevantProduct(produto)) return;
-      if (nomeExp){
-        if (!byExporter[nomeExp]) byExporter[nomeExp] = { produtos: new Set(), paises: new Set(), eventos: 0, cnpj: '' };
-        byExporter[nomeExp].produtos.add(produto);
-        if (pais) byExporter[nomeExp].paises.add(pais);
-        if (cnpjExp && !byExporter[nomeExp].cnpj) byExporter[nomeExp].cnpj = cnpjExp;
-        byExporter[nomeExp].eventos++;
-      }
-      if (nomeImp){
-        if (!byImporter[nomeImp]) byImporter[nomeImp] = { produtos: new Set(), paises: new Set(), eventos: 0 };
-        byImporter[nomeImp].produtos.add(produto);
-        if (pais) byImporter[nomeImp].paises.add(pais);
-        byImporter[nomeImp].eventos++;
-      }
+      const pais = (r[countryCol] || '').toString().trim();
+      const cnpjExp = cnpjExpCol ? (r[cnpjExpCol] || '').toString().trim() : '';
+      const reg = registroCol ? normTxt((r[registroCol] || '').toString()) : '';
+      const kind = !reg ? 'U' : (reg.includes('hevile') ? 'H' : 'O');
+      if (kind === 'H') rowsH++; else if (kind === 'O') rowsO++; else rowsU++;
+      const dueId = (dueCol && (r[dueCol] || '').toString().trim()) || ('linha' + idx);
+      const add = (map, nome, withCnpj) => {
+        if (!nome) return;
+        const info = map[nome] || (map[nome] = mk());
+        info.produtos.add(produto); if (pais) info.paises.add(pais);
+        if (withCnpj && cnpjExp && !info.cnpj) info.cnpj = cnpjExp;
+        info.all.add(dueId); if (kind === 'H') info.h.add(dueId); else if (kind === 'O') info.o.add(dueId);
+      };
+      add(byExporter, nomeExp, true); add(byImporter, nomeImp, false);
     });
+    // If the same DU-E shows up both as Hevile and as other, it is ours.
+    [byExporter, byImporter].forEach(m => Object.values(m).forEach(i => { i.o = new Set([...i.o].filter(x => !i.h.has(x))); }));
 
-    const totalExporters = Object.keys(byExporter).length;
-    const totalImporters = Object.keys(byImporter).length;
+    const totalExporters = Object.keys(byExporter).length, totalImporters = Object.keys(byImporter).length;
     statusEl.textContent = `Comparando ${totalExporters + totalImporters} nomes com o cadastro…`;
-    // Yield to the browser so the status text above actually paints before the (synchronous,
-    // potentially heavy) matching loop below runs.
     await new Promise(r => setTimeout(r, 0));
+    const cands = buildMatchCandidates();
 
-    const matchCandidates = buildMatchCandidates();
-    const novosExp = [];
-    Object.entries(byExporter).forEach(([nome, info]) => {
-      if (!findExporterMatch(nome, matchCandidates)){
-        novosExp.push({ nome, produtos: [...info.produtos], paises: [...info.paises], eventos: info.eventos, cnpj: info.cnpj || '' });
-      }
-    });
-    novosExp.sort((a,b) => b.eventos - a.eventos);
+    // Groups every name that points at the same registry company, then splits what we found into:
+    // ours (registry, Hevile DU-Es), Hevile clients not in the registry, and new business.
+    const split = (byName, list) => {
+      const known = {}, novos = [];
+      Object.entries(byName).forEach(([nome, info]) => {
+        const m = findExporterMatch(nome, cands);
+        if (m && list.includes(m)){
+          const k = exporterKey(m);
+          const e = known[k] || (known[k] = { d: m, nomes: [], h: new Set(), o: new Set(), all: new Set() });
+          e.nomes.push(nome); info.h.forEach(x => e.h.add(x)); info.o.forEach(x => e.o.add(x)); info.all.forEach(x => e.all.add(x));
+        } else if (!m){
+          novos.push({ nome, produtos: [...info.produtos], paises: [...info.paises], cnpj: info.cnpj || '',
+            h: info.h.size, o: info.o.size, eventos: info.all.size });
+        }
+      });
+      return { known: Object.values(known), novos: novos.sort((a, b) => (b.h - a.h) || (b.eventos - a.eventos)) };
+    };
+    const exp = split(byExporter, EXPORTERS), imp = split(byImporter, IMPORTERS);
 
-    const novosImp = [];
-    Object.entries(byImporter).forEach(([nome, info]) => {
-      if (!findExporterMatch(nome, matchCandidates)){
-        novosImp.push({ nome, produtos: [...info.produtos], paises: [...info.paises], eventos: info.eventos });
-      }
-    });
-    novosImp.sort((a,b) => b.eventos - a.eventos);
+    // Never downgrade: shipments only go up (history from older imports is kept) and tier only rises.
+    const updExp = exp.known.filter(e => e.h.size > 0).map(e => {
+      const before = { shipments: e.d.shipments || 0, tier: e.d.tier || 'Prospect', active: !!e.d.active };
+      const ship = Math.max(before.shipments, e.h.size);
+      return { d: e.d, nome: e.nomes.join(' / '), h: e.h.size, before, after: { shipments: ship, tier: maxTier(before.tier, tierForShipmentCount(ship)), active: true } };
+    }).filter(u => u.before.shipments !== u.after.shipments || u.before.tier !== u.after.tier || !u.before.active)
+      .sort((a, b) => b.h - a.h);
+    const updImp = imp.known.filter(e => e.h.size > 0).map(e => {
+      const before = { shipments: e.d.shipments || 0 };
+      return { d: e.d, nome: e.nomes.join(' / '), h: e.h.size, before, after: { shipments: Math.max(before.shipments, e.h.size) } };
+    }).filter(u => u.before.shipments !== u.after.shipments).sort((a, b) => b.h - a.h);
+    // Registry prospects that competitors already ship with (and Hevile never did): hot leads.
+    const leads = exp.known.filter(e => e.h.size === 0 && e.o.size > 0 && (e.d.tier || 'Prospect') === 'Prospect' && !(e.d.shipments > 0))
+      .map(e => ({ nome: e.d.trade, o: e.o.size })).sort((a, b) => b.o - a.o);
 
-    statusEl.textContent = `${totalExporters} exportadores e ${totalImporters} importadores de fruta na planilha · ${novosExp.length} exportador(es) e ${novosImp.length} importador(es) ainda não estão no cadastro`;
-    openDueImportReview(novosExp, totalExporters, novosImp, totalImporters);
+    const label = (n) => (n.h && n.o) ? `${n.h} DU-E Hevile + ${n.o} de outros clientes` : n.h ? `${n.h} DU-E Hevile` : registroCol ? `${n.o} DU-E de outro cliente` : `${n.eventos} DU-E`;
+    const tag = (list) => list.forEach(n => { n.resumo = label(n); });
+    const oursNovosExp = exp.novos.filter(n => n.h > 0), bizExp = exp.novos.filter(n => !n.h);
+    const oursNovosImp = imp.novos.filter(n => n.h > 0), bizImp = imp.novos.filter(n => !n.h);
+    [oursNovosExp, bizExp, oursNovosImp, bizImp].forEach(tag);
+
+    const dueHevile = new Set(), dueOutro = new Set();
+    Object.values(byExporter).forEach(i => { i.h.forEach(x => dueHevile.add(x)); i.o.forEach(x => dueOutro.add(x)); });
+    const resumo = registroCol
+      ? `${dueHevile.size} DU-E Hevile · ${dueOutro.size} de outros clientes`
+      : 'a planilha não tem a coluna "Registro" (tratei tudo como mercado, sem separar o que é Hevile)';
+    statusEl.textContent = `${totalExporters} exportadores e ${totalImporters} importadores de fruta · ${resumo}`;
+    openDueImportReview({ updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads, registroCol: !!registroCol, resumo, totalExporters, totalImporters });
   } catch(err){
     statusEl.textContent = 'Erro ao ler o arquivo: ' + err.message;
   }
 }
-
 function dueRowHtml(n, i, prefix){
   const guessed = guessFruitsForProducts(n.produtos);
   const sid = n._sid;
   return `<div class="cf-row due-review-row" data-row-sid="${sid}" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:10px 0;">
     <input type="checkbox" class="${prefix}-check" data-sid="${sid}" checked style="flex:0 0 20px; margin-top:2px;">
     <span style="flex:1; font-size:12.5px; line-height:1.5;">
-      <b>${n.nome}</b>${n.cnpj ? ` <span style="color:var(--muted); font-weight:normal; font-size:11px;">(CNPJ ${n.cnpj})</span>` : ''} — ${n.eventos} evento(s)<br>
+      <b>${n.nome}</b>${n.cnpj ? ` <span style="color:var(--muted); font-weight:normal; font-size:11px;">(CNPJ ${n.cnpj})</span>` : ''} — ${n.resumo || (n.eventos + ' DU-E')}<br>
       <span style="color:var(--muted); font-size:11px;">Produtos: ${n.produtos.join(', ')}</span><br>
       <span style="color:var(--muted); font-size:11px;">${prefix==='dueimp'?'Países':'Destinos'}: ${n.paises.slice(0,4).join(', ')}${n.paises.length>4?'…':''}</span><br>
       <span style="font-size:11px;">Frutas sugeridas: </span>
@@ -5544,45 +5361,60 @@ function dueRowHtml(n, i, prefix){
   </div>`;
 }
 
-function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
+function openDueImportReview(R){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
-  novosImp = novosImp || [];
-  totalImporters = totalImporters || 0;
-  // Stable ids assigned ONCE, independent of array position — so marking one entry as an
-  // alias (which removes it from the array) never shifts or resets any other row's checkbox.
+  const { updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads } = R;
+  // Stable ids assigned ONCE, independent of array position — so marking one entry as an alias
+  // (which removes it from the array) never shifts or resets any other row's checkbox.
   let sidCounter = 0;
-  novos.forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
-  novosImp.forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
+  [...oursNovosExp, ...bizExp].forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
+  [...oursNovosImp, ...bizImp].forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
+
+  const box = 'max-height:240px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;';
+  const section = (title, hint, id, list, prefix, emptyMsg) => `
+    <h3 style="margin-top:14px;">${title}</h3>
+    <p style="font-size:13px; color:var(--muted);">${hint}</p>
+    <div style="${box}" id="${id}">${list.length ? list.map((n, i) => dueRowHtml(n, i, prefix)).join('') : `<div class="empty">${emptyMsg}</div>`}</div>`;
+  const updRow = (u, isImp) => `<label style="display:flex; align-items:center; gap:8px; font-size:12.5px; padding:5px 0; border-bottom:1px solid var(--line);">
+    <input type="checkbox" class="${isImp ? 'due-upd-imp' : 'due-upd-exp'}" data-id="${exporterKey(u.d).replace(/"/g, '&quot;')}" checked style="flex:0 0 16px;">
+    <span style="flex:1;"><b>${u.d.trade}</b> <span style="color:var(--muted); font-size:11px;">· ${u.h} DU-E Hevile</span></span>
+    <span style="color:var(--muted);">${u.before.shipments} → <b>${u.after.shipments}</b> embarques${!isImp && u.before.tier !== u.after.tier ? ` · ${ptTier(u.before.tier)} → <b>${ptTier(u.after.tier)}</b>` : ''}${!isImp && !u.before.active ? ' · passa a ativo' : ''}</span>
+  </label>`;
 
   modal.innerHTML = `
     <button class="close" onclick="closeModal()">&times;</button>
-    <h2>Novos exportadores e importadores encontrados</h2>
+    <h2>Planilha LPCO / DU-E</h2>
+    <p style="font-size:13px; color:var(--muted);">${R.registroCol ? 'Pela coluna <b>Registro</b>: <b>Hevile</b> é nosso; <b>Outro cliente</b> é concorrência (negócio novo).' : '<b>Atenção:</b> essa planilha não tem a coluna "Registro", então não dá para separar o que é Hevile. Mostrei só o que ainda não está no cadastro.'} ${R.resumo}.</p>
 
-    <h3 style="margin-top:16px;">Exportadores (${novos.length} novos de ${totalExporters})</h3>
-    <p style="font-size:13px; color:var(--muted);">Marque quais quer adicionar como prospects — as frutas já vêm pré-marcadas por um palpite automático, mas confira antes de salvar.</p>
-    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="dueExpList">
-      ${novos.length ? novos.map((n, i) => dueRowHtml(n, i, 'due')).join('') : '<div class="empty">Nenhum exportador novo — todos já estão no seu cadastro.</div>'}
+    ${R.registroCol ? `
+    <h3 style="margin-top:14px;">✅ Já são nossos — atualizar o cadastro</h3>
+    <p style="font-size:13px; color:var(--muted);">Quem aparece com DU-E Hevile deixa de ser prospect e ganha a categoria certa. Os números só sobem, nunca descem (o histórico antigo é mantido).</p>
+    <div style="${box} padding:8px 12px;">
+      ${(updExp.length || updImp.length) ? `${updExp.length ? `<b style="font-size:11px; text-transform:uppercase;">Exportadores (${updExp.length})</b>${updExp.map(u => updRow(u, false)).join('')}` : ''}${updImp.length ? `<b style="font-size:11px; text-transform:uppercase; display:block; margin-top:10px;">Importadores (${updImp.length})</b>${updImp.map(u => updRow(u, true)).join('')}` : ''}` : '<div class="empty">Nenhum cadastro precisa de atualização — tudo já bate com a planilha.</div>'}
     </div>
+    ${section('➕ Clientes Hevile que ainda não estão no cadastro — exportadores', 'Já embarcaram com a Hevile; entram como ativos.', 'dueHExpList', oursNovosExp, 'dueh', 'Nenhum — todos já estão no cadastro.')}
+    ${section('➕ Clientes Hevile que ainda não estão no cadastro — importadores', '', 'dueHImpList', oursNovosImp, 'duehimp', 'Nenhum — todos já estão no cadastro.')}` : ''}
 
-    <h3>Importadores (${novosImp.length} novos de ${totalImporters})</h3>
-    <p style="font-size:13px; color:var(--muted);">Mesma ideia, só que do lado de quem compra no exterior.</p>
-    <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 12px; margin-bottom:16px;" id="dueImpList">
-      ${novosImp.length ? novosImp.map((n, i) => dueRowHtml(n, i, 'dueimp')).join('') : '<div class="empty">Nenhum importador novo — todos já estão no seu cadastro.</div>'}
-    </div>
+    ${section(`🆕 Negócios novos — exportadores (${bizExp.length})`, R.registroCol ? 'Só aparecem como "Outro cliente": ainda não são nossos. Marque quais quer adicionar como prospects — as frutas vêm pré-marcadas por um palpite automático, confira antes.' : 'Marque quais quer adicionar como prospects — as frutas vêm pré-marcadas por um palpite automático, confira antes.', 'dueExpList', bizExp, 'due', 'Nenhum exportador novo — todos já estão no seu cadastro.')}
+    ${section(`🆕 Negócios novos — importadores (${bizImp.length})`, 'Mesma ideia, do lado de quem compra no exterior.', 'dueImpList', bizImp, 'dueimp', 'Nenhum importador novo — todos já estão no seu cadastro.')}
+
+    ${leads.length ? `<h3>🔥 Prospects que a concorrência já embarca (${leads.length})</h3>
+    <p style="font-size:13px; color:var(--muted);">Já estão no seu cadastro como prospect e exportam com outros: boas oportunidades de abordagem.</p>
+    <div style="${box} padding:8px 12px;">${leads.slice(0, 40).map(l => `<div style="font-size:12.5px; padding:4px 0; border-bottom:1px solid var(--line);"><b>${l.nome}</b> <span style="color:var(--muted);">· ${l.o} DU-E de outros clientes</span></div>`).join('')}${leads.length > 40 ? `<div style="font-size:11px; color:var(--muted); padding:6px 0;">…e mais ${leads.length - 40}.</div>` : ''}</div>` : ''}
 
     <datalist id="allExportersDatalist2">
       ${[...EXPORTERS, ...IMPORTERS].map(d => `<option value="${d.trade.replace(/"/g,'&quot;')}">`).join('')}
     </datalist>
-    ${(novos.length || novosImp.length) ? `<div class="new-exp-actions">
-      <button id="dueImportConfirm">Adicionar selecionados</button>
+    <div class="new-exp-actions">
+      <button id="dueImportConfirm">Aplicar selecionados</button>
       <button class="cancel" onclick="closeModal()">Cancelar</button>
-    </div>` : `<div class="new-exp-actions"><button class="cancel" onclick="closeModal()">Fechar</button></div>`}
+    </div>
     <span class="fs-status" id="dueImportStatus" style="display:block; margin-top:8px;"></span>
   `;
   overlay.classList.add('visible');
 
-  function wireAliasButtons(prefix, list){
+  function wireAliasButtons(prefix, list, containerId, emptyMsg){
     document.querySelectorAll(`.${prefix}-alias-btn`).forEach(btn => {
       btn.onclick = async () => {
         const sid = btn.dataset.sid;
@@ -5596,68 +5428,81 @@ function openDueImportReview(novos, totalExporters, novosImp, totalImporters){
         await addExporterAlias(entry.nome, exporterKey(existing));
         const idx = list.findIndex(x => x._sid === sid);
         if (idx !== -1) list.splice(idx, 1);
-        // Remove just this one row from the DOM — every other row's checkboxes stay exactly
-        // as the user left them, instead of the whole list resetting.
+        // Remove just this one row from the DOM — every other row's checkboxes stay as the user left them.
         const row = document.querySelector(`.due-review-row[data-row-sid="${sid}"]`);
         if (row) row.remove();
-        const containerId = prefix === 'due' ? 'dueExpList' : 'dueImpList';
         const container = document.getElementById(containerId);
-        if (container && !list.length){
-          container.innerHTML = `<div class="empty">Nenhum ${prefix === 'due' ? 'exportador' : 'importador'} novo — todos já estão no seu cadastro.</div>`;
-        }
+        if (container && !list.length) container.innerHTML = `<div class="empty">${emptyMsg}</div>`;
       };
     });
   }
-  wireAliasButtons('due', novos);
-  wireAliasButtons('dueimp', novosImp);
+  wireAliasButtons('dueh', oursNovosExp, 'dueHExpList', 'Nenhum — todos já estão no cadastro.');
+  wireAliasButtons('duehimp', oursNovosImp, 'dueHImpList', 'Nenhum — todos já estão no cadastro.');
+  wireAliasButtons('due', bizExp, 'dueExpList', 'Nenhum exportador novo — todos já estão no seu cadastro.');
+  wireAliasButtons('dueimp', bizImp, 'dueImpList', 'Nenhum importador novo — todos já estão no seu cadastro.');
 
-  const confirmBtn = document.getElementById('dueImportConfirm');
-  if (confirmBtn){
-    confirmBtn.onclick = async () => {
-      confirmBtn.disabled = true;
-      const customExp = await getCustomExporters();
-      let addedExp = 0;
-      novos.forEach(n => {
-        const checkbox = document.querySelector(`.due-check[data-sid="${n._sid}"]`);
-        if (!checkbox || !checkbox.checked) return;
-        const fruits = [...document.querySelectorAll(`.due-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
-        const key = uniqueExporterKey(n.nome);
-        const entry = {
-          name: key, trade: n.nome, display: n.nome, site: null, phone: '', email: '', cnpj: n.cnpj || '',
-          active: false, tier: 'Prospect', shipments: 0, all_fruits: fruits, variety_confirmed: {},
-          source: 'Planilha semanal (DUE) — importado automaticamente', custom: true
-        };
-        EXPORTERS.push(entry);
-        customExp.push(entry);
-        addedExp++;
-      });
-      await setCustomExporters(customExp);
+  document.getElementById('dueImportConfirm').onclick = async () => {
+    const confirmBtn = document.getElementById('dueImportConfirm');
+    confirmBtn.disabled = true;
+    const picked = (prefix, n) => { const cb = document.querySelector(`.${prefix}-check[data-sid="${n._sid}"]`); return cb && cb.checked; };
+    const fruitsOf = (prefix, n) => [...document.querySelectorAll(`.${prefix}-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
 
-      const customImp = await getCustomImporters();
-      let addedImp = 0;
-      novosImp.forEach(n => {
-        const checkbox = document.querySelector(`.dueimp-check[data-sid="${n._sid}"]`);
-        if (!checkbox || !checkbox.checked) return;
-        const fruits = [...document.querySelectorAll(`.dueimp-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
-        const entry = {
-          name: n.nome, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
-          active: true, shipments: 0, weight: 0, products: fruits, all_fruits: fruits,
-          destinations: n.paises, editable_fruits: true, variety_confirmed: {},
-          source: 'Planilha semanal (DUE) — importado automaticamente', custom: true
-        };
-        IMPORTERS.push(entry);
-        customImp.push(entry);
-        addedImp++;
-      });
-      await setCustomImporters(customImp);
+    // 1) registry companies that are really ours
+    const appliedExp = [], appliedImp = [];
+    updExp.forEach(u => {
+      const cb = document.querySelector(`.due-upd-exp[data-id="${exporterKey(u.d).replace(/"/g, '&quot;')}"]`);
+      if (!cb || !cb.checked) return;
+      u.d.shipments = u.after.shipments; u.d.tier = u.after.tier; u.d.active = true; appliedExp.push(u.d);
+    });
+    updImp.forEach(u => {
+      const cb = document.querySelector(`.due-upd-imp[data-id="${exporterKey(u.d).replace(/"/g, '&quot;')}"]`);
+      if (!cb || !cb.checked) return;
+      u.d.shipments = u.after.shipments; appliedImp.push(u.d);
+    });
+    await Promise.all([
+      ...appliedExp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier })),
+      ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight })),
+    ]);
 
-      document.getElementById('dueImportStatus').textContent = `${addedExp} exportador(es) e ${addedImp} importador(es) adicionado(s) ✓`;
-      renderStats();
-      render();
-      if (currentNav === 'importers') renderImportersView();
-      setTimeout(closeModal, 1200);
+    // 2) new exporters: Hevile clients (active, tier by DU-E count) and new business (prospects)
+    const customExp = await getCustomExporters();
+    let addedH = 0, addedBiz = 0;
+    const addExp = (n, prefix, ours) => {
+      if (!picked(prefix, n)) return;
+      const entry = {
+        name: uniqueExporterKey(n.nome), trade: n.nome, display: n.nome, site: null, phone: '', email: '', cnpj: n.cnpj || '',
+        active: ours, tier: ours ? tierForShipmentCount(n.h) : 'Prospect', shipments: ours ? n.h : 0,
+        all_fruits: fruitsOf(prefix, n), variety_confirmed: {},
+        source: ours ? 'Planilha LPCO/DU-E — registro Hevile' : 'Planilha LPCO/DU-E — outro cliente (negócio novo)', custom: true
+      };
+      EXPORTERS.push(entry); customExp.push(entry); ours ? addedH++ : addedBiz++;
     };
-  }
+    oursNovosExp.forEach(n => addExp(n, 'dueh', true));
+    bizExp.forEach(n => addExp(n, 'due', false));
+    await setCustomExporters(customExp);
+
+    // 3) new importers
+    const customImp = await getCustomImporters();
+    const addImp = (n, prefix, ours) => {
+      if (!picked(prefix, n)) return;
+      const fr = fruitsOf(prefix, n);
+      const entry = {
+        name: n.nome, trade: n.nome, display: n.nome, site: null, phone: '', email: '',
+        active: true, shipments: ours ? n.h : 0, weight: 0, products: fr, all_fruits: fr,
+        destinations: n.paises, editable_fruits: true, variety_confirmed: {},
+        source: ours ? 'Planilha LPCO/DU-E — registro Hevile' : 'Planilha LPCO/DU-E — outro cliente (negócio novo)', custom: true
+      };
+      IMPORTERS.push(entry); customImp.push(entry); ours ? addedH++ : addedBiz++;
+    };
+    oursNovosImp.forEach(n => addImp(n, 'duehimp', true));
+    bizImp.forEach(n => addImp(n, 'dueimp', false));
+    await setCustomImporters(customImp);
+
+    document.getElementById('dueImportStatus').textContent = `${appliedExp.length + appliedImp.length} cadastro(s) atualizado(s), ${addedH} cliente(s) Hevile e ${addedBiz} negócio(s) novo(s) adicionado(s) ✓`;
+    renderStats(); render();
+    if (currentNav === 'importers') renderImportersView();
+    setTimeout(closeModal, 1500);
+  };
 }
 
 // Cross-references LPCO/DU-E market data (which records real shipment relationships between
@@ -5916,11 +5761,8 @@ function renderImportersView(){
 /* ---------- Import buttons live in the sidebar (always available, wired once) ---------- */
 (function wireImportButtons(){
   const dueBtn = document.getElementById('importDueBtn'), dueIn = document.getElementById('importDueInput');
-  const shipBtn = document.getElementById('importShipmentsBtn'), shipIn = document.getElementById('importShipmentsInput');
   dueBtn.onclick = () => dueIn.click();
   dueIn.onchange = (e) => { if (e.target.files.length) handleDueFileImport(e.target.files[0]); e.target.value = ''; };
-  shipBtn.onclick = () => shipIn.click();
-  shipIn.onchange = (e) => { if (e.target.files.length) handleShipmentsFileImport(e.target.files[0]); e.target.value = ''; };
 })();
 
 /* ---------- New prospects (not yet a Hevile client) — shown via badge in the main Exportadores grid ---------- */
