@@ -84,6 +84,12 @@
   .sidebar{
     background:#fff; border-right:1px solid var(--line); padding:20px; overflow-y:auto; max-height:calc(100vh - 40px); position:sticky; top:0;
   }
+  .sidebar-import{margin-bottom:18px; padding-bottom:16px; border-bottom:1px solid var(--line);}
+  .side-btn{display:block; width:100%; box-sizing:border-box; text-align:left; padding:9px 12px; margin-bottom:8px; border-radius:8px; font-size:12.5px; font-weight:bold; line-height:1.3; cursor:pointer; background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); font-family:inherit;}
+  .side-btn-primary{background:var(--orange); color:#fff; border:1px solid var(--orange);}
+  .side-btn:hover{filter:brightness(.95);}
+  #importDueStatus{line-height:1.4; word-break:break-word;}
+  #importDueStatus:empty{display:none;}
   .sidebar h3{font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px;}
   .fruit-chip{
     display:flex; flex-direction:column; align-items:stretch; gap:1px;
@@ -477,6 +483,14 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
 
 <div class="layout">
   <div class="sidebar">
+    <div class="sidebar-import">
+      <h3>Importar dados</h3>
+      <button id="importDueBtn" type="button" class="side-btn side-btn-primary">📎 Importar planilha semanal (DUE)</button>
+      <input type="file" id="importDueInput" accept=".xlsx,.xls" style="display:none;">
+      <button id="importShipmentsBtn" type="button" class="side-btn">📦 Atualizar histórico de embarques</button>
+      <input type="file" id="importShipmentsInput" accept=".xlsx,.xls" style="display:none;">
+      <div class="fs-status" id="importDueStatus"></div>
+    </div>
     <h3>Filtrar por fruta</h3>
     <input id="fruitSearch" type="text" placeholder="Buscar fruta ou variedade…" style="width:100%; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; margin-bottom:10px;" />
     <div class="clear-btn" id="clearFilter" style="display:none;">&times; Limpar filtro de fruta</div>
@@ -3071,8 +3085,9 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     const { faixaKey } = parseCondicao(r.condicao);
     const tier = faixaKey ? parseInt(faixaKey, 10) : 0;
     const toDoorMin = (r.tipo === 'To Door' && r.pesoMinimoToDoor) ? Number(r.pesoMinimoToDoor) : 0;
-    if (tier) parts.push(`${tier.toLocaleString(L.dateLocale)} kg`);
-    if (toDoorMin && toDoorMin !== tier) parts.push(`To Door: ${toDoorMin.toLocaleString(L.dateLocale)} kg`); // only when it adds information
+    // ONE minimum weight: the higher of the tariff's weight tier and the To Door minimum (that's the one that applies)
+    const minKg = Math.max(tier, toDoorMin);
+    if (minKg) parts.push(`${minKg.toLocaleString(L.dateLocale)} kg`);
     if (!parts.length){
       const m = (r.validade || '').match(/m[ií]n\.?\s*([\d.,]+\s*kg)/i);
       if (m) parts.push(m[1]);
@@ -5838,13 +5853,6 @@ function renderImportersView(){
   const newCount = buildUnifiedImporters().filter(item => item.kind === 'market-only' || (item.market && item.market.new_importer)).length;
 
   el.innerHTML = `
-    <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-      <button id="importDueBtn" style="background:var(--orange); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📎 Importar planilha semanal (DUE)</button>
-      <input type="file" id="importDueInput" accept=".xlsx,.xls" style="display:none;">
-      <button id="importShipmentsBtn" style="background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); padding:9px 16px; border-radius:8px; font-size:13px; font-weight:bold; cursor:pointer;">📦 Atualizar histórico de embarques</button>
-      <input type="file" id="importShipmentsInput" accept=".xlsx,.xls" style="display:none;">
-      <span class="fs-status" id="importDueStatus"></span>
-    </div>
     <div class="nav-toggle" style="margin-bottom:8px;">
       <button id="mfAll" class="${marketFilter==='all'?'active':''}">Todos (${buildUnifiedImporters().length})</button>
       <button id="mfNew" class="${marketFilter==='new'?'active':''}">Oportunidade: importador novo (${newCount})</button>
@@ -5903,15 +5911,17 @@ function renderImportersView(){
   document.getElementById('mfAll').onclick = () => { marketFilter='all'; renderImportersView(); };
   document.getElementById('mfNew').onclick = () => { marketFilter='new'; renderImportersView(); };
   document.getElementById('sortAzImpChip').onclick = () => { sortImportersAZ = !sortImportersAZ; renderImportersView(); };
-  document.getElementById('importDueBtn').onclick = () => document.getElementById('importDueInput').click();
-  document.getElementById('importDueInput').onchange = (e) => {
-    if (e.target.files.length) handleDueFileImport(e.target.files[0]);
-  };
-  document.getElementById('importShipmentsBtn').onclick = () => document.getElementById('importShipmentsInput').click();
-  document.getElementById('importShipmentsInput').onchange = (e) => {
-    if (e.target.files.length) handleShipmentsFileImport(e.target.files[0]);
-  };
 }
+
+/* ---------- Import buttons live in the sidebar (always available, wired once) ---------- */
+(function wireImportButtons(){
+  const dueBtn = document.getElementById('importDueBtn'), dueIn = document.getElementById('importDueInput');
+  const shipBtn = document.getElementById('importShipmentsBtn'), shipIn = document.getElementById('importShipmentsInput');
+  dueBtn.onclick = () => dueIn.click();
+  dueIn.onchange = (e) => { if (e.target.files.length) handleDueFileImport(e.target.files[0]); e.target.value = ''; };
+  shipBtn.onclick = () => shipIn.click();
+  shipIn.onchange = (e) => { if (e.target.files.length) handleShipmentsFileImport(e.target.files[0]); e.target.value = ''; };
+})();
 
 /* ---------- New prospects (not yet a Hevile client) — shown via badge in the main Exportadores grid ---------- */
 function isProspect(d){ return (d.tier === 'Prospect' || d.tier === 'Manually added') && d.role !== 'Importer'; }
