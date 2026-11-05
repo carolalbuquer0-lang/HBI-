@@ -3806,7 +3806,13 @@ function openModal(d, initialTab){
             </div>
             <div class="merge-hint">Marca como Ativo e muda a categoria de acordo com o número de embarques.</div>
           </div>
-        ` : ''}
+        ` : (EXPORTERS.includes(d) ? `
+          <div class="merge-box">
+            <label>🔎 Ainda não embarcamos com esse exportador?</label>
+            <div class="merge-row"><button id="prospectSetBtn" type="button" class="btn-navy">Colocar como Prospect</button></div>
+            <div class="merge-hint">Vira Prospect e Inativo, com 0 embarques. Dá para desfazer depois com "Tirar de Prospect".</div>
+          </div>
+        ` : '')}
         <div class="actions-row">
           <button id="agendorPushBtn" type="button" class="btn-navy">📇 Enviar para o Agendor</button>
           <span class="fs-status" id="agendorPushStatus"></span>
@@ -4024,7 +4030,7 @@ function openModal(d, initialTab){
       const sel = document.getElementById('addFruitSelect');
       const fruit = sel.value;
       if (!fruit || d.all_fruits.includes(fruit)) return;
-      d.all_fruits = [...d.all_fruits, fruit];
+      setFruits(d, [...d.all_fruits, fruit]);
       await setProspectFruitOverrides(key, d.all_fruits);
       openModal(d, 'frutas');
       renderCards();
@@ -4066,7 +4072,7 @@ function openModal(d, initialTab){
     btn.addEventListener('click', async () => {
       const fruit = btn.dataset.fruit;
       if (!confirm(`Remover ${ptFruit(fruit)} desse perfil?`)) return;
-      d.all_fruits = d.all_fruits.filter(f => f !== fruit);
+      setFruits(d, d.all_fruits.filter(f => f !== fruit));
       delete d.variety_confirmed[fruit];
       await setProspectFruitOverrides(key, d.all_fruits);
       await setVarietyOverride(key, d.variety_confirmed);
@@ -4085,6 +4091,16 @@ function openModal(d, initialTab){
       d.tier = tierForShipmentCount(n);
       await setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier });
       renderCards();
+      openModal(d, 'perfil');
+    };
+  }
+  const prospectSetBtn = document.getElementById('prospectSetBtn');
+  if (prospectSetBtn){
+    prospectSetBtn.onclick = async () => {
+      if (!confirm(`Colocar "${d.trade}" como Prospect?\n\nEle vira inativo e os ${d.shipments || 0} embarques registrados são zerados.`)) return;
+      d.active = false; d.shipments = 0; d.tier = 'Prospect';
+      await setStatsOverride(exporterKey(d), { shipments: 0, active: false, tier: 'Prospect' });
+      renderStats(); renderCards();
       openModal(d, 'perfil');
     };
   }
@@ -5953,15 +5969,21 @@ async function loadContactOverrides(){
     } catch(e){ /* skip */ }
   });
 }
+// Fruits live in all_fruits (what the profile edits). Importers keep a mirror in `products` (what their list card
+// reads), and the same company can sit in both lists: one function updates every copy.
+function setFruits(d, fruits){
+  [d, ...[...EXPORTERS, ...IMPORTERS].filter(x => x !== d && exporterKey(x) === exporterKey(d))].forEach(x => {
+    x.all_fruits = [...fruits];
+    if (IMPORTERS.includes(x)) x.products = [...fruits];
+  });
+}
 async function loadProspectFruitOverrides(){
   const entries = await backendListValues('hevile_prospect_fruits:');
   entries.forEach(({key, value}) => {
     const expKey = key.replace('hevile_prospect_fruits:', '');
-    const d = EXPORTERS.find(x => exporterKey(x) === expKey) || IMPORTERS.find(x => exporterKey(x) === expKey);
-    if (!d) return;
     try{
       const extra = JSON.parse(value);
-      d.all_fruits = [...new Set([...d.all_fruits, ...extra])];
+      [...EXPORTERS, ...IMPORTERS].filter(x => exporterKey(x) === expKey).forEach(x => setFruits(x, [...new Set([...(x.all_fruits || []), ...extra])]));
     } catch(e){ /* skip */ }
   });
 }
