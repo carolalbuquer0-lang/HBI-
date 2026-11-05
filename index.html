@@ -84,6 +84,7 @@
   .sidebar{
     background:#fff; border-right:1px solid var(--line); padding:20px; overflow-y:auto; max-height:calc(100vh - 40px); position:sticky; top:0;
   }
+  .address{font-size:12.5px; color:var(--muted); margin:4px 0 0; line-height:1.35;}
   .sidebar-import{margin-bottom:18px; padding-bottom:16px; border-bottom:1px solid var(--line);}
   .side-btn{display:block; width:100%; box-sizing:border-box; text-align:left; padding:9px 12px; margin-bottom:8px; border-radius:8px; font-size:12.5px; font-weight:bold; line-height:1.3; cursor:pointer; background:#fff; color:var(--pf-navy); border:1px solid var(--pf-navy); font-family:inherit;}
   .side-btn-primary{background:var(--orange); color:#fff; border:1px solid var(--orange);}
@@ -3678,6 +3679,7 @@ function renderCards(){
         ${d.tier === 'Prospect' || d.role === 'Importer' ? `<div class="card-tags">${d.tier === 'Prospect' ? '<span class="prospect-tag">PROSPECT</span>' : ''}${d.role === 'Importer' ? '<span class="importer-tag">IMPORTADOR</span>' : ''}</div>` : ''}
       </div>
       ${d.site ? `<div class="site">${d.site}</div>` : ''}
+      ${d.address ? `<div class="address">📍 ${d.address}</div>` : ''}
       <div class="meta-line"><span class="tier-tag">${ptTier(d.tier)}</span><span>${d.shipments} embarques</span></div>
       <div class="pills">${pills}</div>
       ${worksWithHtml}
@@ -3734,6 +3736,7 @@ function openModal(d, initialTab){
     <button class="close" onclick="closeModal()">&times;</button>
     <h2 id="modalTitleH2">${d.trade}</h2>
     <span class="site-link">${siteHtml}</span>
+    ${d.address ? `<div class="address" id="modalAddress">📍 ${d.address}</div>` : ''}
 
     <div class="modal-tabs">
       <div class="modal-tab${initialTab==='perfil'||initialTab==='frutas'||initialTab==='cotacoes'||initialTab==='historico'||initialTab==='primeirocontato'||initialTab==='feira'?'':' active'}" data-tab="perfil">Perfil</div>
@@ -3758,12 +3761,15 @@ function openModal(d, initialTab){
             <input type="text" id="contactName" value="${d.trade || ''}" placeholder="Nome (como aparece nos cards)" style="flex:1;">
           </div>
           <div class="cf-row" style="margin-bottom:6px;">
+            <input type="text" id="contactAddress" value="${(d.address || '').replace(/"/g, '&quot;')}" placeholder="Endereço ou cidade" style="flex:1;">
+          </div>
+          <div class="cf-row" style="margin-bottom:6px;">
             <input type="text" id="contactPhone" value="${d.phone || ''}" placeholder="Telefone" style="flex:1;">
             <input type="text" id="contactEmail" value="${d.email || ''}" placeholder="E-mail" style="flex:1.4;">
           </div>
           <div class="cf-row" style="margin-bottom:6px;">
-            <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:1;">
-            <input type="text" id="contactCnpj" value="${d.cnpj || ''}" placeholder="CNPJ" style="flex:0.8;">
+            <input type="text" id="contactSite" value="${d.site || ''}" placeholder="Site (ex: empresa.com.br)" style="flex:0.9;">
+            <input type="text" id="contactCnpj" value="${d.cnpj || ''}" placeholder="CNPJ (mais de uma sede? separe por vírgula)" title="Duas sedes = dois CNPJs: separe por vírgula. A planilha reconhece todos." style="flex:1.5;">
             <button id="contactSaveBtn" type="button" style="background:var(--pf-navy); color:#fff; border:none; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:bold; cursor:pointer;">Salvar</button>
           </div>
           <span class="fs-status" id="contactSaveStatus"></span>
@@ -4089,7 +4095,9 @@ function openModal(d, initialTab){
       const phone = document.getElementById('contactPhone').value.trim();
       const email = document.getElementById('contactEmail').value.trim();
       const site = document.getElementById('contactSite').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
-      const cnpj = document.getElementById('contactCnpj').value.trim();
+      const cnpj = parseCnpjs(document.getElementById('contactCnpj').value).join(', ');
+      document.getElementById('contactCnpj').value = cnpj;
+      const address = document.getElementById('contactAddress').value.trim();
       if (nome){ d.trade = nome; d.display = nome; }
       const titleEl = document.getElementById('modalTitleH2');
       if (titleEl && nome) titleEl.textContent = nome;
@@ -4097,10 +4105,16 @@ function openModal(d, initialTab){
       d.email = email;
       d.site = site || null;
       d.cnpj = cnpj || null;
+      d.address = address || undefined;
+      let addrEl = document.getElementById('modalAddress');
+      if (address){
+        if (!addrEl){ addrEl = document.createElement('div'); addrEl.id = 'modalAddress'; addrEl.className = 'address'; document.querySelector('#modalContent .site-link').after(addrEl); }
+        addrEl.textContent = '📍 ' + address;
+      } else if (addrEl) addrEl.remove();
       const st = document.getElementById('contactSaveStatus');
       st.textContent = 'Salvando…';
-      await setContactOverride(key, { trade: d.trade, display: d.display, phone, email, site: d.site, cnpj: d.cnpj, agendorOrgId: d.agendorOrgId });
-      st.textContent = 'Salvo ✓';
+      await setContactOverride(key, { trade: d.trade, display: d.display, phone, email, site: d.site, cnpj: d.cnpj, address, agendorOrgId: d.agendorOrgId });
+      st.textContent = 'Salvo ✓' + (parseCnpjs(cnpj).length > 1 ? ` (${parseCnpjs(cnpj).length} CNPJs)` : '');
       renderCards();
       if (currentNav === 'importers') renderImportersView();
     };
@@ -4197,41 +4211,7 @@ function openModal(d, initialTab){
       if (!confirm(`Juntar "${d.trade}" com "${target.trade}"?\n\nAs frutas, contato e histórico de "${d.trade}" somam no cadastro de "${target.trade}", e "${d.trade}" é removido. Isso não pode ser desfeito.`)) return;
 
       const targetKey = exporterKey(target);
-      const mergedFruits = [...new Set([...(target.all_fruits || []), ...(d.all_fruits || [])])];
-      target.all_fruits = mergedFruits;
-      target.products = [...mergedFruits];
-      await setProspectFruitOverrides(targetKey, mergedFruits);
-
-      const mergedPhone = target.phone || d.phone || '';
-      const mergedEmail = target.email || d.email || '';
-      if (mergedPhone || mergedEmail){
-        target.phone = mergedPhone;
-        target.email = mergedEmail;
-        await setContactOverride(targetKey, { phone: mergedPhone, email: mergedEmail, agendorOrgId: target.agendorOrgId });
-      }
-      if (!target.site && d.site) target.site = d.site;
-      target.shipments = (target.shipments || 0) + (d.shipments || 0);
-      target.weight = (target.weight || 0) + (d.weight || 0);
-      target.destinations = [...new Set([...(target.destinations || []), ...(d.destinations || [])])];
-      await setStatsOverride(targetKey, { shipments: target.shipments, weight: target.weight, destinations: target.destinations });
-
-      // Teach the matcher this alias permanently, so future market-data imports and the
-      // weekly DUE import recognize "d.name" as the same company from now on.
-      await addExporterAlias(d.name, targetKey);
-
-      // Carry over history (cotações, indicações, primeiro contato) from the duplicate into
-      // the target's records, instead of leaving it orphaned under the removed key.
-      const [srcQuotes, tgtQuotes] = await Promise.all([getQuotes(key), getQuotes(targetKey)]);
-      if (srcQuotes.length){ await setQuotes(targetKey, [...tgtQuotes, ...srcQuotes]); quotesCache[targetKey] = [...tgtQuotes, ...srcQuotes]; }
-      const [srcRefs, tgtRefs] = await Promise.all([getReferrals(key), getReferrals(targetKey)]);
-      if (srcRefs.length){ await setReferrals(targetKey, [...tgtRefs, ...srcRefs]); referralsCache[targetKey] = [...tgtRefs, ...srcRefs]; }
-      const [srcFc, tgtFc] = await Promise.all([getFirstContacts(key), getFirstContacts(targetKey)]);
-      if (srcFc.length){ await setFirstContacts(targetKey, [...tgtFc, ...srcFc]); firstContactsCache[targetKey] = [...tgtFc, ...srcFc]; }
-      const srcFeedback = await getFeedback(key);
-      if (srcFeedback){
-        const tgtFeedback = await getFeedback(targetKey);
-        await setFeedback(targetKey, tgtFeedback ? tgtFeedback + '\n\n---\n\n' + srcFeedback : srcFeedback);
-      }
+      await mergeCompanyData(d, key, target, targetKey, true);
 
       const idx = IMPORTERS.findIndex(x => exporterKey(x) === key);
       if (idx !== -1) IMPORTERS.splice(idx, 1);
@@ -4255,39 +4235,7 @@ function openModal(d, initialTab){
       if (!confirm(`Juntar "${d.trade}" com "${target.trade}"?\n\nAs frutas, contato e embarques de "${d.trade}" somam no cadastro de "${target.trade}", e "${d.trade}" é removido. Isso não pode ser desfeito.`)) return;
 
       const targetKey = exporterKey(target);
-      const mergedFruits = [...new Set([...(target.all_fruits || []), ...(d.all_fruits || [])])];
-      target.all_fruits = mergedFruits;
-      await setProspectFruitOverrides(targetKey, mergedFruits);
-
-      const mergedPhone = target.phone || d.phone || '';
-      const mergedEmail = target.email || d.email || '';
-      if (mergedPhone || mergedEmail){
-        target.phone = mergedPhone;
-        target.email = mergedEmail;
-        await setContactOverride(targetKey, { phone: mergedPhone, email: mergedEmail, agendorOrgId: target.agendorOrgId });
-      }
-      if (!target.site && d.site) target.site = d.site;
-      target.shipments = (target.shipments || 0) + (d.shipments || 0);
-      await setStatsOverride(targetKey, { shipments: target.shipments });
-      if (d.active) target.active = true;
-
-      // Teach the matcher this alias permanently, so future market-data imports and the
-      // weekly DUE import recognize "d.name" as the same company from now on.
-      await addExporterAlias(d.name, targetKey);
-
-      // Carry over history (cotações, indicações, primeiro contato) from the duplicate into
-      // the target's records, instead of leaving it orphaned under the removed key.
-      const [srcQuotes, tgtQuotes] = await Promise.all([getQuotes(key), getQuotes(targetKey)]);
-      if (srcQuotes.length){ await setQuotes(targetKey, [...tgtQuotes, ...srcQuotes]); quotesCache[targetKey] = [...tgtQuotes, ...srcQuotes]; }
-      const [srcRefs, tgtRefs] = await Promise.all([getReferrals(key), getReferrals(targetKey)]);
-      if (srcRefs.length){ await setReferrals(targetKey, [...tgtRefs, ...srcRefs]); referralsCache[targetKey] = [...tgtRefs, ...srcRefs]; }
-      const [srcFc, tgtFc] = await Promise.all([getFirstContacts(key), getFirstContacts(targetKey)]);
-      if (srcFc.length){ await setFirstContacts(targetKey, [...tgtFc, ...srcFc]); firstContactsCache[targetKey] = [...tgtFc, ...srcFc]; }
-      const srcFeedback = await getFeedback(key);
-      if (srcFeedback){
-        const tgtFeedback = await getFeedback(targetKey);
-        await setFeedback(targetKey, tgtFeedback ? tgtFeedback + '\n\n---\n\n' + srcFeedback : srcFeedback);
-      }
+      await mergeCompanyData(d, key, target, targetKey, false);
 
       const idx = EXPORTERS.findIndex(x => exporterKey(x) === key);
       if (idx !== -1) EXPORTERS.splice(idx, 1);
@@ -5226,6 +5174,31 @@ function tierForShipmentCount(n){
   return 'Prospect';
 }
 
+// A company can have several CNPJs (matriz + filiais): the field holds them separated by commas.
+const cnpjDigits = (s) => (s || '').toString().replace(/\D/g, '');
+const cnpjRoot = (s) => cnpjDigits(s).slice(0, 8);
+function parseCnpjs(text){
+  return String(text || '').split(/[,;\n]| e /).map(t => t.trim()).filter(Boolean)
+    .map(t => cnpjDigits(t).length === 14 ? cnpjDigits(t).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : t);
+}
+function joinCnpjs(...texts){
+  const seen = new Set(), out = [];
+  texts.forEach(t => parseCnpjs(t).forEach(x => { const k = cnpjDigits(x) || x; if (!seen.has(k)){ seen.add(k); out.push(x); } }));
+  return out.join(', ');
+}
+function cnpjIndex(){
+  const full = {}, root = {};
+  EXPORTERS.forEach(d => parseCnpjs(d.cnpj).forEach(x => { const dg = cnpjDigits(x); if (dg.length === 14){ full[dg] = d; (root[dg.slice(0, 8)] = root[dg.slice(0, 8)] || new Set()).add(d); } }));
+  return { full, root };
+}
+// exact CNPJ first; otherwise the same root (another sede of the same company), if it points at ONE registry company
+function matchByCnpj(list, idx){
+  const dgs = list.map(cnpjDigits).filter(x => x.length === 14);
+  for (const dg of dgs) if (idx.full[dg]) return idx.full[dg];
+  for (const dg of dgs){ const s = idx.root[dg.slice(0, 8)]; if (s && s.size === 1) return [...s][0]; }
+  return null;
+}
+
 const TIER_ORDER = ['Prospect', 'Occasional', 'Regular', 'High volume'];
 const maxTier = (a, b) => TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b;
 
@@ -5259,8 +5232,8 @@ async function handleDueFileImport(file){
     const dueCol = findCol(/n[uú]mero.*due|^due$/i);
 
     // A shipment is a DU-E number, not a spreadsheet row (one DU-E has several item rows).
-    const mk = () => ({ produtos: new Set(), paises: new Set(), cnpj: '', all: new Set(), h: new Set(), o: new Set() });
-    const byExporter = {}, byImporter = {};
+    const mk = () => ({ produtos: new Set(), paises: new Set(), cnpj: '', cnpjs: new Set(), all: new Set(), h: new Set(), o: new Set() });
+    const byExporter = {}, byImporter = {}, pairs = {};
     let rowsH = 0, rowsO = 0, rowsU = 0;
     rows.forEach((r, idx) => {
       const nomeExp = (r[exporterCol] || '').toString().trim();
@@ -5278,9 +5251,15 @@ async function handleDueFileImport(file){
         const info = map[nome] || (map[nome] = mk());
         info.produtos.add(produto); if (pais) info.paises.add(pais);
         if (withCnpj && cnpjExp && !info.cnpj) info.cnpj = cnpjExp;
+        if (withCnpj && cnpjExp) parseCnpjs(cnpjExp).forEach(x => info.cnpjs.add(x));
         info.all.add(dueId); if (kind === 'H') info.h.add(dueId); else if (kind === 'O') info.o.add(dueId);
       };
       add(byExporter, nomeExp, true); add(byImporter, nomeImp, false);
+      if (nomeExp && nomeImp){
+        const pe = pairs[nomeExp] || (pairs[nomeExp] = {});
+        const pp = pe[nomeImp] || (pe[nomeImp] = { all: new Set(), h: new Set(), produtos: new Set() });
+        pp.all.add(dueId); if (kind === 'H') pp.h.add(dueId); pp.produtos.add(produto);
+      }
     });
     // If the same DU-E shows up both as Hevile and as other, it is ours.
     [byExporter, byImporter].forEach(m => Object.values(m).forEach(i => { i.o = new Set([...i.o].filter(x => !i.h.has(x))); }));
@@ -5290,19 +5269,27 @@ async function handleDueFileImport(file){
     await new Promise(r => setTimeout(r, 0));
     const cands = buildMatchCandidates();
 
+    // exporter -> importers, as the small records the cards read (max 60 strongest per exporter)
+    const relList = (rel) => Object.entries(rel).map(([i, x]) => ({ i, n: x.all.size, h: x.h.size, p: guessFruitsForProducts([...x.produtos]) })).sort((a, b) => b.n - a.n).slice(0, 60);
     // Groups every name that points at the same registry company, then splits what we found into:
     // ours (registry, Hevile DU-Es), Hevile clients not in the registry, and new business.
+    const cnpjIdx = cnpjIndex();
     const split = (byName, list) => {
       const known = {}, novos = [];
       Object.entries(byName).forEach(([nome, info]) => {
-        const m = findExporterMatch(nome, cands);
+        const m = (list === EXPORTERS && matchByCnpj([...info.cnpjs], cnpjIdx)) || findExporterMatch(nome, cands);
         if (m && list.includes(m)){
           const k = exporterKey(m);
-          const e = known[k] || (known[k] = { d: m, nomes: [], h: new Set(), o: new Set(), all: new Set() });
+          const e = known[k] || (known[k] = { d: m, nomes: [], h: new Set(), o: new Set(), all: new Set(), rel: {}, cnpjs: new Set() });
+          info.cnpjs.forEach(x => e.cnpjs.add(x));
+          Object.entries(pairs[nome] || {}).forEach(([imp, pp]) => {
+            const x = e.rel[imp] || (e.rel[imp] = { all: new Set(), h: new Set(), produtos: new Set() });
+            pp.all.forEach(v => x.all.add(v)); pp.h.forEach(v => x.h.add(v)); pp.produtos.forEach(v => x.produtos.add(v));
+          });
           e.nomes.push(nome); info.h.forEach(x => e.h.add(x)); info.o.forEach(x => e.o.add(x)); info.all.forEach(x => e.all.add(x));
         } else if (!m){
-          novos.push({ nome, produtos: [...info.produtos], paises: [...info.paises], cnpj: info.cnpj || '',
-            h: info.h.size, o: info.o.size, eventos: info.all.size });
+          novos.push({ nome, produtos: [...info.produtos], paises: [...info.paises], cnpj: [...info.cnpjs].join(', ') || info.cnpj || '',
+            h: info.h.size, o: info.o.size, eventos: info.all.size, rel: relList(pairs[nome] || {}) });
         }
       });
       return { known: Object.values(known), novos: novos.sort((a, b) => (b.h - a.h) || (b.eventos - a.eventos)) };
@@ -5336,7 +5323,14 @@ async function handleDueFileImport(file){
       ? `${dueHevile.size} DU-E Hevile · ${dueOutro.size} de outros clientes`
       : 'a planilha não tem a coluna "Registro" (tratei tudo como mercado, sem separar o que é Hevile)';
     statusEl.textContent = `${totalExporters} exportadores e ${totalImporters} importadores de fruta · ${resumo}`;
-    openDueImportReview({ updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads, registroCol: !!registroCol, resumo, totalExporters, totalImporters });
+    // CNPJs the report shows for companies already in the registry (another sede, or one not filled in yet)
+    const cnpjAdds = exp.known.map(e => {
+      const have = parseCnpjs(e.d.cnpj), haveDg = new Set(have.map(cnpjDigits));
+      const add = [...e.cnpjs].filter(x => cnpjDigits(x).length === 14 && !haveDg.has(cnpjDigits(x)) && (!have.length || have.some(h => cnpjRoot(h) === cnpjRoot(x))));
+      return add.length ? { d: e.d, add, have } : null;
+    }).filter(Boolean);
+    const relKnown = exp.known.map(e => ({ d: e.d, rels: relList(e.rel) })).filter(x => x.rels.length);
+    openDueImportReview({ cnpjAdds, relKnown, relTotal: relKnown.reduce((s, x) => s + x.rels.length, 0), updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads, registroCol: !!registroCol, resumo, totalExporters, totalImporters });
   } catch(err){
     statusEl.textContent = 'Erro ao ler o arquivo: ' + err.message;
   }
@@ -5364,7 +5358,7 @@ function dueRowHtml(n, i, prefix){
 function openDueImportReview(R){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
-  const { updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads } = R;
+  const { updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads, relKnown, cnpjAdds } = R;
   // Stable ids assigned ONCE, independent of array position — so marking one entry as an alias
   // (which removes it from the array) never shifts or resets any other row's checkbox.
   let sidCounter = 0;
@@ -5386,6 +5380,11 @@ function openDueImportReview(R){
     <button class="close" onclick="closeModal()">&times;</button>
     <h2>Planilha LPCO / DU-E</h2>
     <p style="font-size:13px; color:var(--muted);">${R.registroCol ? 'Pela coluna <b>Registro</b>: <b>Hevile</b> é nosso; <b>Outro cliente</b> é concorrência (negócio novo).' : '<b>Atenção:</b> essa planilha não tem a coluna "Registro", então não dá para separar o que é Hevile. Mostrei só o que ainda não está no cadastro.'} ${R.resumo}.</p>
+    ${R.relTotal ? `<p style="font-size:13px; color:var(--muted);">Ao aplicar, também atualizo <b>com quem cada exportador do cadastro trabalha</b> (${R.relTotal} relações exportador → importador encontradas na planilha).</p>` : ''}
+
+    ${cnpjAdds.length ? `<h3 style="margin-top:14px;">🏢 CNPJs de outras sedes (${cnpjAdds.length})</h3>
+    <p style="font-size:13px; color:var(--muted);">A planilha traz CNPJ de empresas que você já tem. Guardando no cadastro, as próximas planilhas reconhecem todas as sedes juntas.</p>
+    <div style="${box} padding:8px 12px;">${cnpjAdds.map(a => `<label style="display:flex; align-items:center; gap:8px; font-size:12.5px; padding:5px 0; border-bottom:1px solid var(--line);"><input type="checkbox" class="due-cnpj-add" data-id="${exporterKey(a.d).replace(/"/g, '&quot;')}" checked style="flex:0 0 16px;"><span style="flex:1;"><b>${a.d.trade}</b> <span style="color:var(--muted); font-size:11px;">${a.have.length ? '· já tem ' + a.have.join(', ') : '· sem CNPJ no cadastro'}</span></span><span>+ ${a.add.join(', ')}</span></label>`).join('')}</div>` : ''}
 
     ${R.registroCol ? `
     <h3 style="margin-top:14px;">✅ Já são nossos — atualizar o cadastro</h3>
@@ -5447,6 +5446,13 @@ function openDueImportReview(R){
     const picked = (prefix, n) => { const cb = document.querySelector(`.${prefix}-check[data-sid="${n._sid}"]`); return cb && cb.checked; };
     const fruitsOf = (prefix, n) => [...document.querySelectorAll(`.${prefix}-fruit-${n._sid}`)].filter(el => el.checked).map(el => el.value);
 
+    let cnpjSaved = 0;
+    for (const a of cnpjAdds){
+      const cb = document.querySelector(`.due-cnpj-add[data-id="${exporterKey(a.d).replace(/"/g, '&quot;')}"]`);
+      if (!cb || !cb.checked) continue;
+      a.d.cnpj = joinCnpjs(a.d.cnpj, a.add.join(', ')); cnpjSaved++;
+      await setContactOverride(exporterKey(a.d), { cnpj: a.d.cnpj });
+    }
     // 1) registry companies that are really ours
     const appliedExp = [], appliedImp = [];
     updExp.forEach(u => {
@@ -5464,9 +5470,12 @@ function openDueImportReview(R){
       ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight })),
     ]);
 
+    await Promise.all(relKnown.map(x => saveMarketRelations(exporterKey(x.d), x.rels)));
+
     // 2) new exporters: Hevile clients (active, tier by DU-E count) and new business (prospects)
     const customExp = await getCustomExporters();
     let addedH = 0, addedBiz = 0;
+    const newRels = [];
     const addExp = (n, prefix, ours) => {
       if (!picked(prefix, n)) return;
       const entry = {
@@ -5476,10 +5485,12 @@ function openDueImportReview(R){
         source: ours ? 'Planilha LPCO/DU-E — registro Hevile' : 'Planilha LPCO/DU-E — outro cliente (negócio novo)', custom: true
       };
       EXPORTERS.push(entry); customExp.push(entry); ours ? addedH++ : addedBiz++;
+      if (n.rel && n.rel.length) newRels.push([exporterKey(entry), n.rel]);
     };
     oursNovosExp.forEach(n => addExp(n, 'dueh', true));
     bizExp.forEach(n => addExp(n, 'due', false));
     await setCustomExporters(customExp);
+    await Promise.all(newRels.map(([k, rels]) => saveMarketRelations(k, rels)));
 
     // 3) new importers
     const customImp = await getCustomImporters();
@@ -5498,7 +5509,7 @@ function openDueImportReview(R){
     bizImp.forEach(n => addImp(n, 'dueimp', false));
     await setCustomImporters(customImp);
 
-    document.getElementById('dueImportStatus').textContent = `${appliedExp.length + appliedImp.length} cadastro(s) atualizado(s), ${addedH} cliente(s) Hevile e ${addedBiz} negócio(s) novo(s) adicionado(s) ✓`;
+    document.getElementById('dueImportStatus').textContent = `${appliedExp.length + appliedImp.length} cadastro(s) atualizado(s), ${addedH} cliente(s) Hevile e ${addedBiz} negócio(s) novo(s) adicionado(s)${cnpjSaved ? `, ${cnpjSaved} CNPJ(s) guardado(s)` : ''}${R.relTotal ? `, ${R.relTotal} relações exportador → importador atualizadas` : ''} ✓`;
     renderStats(); render();
     if (currentNav === 'importers') renderImportersView();
     setTimeout(closeModal, 1500);
@@ -5539,29 +5550,130 @@ function normPrefixMatch(a, b){
   return a === b || commonPrefixLen(a, b) >= 8;
 }
 
+// ---- Exporter <-> importer relationships learned from the weekly LPCO / DU-E reports ----
+// MARKET (above) is a one-time snapshot. Every report import adds what it finds here, one small
+// record per exporter (so it stays far below the cloud cell limit), and the cards read both.
+let marketRelations = {}; // exporterKey -> [{ i: importer, n: DU-Es, h: Hevile DU-Es, p: [fruits] }]
+async function loadMarketRelations(){
+  marketRelations = {};
+  const entries = await backendListValues('hevile_rel:');
+  entries.forEach(({key, value}) => {
+    try{ const arr = JSON.parse(value); if (arr && arr.length) marketRelations[key.replace('hevile_rel:', '')] = arr; } catch(e){ /* skip */ }
+  });
+}
+function mergeRelLists(...lists){
+  const m = {};
+  lists.forEach(list => (list || []).forEach(r => {
+    const k = normalizeName(r.i);
+    const e = m[k] || (m[k] = { i: r.i, n: 0, h: 0, p: [] });
+    e.n = Math.max(e.n, r.n || 0); e.h = Math.max(e.h, r.h || 0); // max, never sum: overlapping weekly windows must not double count
+    e.p = [...new Set([...e.p, ...(r.p || [])])].slice(0, 6);
+  }));
+  return Object.values(m).sort((a, b) => b.n - a.n).slice(0, 60);
+}
+async function saveMarketRelations(key, incoming){
+  const arr = mergeRelLists(marketRelations[key], incoming);
+  marketRelations[key] = arr;
+  await backendSet('hevile_rel:' + key, JSON.stringify(arr));
+}
+// Names this company was merged away from (so the old name still finds its market data)
+function aliasNormsFor(d){
+  const k = exporterKey(d);
+  return Object.entries(exporterAliases).filter(([alias, target]) => target === k).map(([alias]) => alias);
+}
+
 function getImportersForExporter(exp){
-  const normTrade = normalizeName(exp.trade), normName = normalizeName(exp.name);
+  const norms = [normalizeName(exp.trade), normalizeName(exp.name), ...aliasNormsFor(exp)];
   const byImporter = {};
+  const bucket = (name) => { const k = normalizeName(name); return byImporter[k] || (byImporter[k] = { importer: name, eventos: 0, produtos: new Set(), viaHevile: 0 }); };
   marketFlatIndex().forEach(row => {
     if (!row.isClient) return;
-    if (!normPrefixMatch(row.normNome, normTrade) && !normPrefixMatch(row.normNome, normName)) return;
-    if (!byImporter[row.importer]) byImporter[row.importer] = { importer: row.importer, eventos: 0, produtos: new Set() };
-    byImporter[row.importer].eventos += row.eventos;
-    row.produtos.forEach(p => byImporter[row.importer].produtos.add(p));
+    if (!norms.some(n => normPrefixMatch(row.normNome, n))) return;
+    const b = bucket(row.importer); b.eventos += row.eventos; row.produtos.forEach(p => b.produtos.add(p));
+  });
+  (marketRelations[exporterKey(exp)] || []).forEach(r => {
+    const b = bucket(r.i);
+    b.eventos = Math.max(b.eventos, r.n); // the snapshot and the reports describe the same shipments: keep the larger count
+    b.viaHevile = Math.max(b.viaHevile, r.h || 0);
+    (r.p || []).forEach(p => b.produtos.add(p));
   });
   return Object.values(byImporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
 }
 
 function getExportersForImporter(imp){
-  const normTrade = normalizeName(imp.trade || imp.name), normName = normalizeName(imp.name);
+  const norms = [normalizeName(imp.trade || imp.name), normalizeName(imp.name), ...aliasNormsFor(imp)];
   const byExporter = {};
+  const bucket = (name, isClient) => {
+    const k = normalizeName(name);
+    const e = byExporter[k] || (byExporter[k] = { exportador: name, eventos: 0, produtos: new Set(), isClient: false });
+    if (isClient) e.isClient = true;
+    return e;
+  };
   marketFlatIndex().forEach(row => {
-    if (!normPrefixMatch(row.normImporter, normTrade) && !normPrefixMatch(row.normImporter, normName)) return;
-    if (!byExporter[row.nome]) byExporter[row.nome] = { exportador: row.nome, eventos: 0, produtos: new Set(), isClient: row.isClient };
-    byExporter[row.nome].eventos += row.eventos;
-    row.produtos.forEach(p => byExporter[row.nome].produtos.add(p));
+    if (!norms.some(n => normPrefixMatch(row.normImporter, n))) return;
+    const e = bucket(row.nome, row.isClient); e.eventos += row.eventos; row.produtos.forEach(p => e.produtos.add(p));
+  });
+  Object.entries(marketRelations).forEach(([ek, rels]) => {
+    const ex = EXPORTERS.find(x => exporterKey(x) === ek);
+    if (!ex) return;
+    rels.forEach(r => {
+      if (!norms.some(n => normPrefixMatch(normalizeName(r.i), n))) return;
+      const e = bucket(ex.trade, (r.h || 0) > 0 || (ex.active && ex.tier !== 'Prospect'));
+      e.eventos = Math.max(e.eventos, r.n); (r.p || []).forEach(p => e.produtos.add(p));
+    });
   });
   return Object.values(byExporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
+}
+
+// A merge folds EVERYTHING the system keeps about the removed company into the one that stays.
+async function mergeCompanyData(src, srcKey, tgt, tgtKey, isImporter){
+  const uniq = a => [...new Set(a)];
+  // fruits + confirmed varieties
+  tgt.all_fruits = uniq([...(tgt.all_fruits || []), ...(src.all_fruits || [])]);
+  if (isImporter) tgt.products = [...tgt.all_fruits];
+  await setProspectFruitOverrides(tgtKey, tgt.all_fruits);
+  const vc = { ...(tgt.variety_confirmed || {}) };
+  Object.entries(src.variety_confirmed || {}).forEach(([fruit, vars]) => {
+    vc[fruit] = (Array.isArray(vars) && (Array.isArray(vc[fruit]) || vc[fruit] == null)) ? uniq([...(vc[fruit] || []), ...vars]) : (vc[fruit] != null ? vc[fruit] : vars);
+  });
+  tgt.variety_confirmed = vc;
+  if (Object.keys(vc).length) await setVarietyOverride(tgtKey, vc);
+  // contact + identifiers (keeps what the staying company already has, fills the blanks from the other)
+  tgt.phone = tgt.phone || src.phone || ''; tgt.email = tgt.email || src.email || '';
+  ['site', 'address', 'agendorOrgId', 'agendorNotesDealId'].forEach(f => { if (!tgt[f] && src[f]) tgt[f] = src[f]; });
+  tgt.cnpj = joinCnpjs(tgt.cnpj, src.cnpj) || undefined;
+  await setContactOverride(tgtKey, { trade: tgt.trade, display: tgt.display, phone: tgt.phone, email: tgt.email, site: tgt.site || null, cnpj: tgt.cnpj || null, address: tgt.address, agendorOrgId: tgt.agendorOrgId, agendorNotesDealId: tgt.agendorNotesDealId });
+  // numbers
+  tgt.shipments = (tgt.shipments || 0) + (src.shipments || 0);
+  if (isImporter){
+    tgt.weight = (tgt.weight || 0) + (src.weight || 0);
+    tgt.destinations = uniq([...(tgt.destinations || []), ...(src.destinations || [])]);
+    await setStatsOverride(tgtKey, { shipments: tgt.shipments, weight: tgt.weight, destinations: tgt.destinations });
+  } else {
+    if (src.active) tgt.active = true;
+    let best = tgt.tier || 'Prospect';
+    [src.tier, tierForShipmentCount(tgt.shipments)].forEach(t => { if (TIER_ORDER.includes(t) && TIER_ORDER.includes(best) && TIER_ORDER.indexOf(t) > TIER_ORDER.indexOf(best)) best = t; });
+    tgt.tier = best;
+    await setStatsOverride(tgtKey, { shipments: tgt.shipments, active: tgt.active, tier: tgt.tier });
+  }
+  // history: cotações, indicações, primeiro contato, reuniões em feira, feedback
+  const [sq, tq] = await Promise.all([getQuotes(srcKey), getQuotes(tgtKey)]);
+  if (sq.length){ await setQuotes(tgtKey, [...tq, ...sq]); quotesCache[tgtKey] = [...tq, ...sq]; }
+  const [sr, tr] = await Promise.all([getReferrals(srcKey), getReferrals(tgtKey)]);
+  if (sr.length){ await setReferrals(tgtKey, [...tr, ...sr]); referralsCache[tgtKey] = [...tr, ...sr]; }
+  const [sc, tc] = await Promise.all([getFirstContacts(srcKey), getFirstContacts(tgtKey)]);
+  if (sc.length){ await setFirstContacts(tgtKey, [...tc, ...sc]); firstContactsCache[tgtKey] = [...tc, ...sc]; }
+  const [sf, tf] = await Promise.all([getFeiras(srcKey), getFeiras(tgtKey)]);
+  if (sf.length){ await setFeiras(tgtKey, [...tf, ...sf]); feirasCache[tgtKey] = [...tf, ...sf]; }
+  const srcFeedback = await getFeedback(srcKey);
+  if (srcFeedback){
+    const tgtFeedback = await getFeedback(tgtKey);
+    await setFeedback(tgtKey, tgtFeedback ? tgtFeedback + '\n\n---\n\n' + srcFeedback : srcFeedback);
+  }
+  // market relations (importers it ships to) + names, so the old name still finds its market data
+  if (marketRelations[srcKey] && marketRelations[srcKey].length) await saveMarketRelations(tgtKey, marketRelations[srcKey]);
+  await addExporterAlias(src.name, tgtKey);
+  if (src.trade && normalizeName(src.trade) !== normalizeName(src.name)) await addExporterAlias(src.trade, tgtKey);
 }
 
 function buildUnifiedImporters(){
@@ -5779,11 +5891,16 @@ async function setProspectFruitOverrides(key, arr){
   await backendSet('hevile_prospect_fruits:' + key, JSON.stringify(arr));
 }
 async function setContactOverride(key, contact){
-  await backendSet('hevile_contact:' + key, JSON.stringify(contact));
+  // Partial saves (Agendor id, a merge...) keep every field already saved for this company.
+  let prev = {};
+  try{ const v = await backendGet('hevile_contact:' + key); if (v) prev = JSON.parse(v) || {}; } catch(e){ /* none yet */ }
+  const next = { ...prev };
+  Object.entries(contact).forEach(([k, v]) => { if (v !== undefined) next[k] = v; });
+  await backendSet('hevile_contact:' + key, JSON.stringify(next));
 }
 async function migrateExporterKey(oldKey, newKey){
   if (oldKey === newKey) return;
-  const prefixes = ['hevile_referrals:', 'hevile_quotes:', 'hevile_feedback:', 'hevile_prospect_fruits:', 'hevile_contact:', 'hevile_variety:'];
+  const prefixes = ['hevile_referrals:', 'hevile_quotes:', 'hevile_feedback:', 'hevile_prospect_fruits:', 'hevile_contact:', 'hevile_variety:', 'hevile_firstcontact:', 'hevile_feira:', 'hevile_rel:'];
   for (const prefix of prefixes){
     try{
       const oldVal = await backendGet(prefix + oldKey);
@@ -5823,6 +5940,7 @@ async function loadContactOverrides(){
       if (c.email) d.email = c.email;
       if (c.site) d.site = c.site;
       if (c.cnpj) d.cnpj = c.cnpj;
+      if ('address' in c) d.address = c.address || undefined;
       if (c.agendorOrgId) d.agendorOrgId = c.agendorOrgId;
       if (c.agendorNotesDealId) d.agendorNotesDealId = c.agendorNotesDealId;
     } catch(e){ /* skip */ }
@@ -6709,6 +6827,7 @@ loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'importer
 loadContactOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadStatsOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadVarietyOverrides();
+loadMarketRelations().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 
 // One-time fix: a few exporter names had small typos ("A" added / suffix mismatch) versus
 // the real records in Magaya/Agendor. Migrate any local data across for each, but deliberately
