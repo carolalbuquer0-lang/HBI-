@@ -5642,7 +5642,7 @@ async function mergeCompanyData(src, srcKey, tgt, tgtKey, isImporter){
   tgt.phone = tgt.phone || src.phone || ''; tgt.email = tgt.email || src.email || '';
   ['site', 'address', 'agendorOrgId', 'agendorNotesDealId'].forEach(f => { if (!tgt[f] && src[f]) tgt[f] = src[f]; });
   tgt.cnpj = joinCnpjs(tgt.cnpj, src.cnpj) || undefined;
-  await setContactOverride(tgtKey, { trade: tgt.trade, display: tgt.display, phone: tgt.phone, email: tgt.email, site: tgt.site || null, cnpj: tgt.cnpj || null, address: tgt.address, agendorOrgId: tgt.agendorOrgId, agendorNotesDealId: tgt.agendorNotesDealId });
+  await setContactOverride(tgtKey, { trade: tgt.trade, display: tgt.display, phone: tgt.phone || undefined, email: tgt.email || undefined, site: tgt.site || null, cnpj: tgt.cnpj || null, address: tgt.address, agendorOrgId: tgt.agendorOrgId, agendorNotesDealId: tgt.agendorNotesDealId });
   // numbers
   tgt.shipments = (tgt.shipments || 0) + (src.shipments || 0);
   if (isImporter){
@@ -5655,6 +5655,13 @@ async function mergeCompanyData(src, srcKey, tgt, tgtKey, isImporter){
     [src.tier, tierForShipmentCount(tgt.shipments)].forEach(t => { if (TIER_ORDER.includes(t) && TIER_ORDER.includes(best) && TIER_ORDER.indexOf(t) > TIER_ORDER.indexOf(best)) best = t; });
     tgt.tier = best;
     await setStatsOverride(tgtKey, { shipments: tgt.shipments, active: tgt.active, tier: tgt.tier });
+  }
+  const getC = isImporter ? getCustomImporters : getCustomExporters, setC = isImporter ? setCustomImporters : setCustomExporters;
+  const own = await getC(), oi = own.findIndex(x => exporterKey(x) === tgtKey);
+  if (oi !== -1){
+    ['all_fruits', 'products', 'variety_confirmed', 'phone', 'email', 'site', 'cnpj', 'address', 'agendorOrgId', 'agendorNotesDealId', 'shipments', 'weight', 'destinations', 'active', 'tier']
+      .forEach(f => { if (tgt[f] !== undefined) own[oi][f] = tgt[f]; });
+    await setC(own);
   }
   // history: cotações, indicações, primeiro contato, reuniões em feira, feedback
   const [sq, tq] = await Promise.all([getQuotes(srcKey), getQuotes(tgtKey)]);
@@ -6821,13 +6828,12 @@ loadNoShowCache();
 loadExporterAliases().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadConvertedTypes().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 loadCiaFeesCache();
-loadCustomExporters();
-loadCustomImporters();
-loadProspectFruitOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
-loadContactOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
-loadStatsOverrides().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
-loadVarietyOverrides();
-loadMarketRelations().then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+const customReady = Promise.all([loadCustomExporters(), loadCustomImporters()]); // the saved extras below need these companies to exist first
+customReady.then(loadProspectFruitOverrides).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+customReady.then(loadContactOverrides).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+customReady.then(loadStatsOverrides).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
+customReady.then(loadVarietyOverrides);
+customReady.then(loadMarketRelations).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 
 // One-time fix: a few exporter names had small typos ("A" added / suffix mismatch) versus
 // the real records in Magaya/Agendor. Migrate any local data across for each, but deliberately
