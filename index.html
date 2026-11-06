@@ -881,7 +881,6 @@ function extractDealId(dealResult){
   return b.id || (b.data && b.data.id) || (b.deal && b.deal.id) || null;
 }
 // Turns a raw {status, body} result from the Agendor proxy into something readable, instead
-// of dumping raw HTML/JSON error pages (e.g. nginx's 429 page) straight into the UI.
 function friendlyAgendorError(result){
   const status = result && result.status;
   if (status === 429) return 'O Agendor está limitando as requisições no momento (muitas chamadas em pouco tempo). Espere uns 30 segundos e tente de novo.';
@@ -1002,7 +1001,6 @@ async function getRates(){
     });
     if (out.length) return out;
     // Nothing in the new per-entry format yet — fall back to the legacy single-blob key so
-    // existing data isn't lost, and migrate it into the new format right away.
     const legacy = await backendGet('hevile_rates');
     if (legacy){
       try{
@@ -1094,13 +1092,11 @@ async function loadRatesCache(){
   let needsSave = false;
 
   // One-time cleanup: remove old Azul entries that had a guessed/wrong weight-tier assumption,
-  // now replaced by entries read from the real column layout Carol sent.
   const before = ratesCache.length;
   ratesCache = ratesCache.filter(r => !(r.cia === 'Azul' && (r.condicao || '').includes('confirmar com a Carol')));
   if (ratesCache.length !== before) needsSave = true;
 
   // One-time fix: normalize old "<300kg"/"<500kg" notation (Air France / KLM) to the same
-  // "Faixa +XKG" pattern used everywhere else, so the PDF groups weight tiers into columns correctly.
   ratesCache.forEach(r => {
     if (r.condicao && /<\d+kg/i.test(r.condicao)){
       r.condicao = r.condicao.replace(/<(\d+)kg/gi, (m, n) => `Faixa +${n}KG`);
@@ -1366,7 +1362,6 @@ function openCiaContactForm(contact){
 }
 
 // ---- Reuniões com CIAs — mesma ideia da "Reunião em Feira", mas pra companhia aérea em vez
-// de cliente, e nunca sincroniza com o Agendor (não é relacionamento comercial de cliente). ----
 let ciaMeetingsCache = [];
 async function getCiaMeetings(){
   try{
@@ -1718,7 +1713,6 @@ function translateProductToEn(text){
 }
 
 // Returns the product a rate refers to — from the dedicated field if set, or by pulling
-// "Produto: X" out of the older free-text condicao (for rates entered before this field existed).
 function getEffectiveProduto(r){
   if (r.produto) return r.produto;
   const m = (r.condicao || '').match(/Produto:\s*([^·]+)/i);
@@ -1759,13 +1753,11 @@ function wireDayChips(root){
 }
 
 // ---- Product picker: fixed options (PT + EN), several can be ticked; anything else goes in "Outro" ----
-// The product is still stored as plain text ("Limão + Abacate"), so every screen, the PDF and the filters keep working.
 const PRODUCT_OPTIONS = [
   { pt: 'Fruta Leve', en: 'Soft Fruit' }, { pt: 'Fruta Pesada', en: 'Heavy Fruit' }, { pt: 'Limão', en: 'Limes' },
   { pt: 'Gengibre', en: 'Ginger' }, { pt: 'Abacate', en: 'Avocado' }, { pt: 'Batata Doce', en: 'Sweet Potatoes' }
 ];
 // Splits "Limão + Abacate", "Gengibre / Fruta Pesada" or "Fruta e Gengibre" into its fruits — but never inside
-// parentheses, so "Fruta pesada (mamão e manga)" stays one product.
 function splitProductParts(str){
   const s = String(str || ''), parts = [];
   let depth = 0, cur = '', i = 0;
@@ -1813,7 +1805,6 @@ function productChipsHtml(selected){
   }).join('');
 }
 // A product from before the fixed list (Pescado, Costeiro, "Fruta leve ou delicada"...) is kept as a dashed tag
-// that can be clicked away — nothing is lost silently, and no free-text box is needed.
 function legacyProductChipHtml(text){
   return `<label class="variety-chip selected" title="Produto antigo (fora da lista) — clique pra tirar" style="${CHIP_ON} border-style:dashed;"><input type="checkbox" class="pp-legacy" value="${attrEsc(text)}" checked style="display:none;"> ${qbEsc(text)} <span style="opacity:.6;">✕</span></label>`;
 }
@@ -1847,7 +1838,6 @@ function openRouteEditor(group){
   const byWeight = (a, b) => parseCondicao(a.condicao).faixaSortKey - parseCondicao(b.condicao).faixaSortKey;
 
   // Fields that can legitimately differ between tiers: show the shared value, or leave blank when they
-  // vary (blank = "keep each tier as it is"). A field is only written back if it was changed here.
   const sharedOf = (rs, key) => {
     const vals = [...new Set(rs.map(r => r[key]).filter(v => v !== undefined && v !== null && v !== '' && v !== 0))];
     return { value: vals.length === 1 ? vals[0] : '', varies: vals.length > 1 };
@@ -2524,7 +2514,6 @@ function openRateForm(rate, template){
       }
     }
     // Rebuild condicao cleanly from the separated fields, instead of hand-editing one
-    // combined string — this is what kept losing the weight-tier tag by accident before.
     const condicaoFor = (num, unit) => {
       const parts = [];
       if (produto) parts.push(`Produto: ${produto}`);
@@ -2887,7 +2876,6 @@ function openQuoteBuilder(){
       const profit = qbProfit(id);
       const feeIds = [...document.querySelectorAll(`.qb-fee-cb[data-rate="${id}"]:checked`)].map(cb => cb.dataset.fee);
       // Tarifa de venda = base + profit. Armazenagem e desembaraço aparecem em colunas próprias no PDF,
-      // então não entram na tarifa/kg (senão o cliente veria a armazenagem cobrada duas vezes).
       const tarifaVenda = r.tarifaBase + profit;
       return {
         ...r,
@@ -2955,7 +2943,6 @@ function openQuoteBuilder(){
     });
 
     // Preview and "Baixar PDF (sem enviar)" never save a cotação or touch Agendor. Preview doesn't open
-    // the print dialog; download does, so the PDF can be saved. The modal stays open to adjust.
     const lang = document.getElementById('qbLang').value;
     const layout = document.getElementById('qbLayout').value;
     const productFilter = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => i.value);
@@ -2981,7 +2968,6 @@ function parseCondicao(condicao){
     const num = parseInt(m[2].replace(/[.,]/g, ''), 10);
     const isTons = !!(m[3] && /TON/i.test(m[3]));
     // 1000kg = 1 ton, so convert tons to their kg-equivalent — this merges "+1 TON" and
-    // "+1000KG" (and "+3 TONS"/"+3000KG", etc.) into the same column instead of duplicating it.
     const kgValue = isTons ? num * 1000 : num;
     faixaKey = `${kgValue}KG`;
     faixaLabel = `+${kgValue.toLocaleString('pt-BR')}KG`;
@@ -3034,7 +3020,6 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   rates.forEach(r => { (groups[r.tipo] || (groups[r.tipo] = [])).push(r); });
 
   // "Por linha" layout: each CIA/route is its own ROW (classic comparison-sheet style), grouped
-  // into one table per destination+product combination, with a title like "Destino: DXB — Manga".
   function transitTimeFor(r){
     if (r.transitTime) return r.transitTime;
     const { obs } = parseCondicao(r.condicao);
@@ -3055,7 +3040,6 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return (lang === 'en' && /^di[aá]rio$/i.test(t)) ? 'Daily' : t;
   }
   // Minimum weight = the weight tier ("+5.999KG") and/or the To Door minimum; falls back to a
-  // "Mín. X kg" written in the validity text of older rates.
   function minWeightFor(r){
     const parts = [];
     const { faixaKey } = parseCondicao(r.condicao);
@@ -3071,14 +3055,13 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return parts.join('<br>') || '—';
   }
   // When fruits were picked in the quote builder, a tariff that also covers other fruits is shown as ONLY the
-  // picked ones (e.g. a "Limão + Abacate" tariff, with Abacate picked -> "Abacate").
   function shownProductFor(r){ return shownProductText(getEffectiveProduto(r), productFilter); }
   function rowTableFor(rows){
     if (!rows.length) return '';
     const byDestProduto = {};
     rows.forEach(r => {
       const produto = shownProductFor(r) || '—';
-      const key = r.destino + '|' + produto;
+      const key = r.destino + '|' + normTxt(produto);   // "Fruta Pesada" and "Fruta pesada" are the same table
       if (!byDestProduto[key]) byDestProduto[key] = { destino: r.destino, produto, rows: [] };
       byDestProduto[key].rows.push(r);
     });
@@ -3363,6 +3346,7 @@ function lastReferralOf(key){
 
 let activeFruit = null;
 let searchTerm = '';
+const HBI_BUILD = '2026-11-06 15:44';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 let onlyProspects = false;
 let sortExportersAZ = false;
 let sortImportersAZ = false;
@@ -4938,7 +4922,6 @@ async function initHistoricoPane(d, key){
         statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', friendlyAgendorError(pushResult));
       } else {
         // Nota direto no histórico da empresa, sem criar negócio — requer a ação
-        // "agendorCreateOrgTask" no Apps Script (Hevile_AppsScript_Code.gs).
         const taskResult = await agendorApiCall('agendorCreateOrgTask', { organizationId: orgId, text: feedbackEl.value.trim() });
         const taskOk = !taskResult || !taskResult.status || (taskResult.status >= 200 && taskResult.status < 300);
         statusEl.textContent = statusEl.textContent.replace('Enviando pro Agendor…', taskOk ? 'Nota registrada no histórico da empresa no Agendor ✓' : friendlyAgendorError(taskResult));
@@ -5046,7 +5029,6 @@ function commonPrefixLen(a, b){
 }
 
 // ---- Manual aliases: teaches the matcher about names it can never guess on its own
-// (e.g. "Christolofis Valinho" is actually the company registered here as "Adelpho") ----
 let exporterAliases = {}; // normalized alias name -> exporterKey
 async function getExporterAliases(){
   try{
@@ -5206,7 +5188,6 @@ async function handleDueFileImport(file){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
 
     // Column names can vary a little between weekly exports, so match loosely. Careful: "CNPJ Exportador"
-    // also matches a loose /exportador/i search, so the name-column pattern must exclude CNPJ columns.
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const findCol = (re) => cols.find(c => re.test(c)) || null;
     const exporterCol = findCol(/exportador.*nome|nome.*exportador/i) || cols.find(c => /exportador/i.test(c) && !/cnpj/i.test(c)) || 'Exportador Nome';
@@ -5258,7 +5239,6 @@ async function handleDueFileImport(file){
     // exporter -> importers, as the small records the cards read (max 60 strongest per exporter)
     const relList = (rel) => Object.entries(rel).map(([i, x]) => ({ i, n: x.all.size, h: x.h.size, p: guessFruitsForProducts([...x.produtos]) })).sort((a, b) => b.n - a.n).slice(0, 60);
     // Groups every name that points at the same registry company, then splits what we found into:
-    // ours (registry, Hevile DU-Es), Hevile clients not in the registry, and new business.
     const cnpjIdx = cnpjIndex();
     const split = (byName, list) => {
       const known = {}, novos = [];
@@ -5346,7 +5326,6 @@ function openDueImportReview(R){
   const modal = document.getElementById('modalContent');
   const { updExp, updImp, oursNovosExp, oursNovosImp, bizExp, bizImp, leads, relKnown, cnpjAdds } = R;
   // Stable ids assigned ONCE, independent of array position — so marking one entry as an alias
-  // (which removes it from the array) never shifts or resets any other row's checkbox.
   let sidCounter = 0;
   [...oursNovosExp, ...bizExp].forEach(n => { if (n._sid == null) n._sid = 'e' + (sidCounter++); });
   [...oursNovosImp, ...bizImp].forEach(n => { if (n._sid == null) n._sid = 'i' + (sidCounter++); });
@@ -5503,15 +5482,6 @@ function openDueImportReview(R){
 }
 
 // Cross-references LPCO/DU-E market data (which records real shipment relationships between
-function namesLooselyMatch(nameA, nameB){
-  const a = normalizeName(nameA), b = normalizeName(nameB);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  return commonPrefixLen(a, b) >= 8;
-}
-
-// MARKET is static, so this flat, pre-normalized index is built once and reused for every
-// lookup — avoids re-normalizing hundreds of names on every single card render.
 let marketFlatIndexCache = null;
 function marketFlatIndex(){
   if (marketFlatIndexCache) return marketFlatIndexCache;
@@ -5721,7 +5691,6 @@ function buildUnifiedImporters(){
   Object.entries(marketGroups).forEach(([rk, rows]) => {
     if (usedMarketKeys.has(rk)) return;
     // if this resolved key actually matches a real importer by name (not just an alias target
-    // that happens to also exist), it would've been caught above — this is genuinely market-only
     merged.push({ kind: 'market-only', data: mergeMarketRows(rows), market: mergeMarketRows(rows) });
   });
 
@@ -5857,6 +5826,25 @@ function renderImportersView(){
   document.getElementById('sortAzImpChip').onclick = () => { sortImportersAZ = !sortImportersAZ; renderImportersView(); };
 }
 
+/* ---------- Version label + "new version available" banner (the browser may keep serving an old cached copy) ---------- */
+document.querySelector('.sidebar').insertAdjacentHTML('beforeend', `<div style="font-size:11px; color:var(--muted); margin-top:18px;">versão ${HBI_BUILD}</div>`);
+async function checkForNewVersion(){
+  if (document.getElementById('newVersionBar')) return;
+  try{
+    const r = await fetch(location.pathname + '?nocache=' + Date.now(), { cache: 'no-store' });
+    const m = (await r.text()).match(new RegExp('HBI_' + "BUILD = '([^']+)'"));   // built from pieces so the marker text exists once
+    if (!m || m[1] === HBI_BUILD) return;
+    const bar = document.createElement('div');
+    bar.id = 'newVersionBar';
+    bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:99999; background:#ff671f; color:#fff; padding:12px 16px; font:600 14px sans-serif; text-align:center; cursor:pointer;';
+    bar.textContent = 'Tem uma versão nova do HBI. Toque aqui para atualizar.';
+    bar.onclick = () => { location.href = location.pathname + '?v=' + Date.now(); };
+    document.body.appendChild(bar);
+  } catch(e){ /* offline or opened from a file: nothing to check */ }
+}
+checkForNewVersion();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForNewVersion(); });
+
 /* ---------- Import buttons live in the sidebar (always available, wired once) ---------- */
 (function wireImportButtons(){
   const dueBtn = document.getElementById('importDueBtn'), dueIn = document.getElementById('importDueInput');
@@ -5870,12 +5858,6 @@ function isProspect(d){ return d.role !== 'Importer' && !d.active && (d.tier ===
 const isProspectImp = (d) => d.prospect !== undefined ? d.prospect : !(d.shipments > 0);
 
 /* ---------- Editing a prospect's fruit list as you learn more about them ---------- */
-async function getProspectFruitOverrides(key){
-  try{
-    const v = await backendGet('hevile_prospect_fruits:' + key);
-    return v ? JSON.parse(v) : [];
-  } catch(e){ return []; }
-}
 async function setProspectFruitOverrides(key, arr){
   await backendSet('hevile_prospect_fruits:' + key, JSON.stringify(arr));
 }
@@ -5887,19 +5869,6 @@ async function setContactOverride(key, contact){
   Object.entries(contact).forEach(([k, v]) => { if (v !== undefined) next[k] = v; });
   await backendSet('hevile_contact:' + key, JSON.stringify(next));
 }
-async function migrateExporterKey(oldKey, newKey){
-  if (oldKey === newKey) return;
-  const prefixes = ['hevile_referrals:', 'hevile_quotes:', 'hevile_feedback:', 'hevile_prospect_fruits:', 'hevile_contact:', 'hevile_variety:', 'hevile_firstcontact:', 'hevile_feira:', 'hevile_rel:'];
-  for (const prefix of prefixes){
-    try{
-      const oldVal = await backendGet(prefix + oldKey);
-      if (oldVal !== null && oldVal !== undefined && oldVal !== ''){
-        await backendSet(prefix + newKey, oldVal);
-      }
-    } catch(e){ /* nothing under old key, skip */ }
-  }
-}
-
 async function setVarietyOverride(key, varietyDict){
   await backendSet('hevile_variety:' + key, JSON.stringify(varietyDict));
 }
