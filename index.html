@@ -2982,7 +2982,7 @@ const PDF_I18N = {
   pt: {
     htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
-    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida',
+    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door',
     thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
@@ -2996,7 +2996,7 @@ const PDF_I18N = {
   en: {
     htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
     proposta: 'PROPOSAL', validadeLabel: 'Valid until', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
-    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid',
+    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.',
     thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
@@ -3067,40 +3067,66 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return Object.values(byDestProduto).map(group => {
       const { obs: lastObs } = parseCondicao(group.rows[0].condicao);
       const produtoShown = lang === 'en' ? ((group.rows.find(r => r.produtoEn && shownProductFor(r) === getEffectiveProduto(r)) || {}).produtoEn || translateProductToEn(group.produto)) : group.produto;
-      const bodyRows = group.rows.map((r, i) => {
-        const fees = feesFor(r);
-        const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
-        const { obs } = parseCondicao(r.condicao);
-        return `<tr class="${i % 2 ? 'pl-odd' : ''}">
+      // ONE line per route variation: the weight tiers (+300, +500, +1.000...) become columns side by side
+      const tierOf = r => parseInt(parseCondicao(r.condicao).faixaKey, 10) || 0;
+      const byLine = {};
+      group.rows.forEach(r => {
+        const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, parseCondicao(r.condicao).obs, (r.diasSemana || []).join(','), (r.frequenciaVoos || []).join(',')].join('|');
+        (byLine[k] = byLine[k] || []).push(r);
+      });
+      // at most 4 tier columns per table: when companies' tiers don't fit together, the table continues right below
+      const chunks = []; let cur = null;
+      Object.values(byLine).forEach(rs => {
+        rs.sort((x, y) => tierOf(x) - tierOf(y));
+        const ts = rs.map(tierOf);
+        if (!cur || new Set([...cur.t, ...ts]).size > 4){ cur = { t: new Set(), lines: [] }; chunks.push(cur); }
+        ts.forEach(x => cur.t.add(x)); cur.lines.push(rs);
+      });
+      const tierLabel = t => t ? `+${t.toLocaleString(L.dateLocale)} kg` : L.thGeneral;
+      const price = x => Number(x.tarifaVenda != null ? x.tarifaVenda : x.tarifaBase).toFixed(2);
+      const tableHtml = (ch) => {
+        const tiers = [...ch.t].sort((x, y) => x - y), nT = tiers.length, stacked = nT > 4, split = !stacked && !(nT === 1 && tiers[0] === 0);
+        const bodyRows = ch.lines.map((rs, i) => {
+          const r = rs[0], fees = feesFor(r);
+          const feesText = fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
+          const { obs } = parseCondicao(r.condicao);
+          const tierCells = stacked ? `<td>${tiers.map(t => { const x = rs.find(y => tierOf(y) === t); return x ? `<div>${tierLabel(t)}: <b>${price(x)}</b></div>` : ''; }).join('')}</td>`
+            : tiers.map(t => { const x = rs.find(y => tierOf(y) === t); return `<td>${x ? (nT === 1 ? 'USD ' : '') + price(x) : '—'}</td>`; }).join('');
+          const low = tierOf(r), td = r.tipo === 'To Door' && r.pesoMinimoToDoor ? Number(r.pesoMinimoToDoor) : 0;
+          let minNote = '';
+          if (td && td > low) minNote = `${L.minToDoor}: ${td.toLocaleString(L.dateLocale)} kg`;
+          else if (!low){ const m = minWeightFor(r); if (m && m !== '—') minNote = `${L.thMinWeight}: ${m}`; }
+          return `<tr class="${i % 2 ? 'pl-odd' : ''}">
           <td><b>${r.cia}</b></td>
           <td>${r.origem}</td>
           <td>${r.conexao || '—'}</td>
           <td>${r.destino}</td>
-          <td>USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}</td>
-          <td>${minWeightFor(r)}</td>
+          ${tierCells}
           <td>${feesText}</td>
           <td>${r.desembaraco ? 'USD ' + r.desembaraco.toFixed(2) : '—'}</td>
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
           <td>${transitTimeFor(r)}</td>
           <td>${flightFreqCell(r)}</td>
-          <td>${[notesWithoutTransit(obs), validDaysText(r)].filter(Boolean).join(' · ') || '—'}</td>
+          <td>${[notesWithoutTransit(obs), validDaysText(r), minNote].filter(Boolean).join(' · ') || '—'}</td>
         </tr>`;
-      }).join('');
-      return `
-        <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + produtoShown : ''}</div>
-        <table class="pl-table">
-          <colgroup>
-            <col style="width:9%"><col style="width:5.8%"><col style="width:6.2%"><col style="width:8.8%">
-            <col style="width:7.2%"><col style="width:6.8%"><col style="width:9.8%"><col style="width:9.2%"><col style="width:9.8%">
-            <col style="width:6.2%"><col style="width:8.8%"><col style="width:12.4%">
-          </colgroup>
+        }).join('');
+        const nC = stacked ? 1 : nT, tw = stacked ? 17 : (nT === 1 ? 9 : Math.min(8, 21.2 / nT));
+        const cols = [8.6, 5.6, 6, 8.4, ...Array(nC).fill(tw), 8.6, 9.0, 9.4, 5.8, 8.4, 100 - 69.8 - tw * nC].map(w => `<col style="width:${w.toFixed(2)}%">`).join('');
+        const rs2 = split ? ' rowspan="2"' : '';
+        return `<table class="pl-table">
+          <colgroup>${cols}</colgroup>
           <thead><tr>
-            <th>${L.thCia}</th><th>${L.thOrigem}</th><th>${L.thTransito}</th><th>${L.thDestino}</th>
-            <th>${L.thFreight}</th><th>${L.thMinWeight}</th><th>${L.thCarrierFees}</th><th>${L.thCustoms}</th><th>${L.thStorage}</th>
-            <th>${L.thTransitTime}</th><th>${L.thFrequency}</th><th>${L.thObs}</th>
-          </tr></thead>
+            <th${rs2}>${L.thCia}</th><th${rs2}>${L.thOrigem}</th><th${rs2}>${L.thTransito}</th><th${rs2}>${L.thDestino}</th>
+            <th${split ? ` colspan="${nT}"` : ''}>${L.thFreight}</th>
+            <th${rs2}>${L.thCarrierFees}</th><th${rs2}>${L.thCustoms}</th><th${rs2}>${L.thStorage}</th>
+            <th${rs2}>${L.thTransitTime}</th><th${rs2}>${L.thFrequency}</th><th${rs2}>${L.thObs}</th>
+          </tr>${split ? `<tr>${tiers.map(t => `<th>${tierLabel(t)}</th>`).join('')}</tr>` : ''}</thead>
           <tbody>${bodyRows}</tbody>
         </table>`;
+      };
+      return `
+        <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + produtoShown : ''}</div>
+        ${chunks.map(tableHtml).join('<div style="height:10px"></div>')}`;
     }).join('');
   }
 
@@ -3194,8 +3220,8 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     .pl-section{ background:#EAF1F5; border-left:4px solid #ff671f; border-radius:0 6px 6px 0; padding:7px 12px; font-size:12.5px; font-weight:bold; color:#2f4a5b; margin:18px 0 2px; }
     .pl-title{ font-size:13px; font-weight:bold; margin:16px 0 7px; color:#1F2D36; }
     .pl-table{ width:100%; border-collapse:collapse; font-size:8.5px; margin-bottom:6px; table-layout:fixed; }
-    .pl-table th{ background:#4f758b; color:#fff; padding:6px 4px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
-    .pl-table td{ padding:6px 4px; border-bottom:1px solid #DCE5EB; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
+    .pl-table th{ background:#4f758b; color:#fff; padding:6px 3px; text-align:left; font-weight:bold; font-size:8.5px; text-transform:none; overflow-wrap:normal; word-break:normal; hyphens:none; }
+    .pl-table td{ padding:6px 3px; border-bottom:1px solid #DCE5EB; word-wrap:break-word; vertical-align:top; color:#2A2A2A; }
     .pl-table td:first-child{ overflow-wrap:normal; word-break:normal; hyphens:none; }
     .pl-table tr.pl-odd td{ background:#F3F7F9; }
     .pq-noshow-title{ font-size:11px; font-weight:bold; color:#1F2D36; margin:14px 0 6px; }
@@ -3602,7 +3628,7 @@ function renderCards(){
     card.innerHTML = `
       <div class="card-head">
         <div class="name">${d.trade}</div>
-        ${d.tier === 'Prospect' || d.role === 'Importer' ? `<div class="card-tags">${d.tier === 'Prospect' ? '<span class="prospect-tag">PROSPECT</span>' : ''}${d.role === 'Importer' ? '<span class="importer-tag">IMPORTADOR</span>' : ''}</div>` : ''}
+        ${isProspect(d) || d.role === 'Importer' ? `<div class="card-tags">${isProspect(d) ? '<span class="prospect-tag">PROSPECT</span>' : ''}${d.role === 'Importer' ? '<span class="importer-tag">IMPORTADOR</span>' : ''}</div>` : ''}
       </div>
       ${d.site ? `<div class="site">${d.site}</div>` : ''}
       ${d.address ? `<div class="address">📍 ${d.address}</div>` : ''}
@@ -3723,20 +3749,20 @@ function openModal(d, initialTab){
         </div>
       </div>
       <div class="actions-card">
-        ${d.tier === 'Prospect' ? `
+        ${(IMPORTERS.includes(d) ? isProspectImp(d) : isProspect(d)) ? `
           <div class="merge-box">
-            <label>✅ Já embarcamos com esse exportador?</label>
+            <label>✅ Já embarcamos com esse ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}?</label>
             <div class="merge-row">
               <input type="number" id="prospectShipCount" placeholder="Quantos embarques (ex: 1)" min="1" value="1">
               <button id="prospectClearBtn" type="button" class="btn-navy">Tirar de Prospect</button>
             </div>
-            <div class="merge-hint">Marca como Ativo e muda a categoria de acordo com o número de embarques.</div>
+            <div class="merge-hint">${IMPORTERS.includes(d) ? 'Passa a contar como cliente, com esse número de embarques.' : 'Marca como Ativo e muda a categoria de acordo com o número de embarques.'}</div>
           </div>
-        ` : (EXPORTERS.includes(d) ? `
+        ` : ((EXPORTERS.includes(d) || IMPORTERS.includes(d)) ? `
           <div class="merge-box">
-            <label>🔎 Ainda não embarcamos com esse exportador?</label>
+            <label>🔎 Ainda não embarcamos com esse ${IMPORTERS.includes(d) ? 'importador' : 'exportador'}?</label>
             <div class="merge-row"><button id="prospectSetBtn" type="button" class="btn-navy">Colocar como Prospect</button></div>
-            <div class="merge-hint">Vira Prospect e Inativo, com 0 embarques. Dá para desfazer depois com "Tirar de Prospect".</div>
+            <div class="merge-hint">${IMPORTERS.includes(d) ? 'Volta a contar como prospect (os embarques registrados ficam). ' : 'Vira Prospect e Inativo, com 0 embarques. '}Dá para desfazer depois com "Tirar de Prospect".</div>
           </div>
         ` : '')}
         <div class="actions-row">
@@ -4012,21 +4038,29 @@ function openModal(d, initialTab){
   if (prospectClearBtn){
     prospectClearBtn.onclick = async () => {
       const n = parseInt(document.getElementById('prospectShipCount').value, 10) || 1;
-      d.active = true;
-      d.shipments = n;
-      d.tier = tierForShipmentCount(n);
-      await setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier });
-      renderCards();
+      if (IMPORTERS.includes(d)){
+        d.shipments = Math.max(d.shipments || 0, n); d.prospect = false;
+        await setStatsOverride(exporterKey(d), { shipments: d.shipments, prospect: false });
+      } else {
+        d.active = true; d.shipments = n; d.tier = tierForShipmentCount(n);
+        await setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier });
+      }
+      renderCards(); if (currentNav === 'importers') renderImportersView();
       openModal(d, 'perfil');
     };
   }
   const prospectSetBtn = document.getElementById('prospectSetBtn');
   if (prospectSetBtn){
     prospectSetBtn.onclick = async () => {
-      if (!confirm(`Colocar "${d.trade}" como Prospect?\n\nEle vira inativo e os ${d.shipments || 0} embarques registrados são zerados.`)) return;
-      d.active = false; d.shipments = 0; d.tier = 'Prospect';
-      await setStatsOverride(exporterKey(d), { shipments: 0, active: false, tier: 'Prospect' });
-      renderStats(); renderCards();
+      if (IMPORTERS.includes(d)){
+        if (!confirm(`Colocar "${d.trade}" como Prospect?`)) return;
+        d.prospect = true; await setStatsOverride(exporterKey(d), { prospect: true });
+      } else {
+        if (!confirm(`Colocar "${d.trade}" como Prospect?\n\nEle vira inativo e os ${d.shipments || 0} embarques registrados são zerados.`)) return;
+        d.active = false; d.shipments = 0; d.tier = 'Prospect';
+        await setStatsOverride(exporterKey(d), { shipments: 0, active: false, tier: 'Prospect' });
+      }
+      renderStats(); renderCards(); if (currentNav === 'importers') renderImportersView();
       openModal(d, 'perfil');
     };
   }
@@ -5242,7 +5276,7 @@ async function handleDueFileImport(file){
       return { d: e.d, nome: e.nomes.join(' / '), h: e.h.size, before, after: { shipments: Math.max(before.shipments, e.h.size) } };
     }).filter(u => u.before.shipments !== u.after.shipments).sort((a, b) => b.h - a.h);
     // Registry prospects that competitors already ship with (and Hevile never did): hot leads.
-    const leads = exp.known.filter(e => e.h.size === 0 && e.o.size > 0 && (e.d.tier || 'Prospect') === 'Prospect' && !(e.d.shipments > 0))
+    const leads = exp.known.filter(e => e.h.size === 0 && e.o.size > 0 && isProspect(e.d) && !(e.d.shipments > 0))
       .map(e => ({ nome: e.d.trade, o: e.o.size })).sort((a, b) => b.o - a.o);
 
     const label = (n) => (n.h && n.o) ? `${n.h} DU-E Hevile + ${n.o} de outros clientes` : n.h ? `${n.h} DU-E Hevile` : registroCol ? `${n.o} DU-E de outro cliente` : `${n.eventos} DU-E`;
@@ -5397,11 +5431,11 @@ function openDueImportReview(R){
     updImp.forEach(u => {
       const cb = document.querySelector(`.due-upd-imp[data-id="${exporterKey(u.d).replace(/"/g, '&quot;')}"]`);
       if (!cb || !cb.checked) return;
-      u.d.shipments = u.after.shipments; appliedImp.push(u.d);
+      u.d.shipments = u.after.shipments; u.d.prospect = false; appliedImp.push(u.d);
     });
     await Promise.all([
       ...appliedExp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, active: d.active, tier: d.tier })),
-      ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight })),
+      ...appliedImp.map(d => setStatsOverride(exporterKey(d), { shipments: d.shipments, weight: d.weight, prospect: false })),
     ]);
 
     await Promise.all(relKnown.map(x => saveMarketRelations(exporterKey(x.d), x.rels)));
@@ -5692,6 +5726,7 @@ function unifiedImporterCard(item){
     const worksWithHtml = marketExporters.length ? `<div class="works-with-line">🔗 ${clientExps.length ? `${clientExps.length} exportador${clientExps.length>1?'es':''} cliente(s)` : `${marketExporters.length} exportador${marketExporters.length>1?'es':''}`} <span class="ww-names">— ${(clientExps.length?clientExps:marketExporters).slice(0,2).map(e=>e.exportador).join(', ')}${marketExporters.length>2?'…':''}</span></div>` : '';
     return `<div class="card" data-key="${exporterKey(imp).replace(/"/g,'&quot;')}">
       <div class="name">${imp.trade || imp.name}</div>
+      ${isProspectImp(imp) ? '<div class="card-tags"><span class="prospect-tag">PROSPECT</span></div>' : ''}
       ${imp.destinations.length ? `<div class="site">${imp.destinations.join(', ')}</div>` : ''}
       <div class="meta-line"><span>${imp.shipments} embarques</span><span>${Math.round(imp.weight).toLocaleString()} kg</span></div>
       <div class="pills">${pills}</div>
@@ -5718,6 +5753,7 @@ function renderImportersView(){
   const el = document.getElementById('importersView');
   let unified = buildUnifiedImporters();
 
+  if (marketFilter === 'prospect') unified = unified.filter(item => item.kind === 'importer' && isProspectImp(item.data));
   if (marketFilter === 'new') unified = unified.filter(item => item.kind === 'market-only' || (item.market && item.market.new_importer));
   if (activeFruit) unified = unified.filter(item => {
     const products = item.kind === 'importer' ? item.data.products : item.data.products;
@@ -5737,16 +5773,18 @@ function renderImportersView(){
     });
   }
 
+  const impProspects = IMPORTERS.filter(isProspectImp).length;
   const newCount = buildUnifiedImporters().filter(item => item.kind === 'market-only' || (item.market && item.market.new_importer)).length;
 
   el.innerHTML = `
     <div class="nav-toggle" style="margin-bottom:8px;">
       <button id="mfAll" class="${marketFilter==='all'?'active':''}">Todos (${buildUnifiedImporters().length})</button>
+      <button id="mfProspect" class="${marketFilter==='prospect'?'active':''}">Prospects (${impProspects})</button>
       <button id="mfNew" class="${marketFilter==='new'?'active':''}">Oportunidade: importador novo (${newCount})</button>
       <button id="sortAzImpChip" class="${sortImportersAZ?'active':''}" style="margin-left:auto;">${sortImportersAZ ? '✓ ' : ''}🔤 Ordem alfabética</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.5;">
-      <b>Importador novo:</b> nunca houve embarque com a Hevile para esse importador. (Oportunidades de <b>exportador novo</b> agora aparecem na aba Exportadores, já que são sobre encontrar um exportador — não um importador.)
+      <b>Prospect:</b> importador com quem a Hevile ainda não embarcou. <b>Importador novo:</b> nunca houve embarque com a Hevile para esse importador. (Oportunidades de <b>exportador novo</b> agora aparecem na aba Exportadores, já que são sobre encontrar um exportador — não um importador.)
     </div>
     ${activeFruit ? `<div style="font-size:12.5px; color:var(--muted); margin-bottom:10px;">Filtrando por <b>${ptFruit(activeFruit)}</b> (use a barra lateral para trocar ou limpar)</div>` : ''}
     <input type="text" id="importersSearch" placeholder="🔍 Buscar por nome, cidade ou país…" style="width:100%; padding:9px 14px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; margin-bottom:14px; box-sizing:border-box;">
@@ -5796,6 +5834,7 @@ function renderImportersView(){
   renderImportersList('');
   document.getElementById('importersSearch').addEventListener('input', (e) => renderImportersList(e.target.value));
   document.getElementById('mfAll').onclick = () => { marketFilter='all'; renderImportersView(); };
+  document.getElementById('mfProspect').onclick = () => { marketFilter='prospect'; renderImportersView(); };
   document.getElementById('mfNew').onclick = () => { marketFilter='new'; renderImportersView(); };
   document.getElementById('sortAzImpChip').onclick = () => { sortImportersAZ = !sortImportersAZ; renderImportersView(); };
 }
@@ -5808,7 +5847,9 @@ function renderImportersView(){
 })();
 
 /* ---------- New prospects (not yet a Hevile client) — shown via badge in the main Exportadores grid ---------- */
-function isProspect(d){ return (d.tier === 'Prospect' || d.tier === 'Manually added') && d.role !== 'Importer'; }
+function isProspect(d){ return d.role !== 'Importer' && !d.active && (d.tier === 'Prospect' || d.tier === 'Manually added'); }
+// importer: a prospect until Hevile ships with it (or until marked by hand either way)
+const isProspectImp = (d) => d.prospect !== undefined ? d.prospect : !(d.shipments > 0);
 
 /* ---------- Editing a prospect's fruit list as you learn more about them ---------- */
 async function getProspectFruitOverrides(key){
@@ -5907,21 +5948,27 @@ async function loadProspectFruitOverrides(){
   });
 }
 async function setStatsOverride(key, stats){
-  await backendSet('hevile_importer_stats:' + key, JSON.stringify(stats));
+  let prev = {};
+  try{ const v = await backendGet('hevile_importer_stats:' + key); if (v) prev = JSON.parse(v) || {}; } catch(e){ /* none yet */ }
+  const next = { ...prev };
+  Object.entries(stats).forEach(([k, v]) => { if (v !== undefined) next[k] = v; });
+  await backendSet('hevile_importer_stats:' + key, JSON.stringify(next));
 }
 async function loadStatsOverrides(){
   const entries = await backendListValues('hevile_importer_stats:');
   entries.forEach(({key, value}) => {
     const expKey = key.replace('hevile_importer_stats:', '');
-    const d = IMPORTERS.find(x => exporterKey(x) === expKey) || EXPORTERS.find(x => exporterKey(x) === expKey);
-    if (!d) return;
     try{
       const s = JSON.parse(value);
-      if (typeof s.shipments === 'number') d.shipments = s.shipments;
-      if (typeof s.weight === 'number') d.weight = s.weight;
-      if (typeof s.active === 'boolean') d.active = s.active;
-      if (typeof s.tier === 'string') d.tier = s.tier;
-      if (Array.isArray(s.destinations)) d.destinations = [...new Set([...(d.destinations||[]), ...s.destinations])];
+      [...EXPORTERS, ...IMPORTERS].filter(x => exporterKey(x) === expKey).forEach(d => {
+        const imp = IMPORTERS.includes(d);
+        if (typeof s.shipments === 'number') d.shipments = s.shipments;
+        if (typeof s.weight === 'number') d.weight = s.weight;
+        if (!imp && typeof s.active === 'boolean') d.active = s.active;
+        if (!imp && typeof s.tier === 'string') d.tier = s.tier;
+        if (imp && typeof s.prospect === 'boolean') d.prospect = s.prospect;
+        if (Array.isArray(s.destinations)) d.destinations = [...new Set([...(d.destinations||[]), ...s.destinations])];
+      });
     } catch(e){ /* skip */ }
   });
 }
