@@ -2626,6 +2626,9 @@ function openQuoteBuilder(){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
 
+  const qbSel = {};   // marked tariffs and their profit: kept while you change the filters (e.g. to add another destination)
+  const qbPicked = () => { const s = new Set(Object.keys(qbSel)); document.querySelectorAll('#qbRatesList .qb-check:checked').forEach(x => s.add(x.dataset.id)); return ratesCache.filter(r => s.has(r.id)).map(r => r.id); };
+  const qbProfit = (id) => { const el = document.querySelector(`.qb-profit[data-id="${id}"]`); return parseFloat(el ? el.value : qbSel[id]) || 0; };
   function rowsHtml(list){
     const sorted = [...list].sort((a,b) => a.cia.localeCompare(b.cia) || a.tarifaBase - b.tarifaBase);
     return sorted.map(r => {
@@ -2636,7 +2639,7 @@ function openQuoteBuilder(){
         (r.diasSemana && r.diasSemana.length) ? 'Válido: ' + formatFlightFrequency(r.diasSemana, 'pt') : ''].filter(Boolean).join(' · ');
       return `
       <div class="cf-row" style="align-items:flex-start; border-bottom:1px solid var(--line); padding:8px 0;" data-rate-id="${r.id}">
-        <input type="checkbox" class="qb-check" data-id="${r.id}" style="flex:0 0 20px; margin-top:2px;">
+        <input type="checkbox" class="qb-check" data-id="${r.id}" ${qbSel[r.id] !== undefined ? 'checked' : ''} style="flex:0 0 20px; margin-top:2px;">
         <span style="flex:1.6; font-size:12.5px; line-height:1.4;">
           <b>${r.cia}</b> ${r.origem}${r.conexao?(' → '+r.conexao):''} → ${r.destino} <span style="color:var(--muted);">(USD ${r.tarifaBase.toFixed(2)}/kg base)</span>
           <br>${r.tipo === 'To Door'
@@ -2644,7 +2647,7 @@ function openQuoteBuilder(){
             : `<span style="font-size:10.5px; background:#4f758b; color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold; margin-right:4px;">✈ Aeroporto</span>`}${produto ? `<span style="font-size:10.5px; background:var(--teal); color:#fff; border-radius:4px; padding:1px 6px; font-weight:bold;">${produto}</span>` : ''}
           ${condShown ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${condShown}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
-        <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
+        <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" value="${qbSel[r.id] || ''}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
       </div>
     `;
     }).join('') || '<div class="empty">Nenhuma tarifa encontrada pra essa rota.</div>';
@@ -2684,18 +2687,19 @@ function openQuoteBuilder(){
       <div class="qb-section">
         <div class="qb-section-title">Filtrar por rota, CIA e produto (opcional — deixe em branco pra ver tudo)</div>
         <div class="cf-row">
-          <div style="flex:1;"><label>Origem</label><input type="text" id="qbFiltroOrigem" placeholder="ex: GRU"></div>
-          <div style="flex:1;"><label>Destino</label><input type="text" id="qbFiltroDestino" placeholder="ex: AMS"></div>
+          <div style="flex:1;"><label>Origem</label><input type="text" id="qbFiltroOrigem" placeholder="ex: GRU, VCP"></div>
+          <div style="flex:1;"><label>Destino</label><input type="text" id="qbFiltroDestino" placeholder="ex: AMS, LHR, CDG (vários, separados por vírgula)"></div>
         </div>
         <label>Produtos que quero ver — marque um ou mais</label>
         <div id="qbProdChips" class="pp-chips" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">${productChipsHtml([])}</div>
         <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">Aparecem só as tarifas que incluem essas frutas (mesmo que a tarifa também valha pra outras). Nada marcado = todas.</div>
         <div class="cf-row">
-          <div style="flex:1;"><label>CIA</label><input type="text" id="qbFiltroCia" list="qbFiltroCiaList" placeholder="ex: LATAM">
+          <div style="flex:1;"><label>CIA</label><input type="text" id="qbFiltroCia" list="qbFiltroCiaList" placeholder="ex: LATAM, KLM">
             <datalist id="qbFiltroCiaList">${[...new Set(ratesCache.map(r => r.cia))].sort().map(c => `<option value="${c.replace(/"/g,'&quot;')}">`).join('')}</datalist>
           </div>
           <div style="flex:1;"><label>Outro produto (texto)</label><input type="text" id="qbFiltroProduto" placeholder="ex: Pescado"></div>
         </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">Cotação com mais de um destino? Digite vários separados por vírgula, ou troque o filtro e marque outras tarifas: as já marcadas ficam marcadas.</div>
       </div>
 
       <div class="qb-section">
@@ -2718,7 +2722,7 @@ function openQuoteBuilder(){
 
       <div class="qb-section">
         <div class="qb-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-          <span>Selecione as tarifas e o profit de cada uma</span>
+          <span>Selecione as tarifas e o profit de cada uma <span id="qbSelInfo" style="text-transform:none; font-weight:normal; color:var(--muted); margin-left:6px;"></span></span>
           <span style="text-transform:none; font-weight:normal; font-size:12px; display:flex; align-items:center; gap:5px; color:var(--ink);"><input type="checkbox" id="qbSelectAll"> Selecionar tudo</span>
         </div>
         <div id="qbRatesList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 10px; background:#fff;">
@@ -2752,7 +2756,8 @@ function openQuoteBuilder(){
 
       <div class="new-exp-actions">
         <button id="qbPreview" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);">👁 Pré-visualizar</button>
-        <button id="qbGenerate">Gerar PDF e enviar</button>
+        <button id="qbDownload" type="button" style="background:#fff; color:var(--teal-deep); border:1px solid var(--teal-deep);" title="Abre o PDF pra salvar ou imprimir, sem salvar a cotação no cliente nem mandar pro Agendor">⬇ Baixar PDF (sem enviar)</button>
+        <button id="qbGenerate">Gerar PDF e enviar ao Agendor</button>
         <span class="fs-status" id="qbStatus" style="margin-left:8px;"></span>
         <button class="cancel" onclick="closeModal()">Cancelar</button>
       </div>
@@ -2779,7 +2784,8 @@ function openQuoteBuilder(){
   function renderFeesPanel(){
     const panel = document.getElementById('qbFeesPanel');
     const a = readAnswers();
-    const ids = [...document.querySelectorAll('#qbRatesList .qb-check:checked')].map(c => c.dataset.id);
+    const ids = qbPicked();
+    document.getElementById('qbSelInfo').textContent = ids.length ? `${ids.length} marcada(s) · destinos: ${[...new Set(ids.map(id => ratesCache.find(x => x.id === id).destino))].join(', ')}` : '';
     if (!ids.length){
       panel.innerHTML = '<div style="font-size:12.5px; color:var(--muted); padding:4px 0;">Selecione as tarifas acima — aqui aparecem as taxas de cada uma, já marcadas conforme as respostas.</div>';
       return;
@@ -2816,21 +2822,28 @@ function openQuoteBuilder(){
     });
   });
   document.getElementById('qbRatesList').addEventListener('change', (e) => {
-    if (e.target.classList.contains('qb-check')) renderFeesPanel();
+    if (!e.target.classList.contains('qb-check')) return;
+    const id = e.target.dataset.id, pi = document.querySelector(`.qb-profit[data-id="${id}"]`);
+    if (e.target.checked) qbSel[id] = pi ? pi.value : ''; else delete qbSel[id];
+    renderFeesPanel();
+  });
+  document.getElementById('qbRatesList').addEventListener('input', (e) => {
+    if (e.target.classList.contains('qb-profit') && qbSel[e.target.dataset.id] !== undefined) qbSel[e.target.dataset.id] = e.target.value;
   });
   renderFeesPanel();
 
   function refilter(){
-    const o = document.getElementById('qbFiltroOrigem').value.trim().toUpperCase();
-    const d = document.getElementById('qbFiltroDestino').value.trim().toUpperCase();
+    const toks = (s, re) => s.split(re).map(x => x.trim()).filter(Boolean);
+    const o = toks(document.getElementById('qbFiltroOrigem').value.toUpperCase(), /[,;\/\s]+/);
+    const d = toks(document.getElementById('qbFiltroDestino').value.toUpperCase(), /[,;\/\s]+/);
     const p = document.getElementById('qbFiltroProduto').value.trim().toLowerCase();
-    const c = document.getElementById('qbFiltroCia').value.trim().toLowerCase();
+    const c = toks(document.getElementById('qbFiltroCia').value.toLowerCase(), /[,;\/]+/);
     const chipsSel = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => normTxt(i.value));
     const filtered = ratesCache.filter(r =>
       (!chipsSel.length || chipsSel.some(n => normTxt(getEffectiveProduto(r)).includes(n))) &&
-      (!o || r.origem.toUpperCase().includes(o)) &&
-      (!d || r.destino.toUpperCase().includes(d)) &&
-      (!c || r.cia.toLowerCase().includes(c)) &&
+      (!o.length || o.some(t => r.origem.toUpperCase().includes(t))) &&
+      (!d.length || d.some(t => r.destino.toUpperCase().includes(t))) &&
+      (!c.length || c.some(t => r.cia.toLowerCase().includes(t))) &&
       (!p || getEffectiveProduto(r).toLowerCase().includes(p))
     );
     document.getElementById('qbRatesList').innerHTML = rowsHtml(filtered);
@@ -2845,18 +2858,23 @@ function openQuoteBuilder(){
   document.getElementById('qbProdChips').addEventListener('change', refilter);
 
   document.getElementById('qbSelectAll').onchange = (e) => {
-    document.querySelectorAll('#qbRatesList .qb-check').forEach(cb => { cb.checked = e.target.checked; });
+    document.querySelectorAll('#qbRatesList .qb-check').forEach(cb => {
+      cb.checked = e.target.checked;
+      const pi = document.querySelector(`.qb-profit[data-id="${cb.dataset.id}"]`);
+      if (cb.checked) qbSel[cb.dataset.id] = pi ? pi.value : ''; else delete qbSel[cb.dataset.id];
+    });
     renderFeesPanel();
   };
 
   document.getElementById('qbApplyProfit').onclick = () => {
     const val = document.getElementById('qbProfitFixo').value;
     document.querySelectorAll('.qb-profit').forEach(input => { input.value = val; });
+    Object.keys(qbSel).forEach(id => { qbSel[id] = val; });
   };
 
   document.getElementById('qbGenerate').onclick = async () => {
     renderFeesPanel();
-    const selectedIds = [...document.querySelectorAll('.qb-check:checked')].map(el => el.dataset.id);
+    const selectedIds = qbPicked();
     if (!selectedIds.length){ alert('Selecione ao menos uma tarifa.'); return; }
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
     const ref = document.getElementById('qbRef').value.trim();
@@ -2866,8 +2884,7 @@ function openQuoteBuilder(){
 
     const selectedRates = selectedIds.map(id => {
       const r = ratesCache.find(x => x.id === id);
-      const profitInput = document.querySelector(`.qb-profit[data-id="${id}"]`);
-      const profit = parseFloat(profitInput.value) || 0;
+      const profit = qbProfit(id);
       const feeIds = [...document.querySelectorAll(`.qb-fee-cb[data-rate="${id}"]:checked`)].map(cb => cb.dataset.fee);
       // Tarifa de venda = base + profit. Armazenagem e desembaraço aparecem em colunas próprias no PDF,
       // então não entram na tarifa/kg (senão o cliente veria a armazenagem cobrada duas vezes).
@@ -2913,9 +2930,9 @@ function openQuoteBuilder(){
     if (showQuotePDF(html)) closeModal();
   };
 
-  document.getElementById('qbPreview').onclick = () => {
+  const makePdf = (autoprint) => {
     renderFeesPanel();
-    const selectedIds = [...document.querySelectorAll('.qb-check:checked')].map(el => el.dataset.id);
+    const selectedIds = qbPicked();
     if (!selectedIds.length){ alert('Selecione ao menos uma tarifa.'); return; }
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
     const ref = document.getElementById('qbRef').value.trim();
@@ -2925,8 +2942,7 @@ function openQuoteBuilder(){
 
     const selectedRates = selectedIds.map(id => {
       const r = ratesCache.find(x => x.id === id);
-      const profitInput = document.querySelector(`.qb-profit[data-id="${id}"]`);
-      const profit = parseFloat(profitInput.value) || 0;
+      const profit = qbProfit(id);
       const feeIds = [...document.querySelectorAll(`.qb-fee-cb[data-rate="${id}"]:checked`)].map(cb => cb.dataset.fee);
       const tarifaVenda = r.tarifaBase + profit;
       return {
@@ -2938,14 +2954,16 @@ function openQuoteBuilder(){
       };
     });
 
-    // Preview never saves a cotação or touches Agendor — it just shows what the PDF would look
-    // like, and doesn't auto-trigger the print dialog. The modal stays open so she can adjust.
+    // Preview and "Baixar PDF (sem enviar)" never save a cotação or touch Agendor. Preview doesn't open
+    // the print dialog; download does, so the PDF can be saved. The modal stays open to adjust.
     const lang = document.getElementById('qbLang').value;
     const layout = document.getElementById('qbLayout').value;
     const productFilter = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => i.value);
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: false, lang, layout, productFilter });
-    showQuotePDF(html);
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint, lang, layout, productFilter });
+    if (showQuotePDF(html) && autoprint) document.getElementById('qbStatus').textContent = 'PDF aberto — nada foi salvo no cliente nem enviado ao Agendor.';
   };
+  document.getElementById('qbPreview').onclick = () => makePdf(false);
+  document.getElementById('qbDownload').onclick = () => makePdf(true);
 }
 
 // Pulls the weight-tier label out of the condicao text, normalizing Q300 / +300KG / 300KG
