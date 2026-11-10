@@ -1890,6 +1890,8 @@ function openRouteEditor(group){
       <div class="re-prod">${productPickerHtml(v.produto)}</div>
       <label>Observação / variação (opcional — ex: Seg a Sex, Fresh+2/25)</label>
       <input type="text" class="re-var-obs" value="${attrEsc(v.obs)}" placeholder="vazio = tarifa geral">
+      <label>Observação em inglês (opcional — sai no PDF em inglês)</label>
+      <input type="text" class="re-var-obsen" value="${attrEsc((v.rs[0] && v.rs[0].obsEn) || '')}" data-init="${attrEsc((v.rs[0] && v.rs[0].obsEn) || '')}" data-obs-init="${attrEsc(v.obs)}" placeholder="ex: Mon to Fri">
       <label>Faixas de peso e tarifas <span style="text-transform:none; font-weight:normal;">(deixe o peso vazio pra tarifa única)</span></label>
       <div class="re-tiers">${v.rs.length ? v.rs.map(tierRowHtml).join('') : tierRowHtml(null)}</div>
       <button type="button" class="re-add-tier btn-navy-outline" style="padding:5px 11px; font-size:12px;">+ faixa nessa tarifa</button>
@@ -1981,7 +1983,7 @@ function openRouteEditor(group){
     for (const el of root.querySelectorAll('.re-var')){
       const checkedDias = [...el.querySelectorAll('.re-dia:checked')].map(cb => cb.value);
       const v = {
-        tpl: el.dataset.tpl, prodInit: el.dataset.prodInit || '', produto: readProductPicker(el.querySelector('.re-prod')), obs: el.querySelector('.re-var-obs').value.trim(),
+        tpl: el.dataset.tpl, prodInit: el.dataset.prodInit || '', produto: readProductPicker(el.querySelector('.re-prod')), obs: el.querySelector('.re-var-obs').value.trim(), obsEn: el.querySelector('.re-var-obsen').value.trim(), obsEnInit: el.querySelector('.re-var-obsen').dataset.init, obsInit: el.querySelector('.re-var-obsen').dataset.obsInit,
         dias: checkedDias.length === WEEK_PT.length ? [] : checkedDias, rows: []
       };
       const name = `${v.produto || 'sem fruta'}${v.obs ? ' · ' + v.obs : ''}${v.dias.length ? ' · vale ' + formatFlightFrequency(v.dias, 'pt') : ''}`;
@@ -2022,7 +2024,7 @@ function openRouteEditor(group){
     vars.forEach(v => {
       const tpl = ratesCache.find(r => r.id === v.tpl) || group[0];
       v.rows.forEach(row => {
-        const patch = { ...routeCommon, ...changed, produto: v.produto, tarifaBase: row.tarifa, condicao: buildCondicao(v.produto, v.obs, row.faixa, row.unit), diasSemana: v.dias };
+        const patch = { ...routeCommon, ...changed, produto: v.produto, tarifaBase: row.tarifa, condicao: buildCondicao(v.produto, v.obs, row.faixa, row.unit), diasSemana: v.dias, obsEn: (v.obs !== v.obsInit && v.obsEn === v.obsEnInit) ? '' : v.obsEn };
         // an old English override only survives while the product is unchanged
         if (v.produto !== v.prodInit || !v.tpl) patch.produtoEn = '';
         if (row.id){ const r = ratesCache.find(x => x.id === row.id); if (r) Object.assign(r, patch); }
@@ -2430,6 +2432,8 @@ function openRateForm(rate, template){
       </div>
       <label>Observações (frequência, transit time, etc.)</label>
       <input type="text" id="rfObs" placeholder="ex: Freq: Diário, Transit: 2 a 3 dias..." value="${parsed.obs || ''}">
+      <label>Observação em inglês <span style="text-transform:none; font-weight:normal;">(sai no PDF em inglês; vazio = tradução automática quando possível, senão em português)</span></label>
+      <input type="text" id="rfObsEn" placeholder="ex: Mon to Fri" value="${attrEsc(src?.obsEn || '')}">
       <label style="margin-top:10px;">Taxas da CIA</label>
       <div style="font-size:12px; background:#F7F7F7; border-radius:7px; padding:8px 10px;">
         ${src && feesForCia.length
@@ -2490,6 +2494,8 @@ function openRateForm(rate, template){
     const faixaNumVal = document.getElementById('rfFaixaNum').value.trim();
     const faixaUnidade = document.getElementById('rfFaixaUnidade').value;
     const obsText = document.getElementById('rfObs').value.trim();
+    let obsEn = document.getElementById('rfObsEn').value.trim();
+    if (src && obsText !== (parseCondicao(src.condicao).obs || '') && obsEn === (src.obsEn || '')) obsEn = '';   // the Portuguese changed and the English didn't: don't keep a stale translation
     const desembaraco = parseFloat(document.getElementById('rfDesembaraco').value) || 0;
     const armazenagem = parseFloat(document.getElementById('rfArmazenagem').value) || 0;
     const validade = document.getElementById('rfValidade').value.trim();
@@ -2548,7 +2554,7 @@ function openRateForm(rate, template){
     }
 
     saveBtn.disabled = true;
-    const common = { tipo, cia, origem, conexao, destino, produto, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn, frequenciaVoos };
+    const common = { tipo, cia, origem, conexao, destino, produto, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn, obsEn, frequenciaVoos };
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
       const before = ratesCache[idx];
@@ -2566,6 +2572,7 @@ function openRateForm(rate, template){
         const routeKey = coarseRouteKey(before);
         ratesCache.forEach(r => { if (r.id !== before.id && coarseRouteKey(r) === routeKey) r.frequenciaVoos = frequenciaVoos; });
       }
+      ratesCache.forEach(r => { if (r.id !== before.id && routeKeyOf(r) === oldKey) r.obsEn = obsEn; });   // same variation = same observation
       ratesCache[idx] = { ...before, ...common, tarifaBase, condicao };
     } else {
       ratesCache.push({ id: newRateId(), ...common, tarifaBase, condicao });
@@ -2732,6 +2739,7 @@ function openQuoteBuilder(){
           <span>Taxas desta cotação — confira uma última vez</span>
         </div>
         <div id="qbFeesPanel"></div>
+        <div id="qbObsEnPanel"></div>
       </div>
 
       <div class="cf-row" style="margin-top:10px;">
@@ -2778,7 +2786,22 @@ function openQuoteBuilder(){
       pagamento: document.getElementById('qbQPag').value, conexaoNacional: document.getElementById('qbQConNac').value
     };
   }
+  function renderObsEnPanel(){
+    const panel = document.getElementById('qbObsEnPanel');
+    if (document.getElementById('qbLang').value !== 'en'){ panel.innerHTML = ''; return; }
+    const byText = {};
+    qbPicked().forEach(id => { const r = ratesCache.find(x => x.id === id), t = obsClean(parseCondicao(r.condicao).obs); if (t) (byText[t] = byText[t] || []).push(r); });
+    const missing = Object.entries(byText).filter(([t, rs]) => !rs.some(r => r.obsEn) && autoObsTry(t) === null);
+    panel.innerHTML = missing.length ? `<div class="qb-fee-block" style="margin-top:10px;"><div class="qb-fee-head"><b>Observações sem versão em inglês</b> — o que ficar vazio sai em português no PDF</div>${missing.map(([t, rs], i) =>
+      `<div class="qb-fee-row" style="display:block;"><div style="font-size:12px; color:var(--pf-muted); margin-bottom:3px;">${qbEsc(t)}</div><input type="text" class="qb-obsen" data-i="${i}" placeholder="Inglês" style="width:100%;"></div>`).join('')}</div>` : '';
+    panel.querySelectorAll('.qb-obsen').forEach(inp => inp.onchange = async () => {
+      const [t] = missing[+inp.dataset.i]; const en = inp.value.trim(); if (!en) return;
+      ratesCache.forEach(r => { if (obsClean(parseCondicao(r.condicao).obs) === t) r.obsEn = en; });   // same text = same translation, for every tariff
+      await setRates(ratesCache); renderObsEnPanel();
+    });
+  }
   function renderFeesPanel(){
+    renderObsEnPanel();
     const panel = document.getElementById('qbFeesPanel');
     const a = readAnswers();
     const ids = qbPicked();
@@ -2808,6 +2831,7 @@ function openQuoteBuilder(){
     }).join('') + '</div>';
     if (keepScroll && panel.firstElementChild) panel.firstElementChild.scrollTop = keepScroll;
   }
+  document.getElementById('qbLang').addEventListener('change', renderObsEnPanel);
   document.getElementById('qbFeesPanel').addEventListener('change', (e) => {
     if (!e.target.classList.contains('qb-fee-cb')) return;
     (feeOverrides[e.target.dataset.rate] = feeOverrides[e.target.dataset.rate] || {})[e.target.dataset.fee] = e.target.checked;
@@ -3037,9 +3061,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
     return m ? m[1].trim() : '—';
   }
   // Notes column shouldn't repeat what already has its own column
-  function notesWithoutTransit(obs){
-    return (obs || '').replace(/\s*·?\s*(?:Transit|Freq):\s*[^·]+/ig, '').replace(/^\s*·\s*/, '').trim();
-  }
+  function notesWithoutTransit(obs){ return obsClean(obs); }
   // Flight frequency column: the day buttons if filled in, else a legacy "Freq: ..." typed in the observations
   const validDaysText = (r) => (r.diasSemana && r.diasSemana.length) ? `${L.validDays}: <span style="white-space:nowrap;">${formatFlightFrequency(r.diasSemana, lang)}</span>` : '';
   function flightFreqCell(r){
@@ -3118,7 +3140,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
           <td>${transitTimeFor(r)}</td>
           <td>${flightFreqCell(r)}</td>
-          <td>${[notesWithoutTransit(obs), validDaysText(r), minNote].filter(Boolean).join(' · ') || '—'}</td>
+          <td>${[lang === 'en' ? obsEnFor(rs, notesWithoutTransit(obs)) : notesWithoutTransit(obs), validDaysText(r), minNote].filter(Boolean).join(' · ') || '—'}</td>
         </tr>`;
         }).join('');
         const nC = stacked ? 1 : nT, tw = stacked ? 17 : (nT === 1 ? 9 : Math.min(8, 21.2 / nT));
@@ -3419,7 +3441,32 @@ async function loadShipSeed(){
     });
   } catch(e){ /* keep going without the seed */ }
 }
-const HBI_BUILD = '2026-11-10 12:21';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+// Tariff observations in the English PDF: the typed English version (obsEn) wins; otherwise a text made ONLY of known pieces is
+// translated automatically; anything else stays as typed (Portuguese) and is flagged in the quote builder.
+const obsClean = (obs) => (obs || '').replace(/\s*·?\s*(?:Transit|Freq):\s*[^·]+/ig, '').replace(/^\s*·\s*/, '').trim();
+const OBS_DAYS = { seg: 'Mon', ter: 'Tue', qua: 'Wed', qui: 'Thu', sex: 'Fri', sab: 'Sat', dom: 'Sun' };
+function autoObsTry(text){   // translated text, or null when some piece isn't known
+  const seg = (s) => {
+    const n = normTxt(s).trim().replace(/\.$/, ''); let m;
+    if (/^[a-z]+\+?\d+(\/\+?\d+)*$/i.test(n)) return s;                                   // codes like Fresh+2/25
+    if (n === 'seg a sex') return 'Mon to Fri'; if (n === 'segunda a sexta') return 'Monday to Friday';
+    if (n === 'sab e dom') return 'Sat and Sun'; if (n === 'sabado e domingo') return 'Saturday and Sunday';
+    if (n === 'diario') return 'daily';
+    if (/^(seg|ter|qua|qui|sex|sab|dom)([ ,]+(seg|ter|qua|qui|sex|sab|dom))*$/.test(n)) return n.split(/[ ,]+/).map(d => OBS_DAYS[d]).join(', ');
+    if ((m = n.match(/^via ([a-z]{3})$/))) return 'Via ' + m[1].toUpperCase();
+    if (n === 'sem conexao (direto)') return 'no connection (direct)'; if (n === 'rota direta (sem conexao)') return 'direct route (no connection)';
+    if (n === 'faixa min') return 'Min. tier'; if (n === 'faixa min (2a faixa)') return 'Min. tier (2nd tier)';
+    if ((m = n.match(/^atualizada (\d{2}\/\d{2})$/))) return 'Updated ' + m[1];
+    if ((m = n.match(/^aeroporto ([a-z]{3})$/))) return 'Airport ' + m[1].toUpperCase();
+    if ((m = n.match(/^a partir (q\d+)$/))) return 'from ' + m[1].toUpperCase();
+    return null;
+  };
+  const parts = String(text || '').split(/\s+·\s+/).map(s => s.trim()).filter(Boolean), out = parts.map(seg);
+  return parts.length && out.every(x => x !== null) ? out.join(' · ') : null;
+}
+const autoObsEn = (text) => { const x = autoObsTry(text); return x === null ? text : x; };
+const obsEnFor = (rs, cleaned) => { const x = (rs || []).find(r => r.obsEn); return x ? x.obsEn : autoObsEn(cleaned); };
+const HBI_BUILD = '2026-11-10 12:38';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
