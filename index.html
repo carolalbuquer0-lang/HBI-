@@ -2787,6 +2787,7 @@ function openQuoteBuilder(){
       panel.innerHTML = '<div style="font-size:12.5px; color:var(--muted); padding:4px 0;">Selecione as tarifas acima — aqui aparecem as taxas de cada uma, já marcadas conforme as respostas.</div>';
       return;
     }
+    const keepScroll = panel.firstElementChild ? panel.firstElementChild.scrollTop : 0;   // the panel is rebuilt on every click: put the scroll back where it was
     panel.innerHTML = '<div style="max-height:320px; overflow-y:auto;">' + ids.map(id => {
       const r = ratesCache.find(x => x.id === id);
       const feeList = ciaFeesCache.filter(f => f.cia === r.cia && f.nome.toUpperCase() !== 'CCA');
@@ -2805,6 +2806,7 @@ function openQuoteBuilder(){
           <span><b>${qbEsc(f.nome)}</b> USD ${Number(f.valor).toFixed(2)}${note ? ` <span class="qb-fee-note">${qbEsc(note)}</span>` : ''}${desc}</span></label>`;
       }).join('')}</div>`;
     }).join('') + '</div>';
+    if (keepScroll && panel.firstElementChild) panel.firstElementChild.scrollTop = keepScroll;
   }
   document.getElementById('qbFeesPanel').addEventListener('change', (e) => {
     if (!e.target.classList.contains('qb-fee-cb')) return;
@@ -3417,7 +3419,7 @@ async function loadShipSeed(){
     });
   } catch(e){ /* keep going without the seed */ }
 }
-const HBI_BUILD = '2026-11-09 19:01';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-10 12:21';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
