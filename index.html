@@ -340,6 +340,8 @@
   .log-entry{border-left:3px solid var(--pf-navy); padding:9px 12px; margin-bottom:8px; background:var(--pf-navy-light); border-radius:0 8px 8px 0; position:relative;}
   .log-entry .le-top{display:flex; justify-content:space-between; font-size:12px; color:var(--pf-muted); margin-bottom:4px;}
   .log-entry .le-top b{color:var(--pf-text);}
+  #qbRatesList .qb-weight{display:none;}
+  #qbRatesList.allin-on .qb-weight{display:block;}
   .ship-table{width:100%; border-collapse:collapse; font-size:12px;}
   .ship-table th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--pf-muted); padding:5px 4px; border-bottom:2px solid var(--line);}
   .ship-table td{padding:5px 4px; border-bottom:1px solid var(--line); vertical-align:top;}
@@ -1566,6 +1568,7 @@ function openCiaFeeForm(fee, presetCia){
       <div class="cf-row">
         <div style="flex:1;"><label>Nome da taxa</label><input type="text" id="cfeeNome" value="${fee?.nome || ''}" placeholder="ex: AWC"></div>
         <div style="flex:1;"><label>Valor (USD)</label><input type="number" step="0.01" id="cfeeValor" value="${fee?.valor || ''}" placeholder="ex: 18.00"></div>
+        <div style="flex:1; display:flex; align-items:flex-end;"><label style="font-size:12px; text-transform:none; letter-spacing:0;"><input type="checkbox" id="cfeePorKg" ${fee && feeIsPerKg(fee) ? 'checked' : ''}> Cobrada por kg <span style="color:var(--muted);">(no All-in, multiplica pelo peso)</span></label></div>
       </div>
       <label>Observação (português)</label>
       <input type="text" id="cfeeObs" value="${fee?.obs || ''}" placeholder="ex: por HAWB, só quando solicitado...">
@@ -1604,6 +1607,7 @@ function openCiaFeeForm(fee, presetCia){
     const valor = parseFloat(document.getElementById('cfeeValor').value) || 0;
     const obs = document.getElementById('cfeeObs').value.trim();
     const obsEn = document.getElementById('cfeeObsEn').value.trim();
+    const porKg = document.getElementById('cfeePorKg').checked;
     const regras = {
       doc: document.getElementById('cfeeRDoc').value,
       eawb: document.getElementById('cfeeREawb').value,
@@ -1616,9 +1620,9 @@ function openCiaFeeForm(fee, presetCia){
     if (!cia || !nome){ alert('Preencha ao menos CIA e Nome da taxa.'); return; }
     if (fee){
       const idx = ciaFeesCache.findIndex(f => f.id === fee.id);
-      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, obs, obsEn, regras, updatedAt: Date.now() };
+      ciaFeesCache[idx] = { ...ciaFeesCache[idx], cia, nome, valor, porKg, obs, obsEn, regras, updatedAt: Date.now() };
     } else {
-      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, obs, obsEn, regras, updatedAt: Date.now() });
+      ciaFeesCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), cia, nome, valor, porKg, obs, obsEn, regras, updatedAt: Date.now() });
     }
     await setCiaFees(ciaFeesCache);
     closeModal();
@@ -2630,6 +2634,7 @@ function openQuoteBuilder(){
   const overlay = document.getElementById('overlay');
   const modal = document.getElementById('modalContent');
 
+  const qbWeight = {};   // All-in weight typed for each tariff (kg)
   const qbSel = {};   // marked tariffs and their profit: kept while you change the filters (e.g. to add another destination)
   const qbPicked = () => { const s = new Set(Object.keys(qbSel)); document.querySelectorAll('#qbRatesList .qb-check:checked').forEach(x => s.add(x.dataset.id)); return ratesCache.filter(r => s.has(r.id)).map(r => r.id); };
   const qbProfit = (id) => { const el = document.querySelector(`.qb-profit[data-id="${id}"]`); return parseFloat(el ? el.value : qbSel[id]) || 0; };
@@ -2652,6 +2657,7 @@ function openQuoteBuilder(){
           ${condShown ? `<br><span style="font-size:11px; color:var(--orange); font-weight:bold;">${condShown}</span>` : '<br><span style="font-size:11px; color:var(--muted);">Sem faixa de peso especificada</span>'}
         </span>
         <input type="number" step="0.01" class="qb-profit" data-id="${r.id}" value="${qbSel[r.id] || ''}" placeholder="+ profit USD/kg" style="flex:0 0 130px; font-size:12px; margin-top:2px;">
+        <input type="number" class="qb-weight" data-id="${r.id}" value="${qbWeight[r.id] || ''}" placeholder="kg" title="Peso para o cálculo All-in (vazio = peso padrão)" style="flex:0 0 76px; font-size:12px; margin-top:2px;">
       </div>
     `;
     }).join('') || '<div class="empty">Nenhuma tarifa encontrada pra essa rota.</div>';
@@ -2740,6 +2746,19 @@ function openQuoteBuilder(){
         </div>
         <div id="qbFeesPanel"></div>
         <div id="qbObsEnPanel"></div>
+      </div>
+
+      <div class="qb-section">
+        <div class="qb-section-title"><span>All-in — total calculado por peso</span></div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px;"><input type="checkbox" id="qbAllIn"> Incluir no PDF a tabela All-in (valor total e valor por kg)</label>
+        <div id="qbAllInBox" style="display:none; margin-top:8px;">
+          <div class="cf-row" style="align-items:flex-end;">
+            <div style="flex:0 0 170px;"><label>Peso padrão (kg)</label><input type="number" id="qbAllInKg" placeholder="ex: 1000"></div>
+            <label style="font-size:13px; display:flex; align-items:center; gap:6px;"><input type="checkbox" id="qbAllInCust" checked> Incluir desembaraço</label>
+            <label style="font-size:13px; display:flex; align-items:center; gap:6px;"><input type="checkbox" id="qbAllInStor" checked> Incluir armazenagem</label>
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">Cada tarifa marcada ganha um campo "kg" na lista acima, para um peso próprio. Vazio = peso padrão. Tarifa sem peso fica de fora do All-in.</div>
+        </div>
       </div>
 
       <div class="cf-row" style="margin-top:10px;">
@@ -2852,7 +2871,18 @@ function openQuoteBuilder(){
   });
   document.getElementById('qbRatesList').addEventListener('input', (e) => {
     if (e.target.classList.contains('qb-profit') && qbSel[e.target.dataset.id] !== undefined) qbSel[e.target.dataset.id] = e.target.value;
+    if (e.target.classList.contains('qb-weight')){
+      const id = e.target.dataset.id, r = ratesCache.find(x => x.id === id), kg = parseFloat(e.target.value) || 0;
+      qbWeight[id] = e.target.value;
+      const min = Math.max(parseInt(parseCondicao(r.condicao).faixaKey, 10) || 0, r.tipo === 'To Door' ? (r.pesoMinimoToDoor || 0) : 0);
+      e.target.style.borderColor = kg && min && kg < min ? '#c0392b' : '';
+      e.target.title = kg && min && kg < min ? `Atenção: abaixo do mínimo dessa tarifa (${min} kg)` : 'Peso para o cálculo All-in (vazio = peso padrão)';
+    }
   });
+  const getAllIn = () => { const kg = parseFloat(document.getElementById('qbAllInKg').value) || 0, weights = {}; Object.entries(qbWeight).forEach(([id, v]) => { if (parseFloat(v) > 0) weights[id] = parseFloat(v); });
+    return { on: document.getElementById('qbAllIn').checked, kg, weights, cust: document.getElementById('qbAllInCust').checked, stor: document.getElementById('qbAllInStor').checked }; };
+  const allInReady = () => { const a = getAllIn(); if (a.on && !qbPicked().some(id => a.weights[id] || a.kg)){ document.getElementById('qbStatus').textContent = 'All-in ligado, mas nenhuma tarifa marcada tem peso. Preencha o peso padrão ou o kg de cada tarifa.'; return false; } return true; };
+  document.getElementById('qbAllIn').addEventListener('change', (e) => { document.getElementById('qbAllInBox').style.display = e.target.checked ? 'block' : 'none'; document.getElementById('qbRatesList').classList.toggle('allin-on', e.target.checked); });
   renderFeesPanel();
 
   function refilter(){
@@ -2902,6 +2932,7 @@ function openQuoteBuilder(){
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
     const ref = document.getElementById('qbRef').value.trim();
     const validade = document.getElementById('qbValidade').value.trim() || '30 dias';
+    if (!allInReady()) return;
     const desembacoPadrao = parseFloat(document.getElementById('qbDesembaraco').value) || 0;
     const armazenagemPadrao = parseFloat(document.getElementById('qbArmazenagem').value) || 0;
 
@@ -2954,7 +2985,7 @@ function openQuoteBuilder(){
     const lang = document.getElementById('qbLang').value;
     const layout = document.getElementById('qbLayout').value;
     const productFilter = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => i.value);
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true, lang, layout, productFilter });
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint: true, lang, layout, productFilter, allIn: getAllIn() });
     if (showQuotePDF(html)) closeModal();
   };
 
@@ -2965,6 +2996,7 @@ function openQuoteBuilder(){
     const cliente = document.getElementById('qbCliente').value.trim() || 'Cliente';
     const ref = document.getElementById('qbRef').value.trim();
     const validade = document.getElementById('qbValidade').value.trim() || '30 dias';
+    if (!allInReady()) return;
     const desembacoPadrao = parseFloat(document.getElementById('qbDesembaraco').value) || 0;
     const armazenagemPadrao = parseFloat(document.getElementById('qbArmazenagem').value) || 0;
 
@@ -2986,7 +3018,7 @@ function openQuoteBuilder(){
     const lang = document.getElementById('qbLang').value;
     const layout = document.getElementById('qbLayout').value;
     const productFilter = [...document.querySelectorAll('#qbProdChips .pp-chip:checked')].map(i => i.value);
-    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint, lang, layout, productFilter });
+    const html = buildQuoteHTML({ cliente, ref, validade, rates: selectedRates, autoprint, lang, layout, productFilter, allIn: getAllIn() });
     if (showQuotePDF(html) && autoprint) document.getElementById('qbStatus').textContent = 'PDF aberto — nada foi salvo no cliente nem enviado ao Agendor.';
   };
   document.getElementById('qbPreview').onclick = () => makePdf(false);
@@ -3026,7 +3058,7 @@ const PDF_I18N = {
   pt: {
     htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
-    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door', thValidity: 'Validade da tarifa',
+    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door', thValidity: 'Validade da tarifa', allInTitle: 'Cálculo All-in por peso', allInRoute: 'Rota', allInKg: 'Peso (kg)', allInFreight: 'Frete', allInFees: 'Taxas da CIA', allInCustoms: 'Desembaraço', allInStorage: 'Armazenagem', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimativa com base no peso informado: frete × peso + taxas da CIA + desembaraço + armazenagem (taxas cobradas por kg são multiplicadas pelo peso). O peso final cobrado pode variar.',
     thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
@@ -3040,7 +3072,7 @@ const PDF_I18N = {
   en: {
     htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
     proposta: 'PROPOSAL', validadeLabel: 'Validity', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
-    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.', thValidity: 'Rate validity',
+    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.', thValidity: 'Rate validity', allInTitle: 'All-in calculation by weight', allInRoute: 'Route', allInKg: 'Weight (kg)', allInFreight: 'Freight', allInFees: 'Carrier fees', allInCustoms: 'Customs clearance', allInStorage: 'Storage', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimate based on the weight informed: freight × weight + carrier fees + customs clearance + storage (per-kg fees are multiplied by the weight). Final chargeable weight may vary.',
     thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
@@ -3053,7 +3085,7 @@ const PDF_I18N = {
   },
 };
 
-function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout, productFilter }){
+function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout, productFilter, allIn }){
   const L = PDF_I18N[lang] || PDF_I18N.pt;
   const todayStr = new Date().toLocaleDateString(L.dateLocale, { day: '2-digit', month: 'long', year: 'numeric' });
   const groups = { 'To Door': [], 'Aeroporto': [] };
@@ -3219,6 +3251,24 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       </table>`;
   }
 
+  // All-in table: for each tariff with a weight, the full amount (freight x weight + fees + customs + storage) and the same amount per kg
+  function allInTable(){
+    if (!allIn || !allIn.on) return '';
+    const items = rates.map(r => ({ r, kg: Number(allIn.weights && allIn.weights[r.id]) || Number(allIn.kg) || 0 })).filter(x => x.kg > 0);
+    if (!items.length) return '';
+    const showC = allIn.cust !== false, showS = allIn.stor !== false;
+    const body = items.map(({ r, kg }, i) => {
+      const freight = Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase) * kg;
+      const fees = feesFor(r).reduce((s, f) => s + Number(f.valor) * (feeIsPerKg(f) ? kg : 1), 0);
+      const customs = showC ? (r.desembaraco || 0) : 0, storage = showS ? (r.armazenagem || 0) * kg : 0, total = freight + fees + customs + storage;
+      const tier = parseInt(parseCondicao(r.condicao).faixaKey, 10) || 0;
+      return `<tr class="${i % 2 ? 'pl-odd' : ''}"><td><b>${r.cia}</b></td><td>${r.origem}${r.conexao ? ' x ' + r.conexao : ''} x ${r.destino}${r.tipo === 'To Door' ? ' · To Door' : ''}${tier ? ` (+${tier.toLocaleString(L.dateLocale)} kg)` : ''}</td><td>${kg.toLocaleString(L.dateLocale)}</td><td>${usdFmt(freight)}</td><td>${usdFmt(fees)}</td>${showC ? `<td>${usdFmt(customs)}</td>` : ''}${showS ? `<td>${usdFmt(storage)}</td>` : ''}<td><b>${usdFmt(total)}</b></td><td><b>USD ${(total / kg).toFixed(3)}</b></td></tr>`;
+    }).join('');
+    return `<div class="pl-section">${L.allInTitle}</div>
+      <table class="pl-table" style="table-layout:auto;"><thead><tr><th>${L.thCia}</th><th>${L.allInRoute}</th><th>${L.allInKg}</th><th>${L.allInFreight}</th><th>${L.allInFees}</th>${showC ? `<th>${L.allInCustoms}</th>` : ''}${showS ? `<th>${L.allInStorage}</th>` : ''}<th>${L.allInTotal} (USD)</th><th>${L.allInPerKg} (USD/kg)</th></tr></thead><tbody>${body}</tbody></table>
+      <div class="pq-notes" style="margin-top:6px;">${L.allInNote}</div>`;
+  }
+
   const ciasInQuote = [...new Set(rates.map(r => r.cia))];
   const relevantNoShow = noShowCache.filter(n => ciasInQuote.includes(n.cia));
   // Texts typed in a textarea keep their line breaks (escaped first, so stray < or & can't break the page)
@@ -3285,6 +3335,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       ${comparisonTableFor(groups['To Door'], L.toDoor)}
       ${comparisonTableFor(groups['Aeroporto'], L.aeroporto)}
     `}
+    ${allInTable()}
     ${feeDescriptionsFor(rates).length ? `
       <div class="pq-noshow-title">${L.feeDescriptionsTitle}</div>
       <div class="pq-noshow-box">
@@ -3488,7 +3539,10 @@ function validityOf(r, lang){
   if ((m = v.match(/^atualizad[ao]s?(?: em)?\s*(\d{2}\/\d{2}\/\d{4})$/i))) return lang === 'en' ? `Updated ${D(m[1])}` : `Atualizada em ${m[1]}`;
   return lang === 'en' ? 'Validity: ' + v.replace(/\bdias\b/gi, 'days').replace(/\bdia\b/gi, 'day') : 'Validade: ' + v;
 }
-const HBI_BUILD = '2026-11-11 16:20';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+// All-in: a fee is charged per kg when it is marked so (or, for older fees, when its note says "/kg" or "por kg")
+const feeIsPerKg = (f) => f.porKg != null ? !!f.porKg : /\/\s*kg|por\s*kg/i.test(f.obs || '');
+const usdFmt = (n) => 'USD ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const HBI_BUILD = '2026-11-11 19:46';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
