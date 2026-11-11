@@ -1876,6 +1876,7 @@ function openRouteEditor(group){
   const voosAll = group.map(r => r.frequenciaVoos || []).filter(a => a.length);
   const voosFirst = voosAll[0] || [];
   const voosVaries = voosAll.some(a => JSON.stringify(a) !== JSON.stringify(voosFirst));
+  const cnxFirst = group.map(r => r.frequenciaConexao || []).filter(a => a.length)[0] || [];
 
   const tierRowHtml = (r) => {
     const pc = r ? parseCondicao(r.condicao) : { faixaKey: '' };
@@ -1926,6 +1927,9 @@ function openRouteEditor(group){
       <label>Frequência dos voos <span style="text-transform:none; font-weight:normal;">(dias em que a CIA voa essa rota — uma vez só, vale pra todas as tarifas)</span></label>
       <div class="re-chips" id="reVoosWrap">${dayChipsHtml('re-voo', voosFirst, false)}</div>
       ${voosVaries ? '<div style="font-size:11px; color:var(--muted);">Havia frequências diferentes entre as tarifas — ao salvar, vale a que estiver marcada aqui.</div>' : ''}
+
+      <label>Frequência do voo de conexão <span style="text-transform:none; font-weight:normal;">(dias em que voa o 2º trecho, ex.: da conexão até o destino — só se a rota tem conexão)</span></label>
+      <div class="re-chips" id="reCnxWrap">${dayChipsHtml('re-cnx', cnxFirst, false)}</div>
 
       <div id="reVars">${blocks.map(blockHtml).join('')}</div>
       <button type="button" id="reAddVar" class="btn-navy-outline" style="padding:6px 12px; font-size:12px; margin:2px 0 10px;">+ Nova tarifa (outra fruta ou variação)</button>
@@ -2022,8 +2026,9 @@ function openRouteEditor(group){
     if (tipo !== 'To Door') changed.pesoMinimoToDoor = 0;
 
     const voosRoute = [...root.querySelectorAll('#reVoosWrap .re-voo:checked')].map(cb => cb.value);
+    const cnxRoute = [...root.querySelectorAll('#reCnxWrap .re-cnx:checked')].map(cb => cb.value);
     btn.disabled = true;
-    const routeCommon = { tipo, cia, origem, conexao, destino, frequenciaVoos: voosRoute };
+    const routeCommon = { tipo, cia, origem, conexao, destino, frequenciaVoos: voosRoute, frequenciaConexao: cnxRoute };
     const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     vars.forEach(v => {
       const tpl = ratesCache.find(r => r.id === v.tpl) || group[0];
@@ -2125,6 +2130,10 @@ function rateCardGroup(group){
   const voosHtml = (routeVoos && routeVoos.length)
     ? `<div class="rate-row"><span class="rate-label">FREQUÊNCIA DOS VOOS</span><span class="rate-val" style="text-align:right;">${formatFlightFrequency(routeVoos, 'pt')}</span></div>`
     : '';
+  const routeCnx = (group.find(r => r.frequenciaConexao && r.frequenciaConexao.length) || {}).frequenciaConexao;
+  const cnxHtml = (routeCnx && routeCnx.length)
+    ? `<div class="rate-row"><span class="rate-label">FREQUÊNCIA DA CONEXÃO</span><span class="rate-val" style="text-align:right;">${formatFlightFrequency(routeCnx, 'pt')}</span></div>`
+    : '';
   const diasHtml = (first.diasSemana && first.diasSemana.length)
     ? `<div class="rate-row"><span class="rate-label">DIAS VÁLIDOS</span><span class="rate-val" style="text-align:right;">${first.diasSemana.join(', ')}</span></div>`
     : '';
@@ -2144,6 +2153,7 @@ function rateCardGroup(group){
       <div class="rate-row"><span class="rate-label">CONEXÃO</span><span class="rate-val">${first.conexao || '—'}</span></div>
       <div class="rate-row"><span class="rate-label">DESTINO</span><span class="rate-val">${first.destino}</span></div>
       ${voosHtml}
+      ${cnxHtml}
       ${multi ? '' : diasHtml}
       ${(!multi && obsSet.length) ? `<div class="rate-row"><span class="rate-label">OBSERVAÇÕES</span><span class="rate-val" style="text-align:right; font-weight:normal; font-size:11.5px;">${obsSet.join('<br>')}</span></div>` : ''}
       ${feesHtml}
@@ -2422,6 +2432,15 @@ function openRateForm(rate, template){
         }).join('')}
       </div>
       <div style="font-size:11px; color:var(--muted); margin:2px 0 8px;">Marque os dias dos voos (todos = diário). Sem nenhum marcado, a frequência não aparece. Sai no PDF e vale pra rota inteira (todas as tarifas dessa CIA nessa rota).</div>
+      <label>Frequência do voo de conexão (dias em que voa o 2º trecho — só se a rota tem conexão)</label>
+      <div id="rfCnxWrap" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+        ${WEEK_PT.map(dia => {
+          const checked = !!(src?.frequenciaConexao && src.frequenciaConexao.includes(dia));
+          return `<label class="variety-chip${checked?' selected':''}" style="cursor:pointer; ${checked?'border-color:var(--teal); background:#E6EEF3; color:var(--ink); font-weight:600;':''}">
+            <input type="checkbox" class="rf-cnx" value="${dia}" ${checked?'checked':''} style="display:none;"> ${dia}
+          </label>`;
+        }).join('')}
+      </div>
       <label>Horários (opcional — usado no PDF de comparação)</label>
       <div class="cf-row">
         <input type="text" id="rfEtd" placeholder="ETD (ex: 20:00)" value="${src?.etd||''}">
@@ -2462,7 +2481,7 @@ function openRateForm(rate, template){
   document.getElementById('rfTipo').onchange = (e) => {
     document.getElementById('rfToDoorRow').style.display = e.target.value === 'To Door' ? 'flex' : 'none';
   };
-  document.querySelectorAll('.rf-dia, .rf-voo').forEach(cb => {
+  document.querySelectorAll('.rf-dia, .rf-voo, .rf-cnx').forEach(cb => {
     cb.closest('label').onclick = (e) => {
       e.preventDefault();
       cb.checked = !cb.checked;
@@ -2513,6 +2532,7 @@ function openRateForm(rate, template){
     const checkedDias = [...document.querySelectorAll('.rf-dia:checked')].map(cb => cb.value);
     const diasSemana = checkedDias.length === allDias.length ? [] : checkedDias; // empty = every day
     const frequenciaVoos = [...document.querySelectorAll('.rf-voo:checked')].map(cb => cb.value); // empty = not informed
+    const frequenciaConexao = [...document.querySelectorAll('.rf-cnx:checked')].map(cb => cb.value);
     if (!cia || !origem || !destino || isNaN(tarifaBase)){
       alert('Preencha ao menos CIA, Origem, Destino e Tarifa.');
       return;
@@ -2558,7 +2578,7 @@ function openRateForm(rate, template){
     }
 
     saveBtn.disabled = true;
-    const common = { tipo, cia, origem, conexao, destino, produto, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn, obsEn, frequenciaVoos };
+    const common = { tipo, cia, origem, conexao, destino, produto, taxasCia, desembaraco, armazenagem, validade, pesoMinimoToDoor, diasSemana, etd, eta, deadlineCaminhao, deadlineCia, transitTime, produtoEn, obsEn, frequenciaVoos, frequenciaConexao };
     if (editingRateId){
       const idx = ratesCache.findIndex(r => r.id === editingRateId);
       const before = ratesCache[idx];
@@ -2575,6 +2595,10 @@ function openRateForm(rate, template){
       if (JSON.stringify(frequenciaVoos) !== JSON.stringify(before.frequenciaVoos || [])){
         const routeKey = coarseRouteKey(before);
         ratesCache.forEach(r => { if (r.id !== before.id && coarseRouteKey(r) === routeKey) r.frequenciaVoos = frequenciaVoos; });
+      }
+      if (JSON.stringify(frequenciaConexao) !== JSON.stringify(before.frequenciaConexao || [])){
+        const rk = coarseRouteKey(before);
+        ratesCache.forEach(r => { if (r.id !== before.id && coarseRouteKey(r) === rk) r.frequenciaConexao = frequenciaConexao; });
       }
       ratesCache.forEach(r => { if (r.id !== before.id && routeKeyOf(r) === oldKey) r.obsEn = obsEn; });   // same variation = same observation
       ratesCache[idx] = { ...before, ...common, tarifaBase, condicao };
@@ -3058,7 +3082,7 @@ const PDF_I18N = {
   pt: {
     htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
-    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door', thValidity: 'Validade da tarifa', allInTitle: 'Cálculo All-in por peso', allInRoute: 'Rota', allInKg: 'Peso (kg)', allInFreight: 'Frete', allInFees: 'Taxas da CIA', allInCustoms: 'Desembaraço', allInStorage: 'Armazenagem', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimativa com base no peso informado: frete × peso + taxas da CIA + desembaraço + armazenagem (taxas cobradas por kg são multiplicadas pelo peso). O peso final cobrado pode variar.',
+    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door', thFrequencyCnx: 'Frequência da conexão', thValidity: 'Validade da tarifa', allInTitle: 'Cálculo All-in por peso', allInRoute: 'Rota', allInKg: 'Peso (kg)', allInFreight: 'Frete', allInFees: 'Taxas da CIA', allInCustoms: 'Desembaraço', allInStorage: 'Armazenagem', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimativa com base no peso informado: frete × peso + taxas da CIA + desembaraço + armazenagem (taxas cobradas por kg são multiplicadas pelo peso). O peso final cobrado pode variar.',
     thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
@@ -3072,7 +3096,7 @@ const PDF_I18N = {
   en: {
     htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
     proposta: 'PROPOSAL', validadeLabel: 'Validity', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
-    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.', thValidity: 'Rate validity', allInTitle: 'All-in calculation by weight', allInRoute: 'Route', allInKg: 'Weight (kg)', allInFreight: 'Freight', allInFees: 'Carrier fees', allInCustoms: 'Customs clearance', allInStorage: 'Storage', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimate based on the weight informed: freight × weight + carrier fees + customs clearance + storage (per-kg fees are multiplied by the weight). Final chargeable weight may vary.',
+    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.', thFrequencyCnx: 'Connection frequency', thValidity: 'Rate validity', allInTitle: 'All-in calculation by weight', allInRoute: 'Route', allInKg: 'Weight (kg)', allInFreight: 'Freight', allInFees: 'Carrier fees', allInCustoms: 'Customs clearance', allInStorage: 'Storage', allInTotal: 'Total', allInPerKg: 'All-in', allInNote: 'Estimate based on the weight informed: freight × weight + carrier fees + customs clearance + storage (per-kg fees are multiplied by the weight). Final chargeable weight may vary.',
     thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
@@ -3103,6 +3127,10 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   // Flight frequency column: the day buttons if filled in, else a legacy "Freq: ..." typed in the observations
   const validDaysText = (r) => (r.diasSemana && r.diasSemana.length) ? `${L.validDays}: <span style="white-space:nowrap;">${formatFlightFrequency(r.diasSemana, lang)}</span>` : '';
   function flightFreqCell(r){
+    if (r.conexao && r.frequenciaConexao && r.frequenciaConexao.length){   // two legs: show each one with its own days
+      const f1 = (r.frequenciaVoos && r.frequenciaVoos.length) ? `<b>${r.origem}–${r.conexao}</b> ${formatFlightFrequency(r.frequenciaVoos, lang)}<br>` : '';
+      return f1 + `<b>${r.conexao}–${r.destino}</b> ${formatFlightFrequency(r.frequenciaConexao, lang)}`;
+    }
     if (r.frequenciaVoos && r.frequenciaVoos.length) return formatFlightFrequency(r.frequenciaVoos, lang);
     const m = parseCondicao(r.condicao).obs.match(/Freq:\s*([^·]+)/i);
     if (!m) return '—';
@@ -3143,7 +3171,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       const vals = [...new Set(group.rows.map(r => validityOf(r, lang)))], sameValidity = vals.length === 1 && vals[0];
       const byLine = {};
       group.rows.forEach(r => {
-        const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, parseCondicao(r.condicao).obs, (r.diasSemana || []).join(','), (r.frequenciaVoos || []).join(',')].join('|');
+        const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, parseCondicao(r.condicao).obs, (r.diasSemana || []).join(','), (r.frequenciaVoos || []).join(','), (r.frequenciaConexao || []).join(',')].join('|');
         (byLine[k] = byLine[k] || []).push(r);
       });
       // at most 4 tier columns per table: when companies' tiers don't fit together, the table continues right below
@@ -3234,6 +3262,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       { label: L.thTruckDl, get: r => r.deadlineCaminhao || '—' },
       { label: L.thAirDl, get: r => r.deadlineCia || '—' },
       { label: L.thFrequency, get: r => frequencyFor(r) },
+      ...(rows.some(r => r.frequenciaConexao && r.frequenciaConexao.length) ? [{ label: L.thFrequencyCnx, get: r => (r.frequenciaConexao && r.frequenciaConexao.length) ? `${r.conexao ? '<b>' + r.conexao + '–' + r.destino + '</b> ' : ''}${formatFlightFrequency(r.frequenciaConexao, lang)}` : '—' }] : []),
       ...(rows.some(r => r.diasSemana && r.diasSemana.length) ? [{ label: L.validDays, get: r => formatFlightFrequency(r.diasSemana, lang) || '—' }] : []),
     ];
     const headerCells = rows.map(r => `<th>${r.cia}</th>`).join('');
@@ -3542,7 +3571,7 @@ function validityOf(r, lang){
 // All-in: a fee is charged per kg when it is marked so (or, for older fees, when its note says "/kg" or "por kg")
 const feeIsPerKg = (f) => f.porKg != null ? !!f.porKg : /\/\s*kg|por\s*kg/i.test(f.obs || '');
 const usdFmt = (n) => 'USD ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const HBI_BUILD = '2026-11-11 19:46';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-11 20:02';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
