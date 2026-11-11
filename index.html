@@ -2928,10 +2928,16 @@ function openQuoteBuilder(){
       const key = exporterKey(matched);
       const quotes = await getQuotes(key);
       const routesSummary = selectedRates.map(r => `${r.cia} ${r.origem}→${r.destino} (USD ${r.tarifaVenda.toFixed(2)}/kg)`).join('; ');
+      // Agendor: title "Aéreo - destino(s)" and a short description (when, origins, destinations, average profit)
+      const uniq = a => [...new Set(a)], dests = uniq(selectedRates.map(r => r.destino)), origs = uniq(selectedRates.map(r => r.origem));
+      const avgProfit = selectedRates.reduce((s, r) => s + (r.tarifaVenda - r.tarifaBase), 0) / selectedRates.length;
+      const when = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' às');
       const quote = {
-        id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(),
         cliente, status: 'Cotação enviada',
-        notes: `Gerada automaticamente ao emitir o PDF${ref ? ' (REF: '+ref+')' : ''} · ${routesSummary}`
+        notes: `Gerada automaticamente ao emitir o PDF${ref ? ' (REF: '+ref+')' : ''} · ${routesSummary}`,
+        agendorTitle: 'Aéreo - ' + (dests.length > 3 ? dests.slice(0, 3).join(', ') + ' +' + (dests.length - 3) : dests.join(', ')),
+        agendorText: `Cotação aérea enviada em ${when} · Origens: ${origs.join(', ')} · Destinos: ${dests.join(', ')} · Média de profit: USD ${avgProfit.toFixed(2).replace('.', ',')}/kg${ref ? ' · REF: ' + ref : ''}`
       };
       quotes.push(quote);
       await setQuotes(key, quotes);
@@ -3466,7 +3472,7 @@ function autoObsTry(text){   // translated text, or null when some piece isn't k
 }
 const autoObsEn = (text) => { const x = autoObsTry(text); return x === null ? text : x; };
 const obsEnFor = (rs, cleaned) => { const x = (rs || []).find(r => r.obsEn); return x ? x.obsEn : autoObsEn(cleaned); };
-const HBI_BUILD = '2026-11-10 12:38';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-11 13:49';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -4468,7 +4474,7 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
     if (!dealId){
       const dealResult = await agendorApiCall('agendorCreateDeal', {
         organizationId: orgId,
-        title: `Cotação: ${quote.cliente}`,
+        title: quote.agendorTitle || `Cotação: ${quote.cliente}`,
         dealStage: 1
       });
       dealId = extractDealId(dealResult);
@@ -4478,7 +4484,7 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
 
     const taskText = statusChanged
       ? `Status atualizado: ${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`
-      : `${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`;
+      : (quote.agendorText || `${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`);
     const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
       return { ok: false, error: friendlyAgendorError(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
