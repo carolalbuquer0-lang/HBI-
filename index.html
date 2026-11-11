@@ -3026,7 +3026,7 @@ const PDF_I18N = {
   pt: {
     htmlLang: 'pt-BR', dateLocale: 'pt-BR', title: (c) => `Proposta - ${c}`,
     proposta: 'PROPOSTA', validadeLabel: 'Validade', intro: (c) => `Na presente proposta, encontram-se informações resumidas do orçamento para a prestação do serviço transporte aéreo e desembaraço de frutas pela <b>Hevile Soluções em Comércio Exterior</b>, para <b>${c}</b>.`,
-    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door',
+    toDoor: 'Embarques To Door', aeroporto: 'Embarques Aeroporto', validDays: 'Tarifa válida', thGeneral: 'Geral', minToDoor: 'Mín. To Door', thValidity: 'Validade da tarifa',
     thCia: 'CIA', thOrigem: 'Origem', thConexao: 'Conexão', thDestino: 'Destino', thTarifa: 'TARIFA', thUsdKg: 'USD/kg',
     thObs: 'Observações', thDesembaraco: 'DESEMBARAÇO', thPawb: 'P/AWB', thArmazenagem: 'ARMAZENAGEM',
     thCriteria: 'Critério', thRoute: 'Rota', thFreight: 'Tarifa (USD/kg)', thCarrierFees: 'Taxas da CIA',
@@ -3039,8 +3039,8 @@ const PDF_I18N = {
   },
   en: {
     htmlLang: 'en-US', dateLocale: 'en-US', title: (c) => `Proposal - ${c}`,
-    proposta: 'PROPOSAL', validadeLabel: 'Valid until', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
-    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.',
+    proposta: 'PROPOSAL', validadeLabel: 'Validity', intro: (c) => `This proposal contains a summary of the estimated costs for air freight transportation and customs clearance of fruit provided by <b>Hevile Soluções em Comércio Exterior</b>, for <b>${c}</b>.`,
+    toDoor: 'To Door Shipments', aeroporto: 'Airport Shipments', validDays: 'Rate valid', thGeneral: 'Flat', minToDoor: 'To Door min.', thValidity: 'Rate validity',
     thCia: 'Airline', thOrigem: 'Origin', thConexao: 'Connection', thDestino: 'Destination', thTarifa: 'RATE', thUsdKg: 'USD/kg',
     thObs: 'Notes', thDesembaraco: 'CUSTOMS CLEARANCE', thPawb: 'PER AWB', thArmazenagem: 'STORAGE',
     thCriteria: 'Criteria', thRoute: 'Route', thFreight: 'Freight (USD/kg)', thCarrierFees: 'Carrier Fees',
@@ -3108,6 +3108,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       const produtoShown = lang === 'en' ? ((group.rows.find(r => r.produtoEn && shownProductFor(r) === getEffectiveProduto(r)) || {}).produtoEn || translateProductToEn(group.produto)) : group.produto;
       // ONE line per route variation: the weight tiers (+300, +500, +1.000...) become columns side by side
       const tierOf = r => parseInt(parseCondicao(r.condicao).faixaKey, 10) || 0;
+      const vals = [...new Set(group.rows.map(r => validityOf(r, lang)))], sameValidity = vals.length === 1 && vals[0];
       const byLine = {};
       group.rows.forEach(r => {
         const k = [r.cia, r.tipo, r.origem, r.conexao, r.destino, parseCondicao(r.condicao).obs, (r.diasSemana || []).join(','), (r.frequenciaVoos || []).join(',')].join('|');
@@ -3146,7 +3147,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
           <td>USD ${(r.armazenagem||0).toFixed(3)}</td>
           <td>${transitTimeFor(r)}</td>
           <td>${flightFreqCell(r)}</td>
-          <td>${[lang === 'en' ? obsEnFor(rs, notesWithoutTransit(obs)) : notesWithoutTransit(obs), validDaysText(r), minNote].filter(Boolean).join(' · ') || '—'}</td>
+          <td>${[sameValidity ? '' : validityOf(r, lang), lang === 'en' ? obsEnFor(rs, notesWithoutTransit(obs)) : notesWithoutTransit(obs), validDaysText(r), minNote].filter(Boolean).join(' · ') || '—'}</td>
         </tr>`;
         }).join('');
         const nC = stacked ? 1 : nT, tw = stacked ? 17 : (nT === 1 ? 9 : Math.min(8, 21.2 / nT));
@@ -3165,6 +3166,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       };
       return `
         <div class="pl-title">${L.thDestinoLabel}: ${group.destino}${group.produto !== '—' ? ' — ' + produtoShown : ''}</div>
+        ${sameValidity ? `<div style="font-size:11px; color:#5b6b78; margin:-2px 0 6px;">${sameValidity}</div>` : ''}
         ${chunks.map(tableHtml).join('<div style="height:10px"></div>')}`;
     }).join('');
   }
@@ -3190,6 +3192,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
       { label: 'ETD', get: r => r.etd || '—' },
       { label: 'ETA', get: r => r.eta || '—' },
       { label: L.thFreight, get: r => `USD ${Number(r.tarifaVenda != null ? r.tarifaVenda : r.tarifaBase).toFixed(2)}/kg` },
+      ...(rows.some(r => validityOf(r, lang)) ? [{ label: L.thValidity, get: r => validityOf(r, lang) || '—' }] : []),
       { label: L.thCarrierFees, get: r => {
           const fees = feesFor(r);
           return fees.length ? fees.map(f => `USD ${Number(f.valor).toFixed(2)}`).join(' + ') : '—';
@@ -3272,7 +3275,7 @@ function buildQuoteHTML({ cliente, ref, validade, rates, autoprint, lang, layout
   <div class="pq-page">
     <div class="pq-logo-header">
       ${hevileLogoSvg('#4f758b', 40)}
-      <div class="pq-meta" style="margin-bottom:0;"><div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${validade}</b></div></div>
+      <div class="pq-meta" style="margin-bottom:0;"><div style="text-align:right;"><b>REF: ${ref || '—'}</b><br><b>${L.validadeLabel}: ${lang === 'en' ? validade.replace(/\bdias\b/gi, 'days').replace(/\bdia\b/gi, 'day') : validade}</b></div></div>
     </div>
     <div class="pq-intro">${L.intro(cliente)}</div>
     ${layout === 'porlinha' ? `
@@ -3472,7 +3475,20 @@ function autoObsTry(text){   // translated text, or null when some piece isn't k
 }
 const autoObsEn = (text) => { const x = autoObsTry(text); return x === null ? text : x; };
 const obsEnFor = (rs, cleaned) => { const x = (rs || []).find(r => r.obsEn); return x ? x.obsEn : autoObsEn(cleaned); };
-const HBI_BUILD = '2026-11-11 13:49';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+// Validity of a tariff for the client PDF (the field is free text: periods, "a partir de", update dates, even a minimum weight)
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function validityOf(r, lang){
+  const v = String(r.validade || '').replace(/m[ií]n\.?\s*[\d.,]+\s*kg\s*·?\s*/ig, '').replace(/^[\s·]+|[\s·]+$/g, '').trim();   // the minimum weight has its own place
+  if (!v) return '';
+  const D = (s) => { const m = s.split('/'); return lang === 'en' ? `${+m[0]} ${MONTHS_EN[+m[1] - 1]} ${m[2]}` : s; };
+  let m;
+  if ((m = v.match(/^(\d{2}\/\d{2}\/\d{4})\s*(?:a|até|-|–)\s*(\d{2}\/\d{2}\/\d{4})$/i))) return lang === 'en' ? `Valid ${D(m[1])} to ${D(m[2])}` : `Válida de ${m[1]} a ${m[2]}`;
+  if ((m = v.match(/^a partir de\s*(\d{2}\/\d{2}\/\d{4})$/i))) return lang === 'en' ? `Valid from ${D(m[1])}` : `Válida a partir de ${m[1]}`;
+  if ((m = v.match(/^vigente(?: desde)?\s*(\d{2}\/\d{2}\/\d{4})$/i))) return lang === 'en' ? `In effect since ${D(m[1])}` : `Vigente desde ${m[1]}`;
+  if ((m = v.match(/^atualizad[ao]s?(?: em)?\s*(\d{2}\/\d{2}\/\d{4})$/i))) return lang === 'en' ? `Updated ${D(m[1])}` : `Atualizada em ${m[1]}`;
+  return lang === 'en' ? 'Validity: ' + v.replace(/\bdias\b/gi, 'days').replace(/\bdia\b/gi, 'day') : 'Validade: ' + v;
+}
+const HBI_BUILD = '2026-11-11 16:20';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
