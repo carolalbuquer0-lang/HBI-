@@ -77,6 +77,8 @@
   }
   .stats .stat{padding-right:32px; margin-right:32px; border-right:1px solid rgba(255,255,255,0.25);}
   .stats .stat:last-child{border:none;}
+  input, select, textarea{min-width:0; max-width:100%;}   /* a field never makes the page wider than the screen */
+  @media (max-width: 480px){ .stats .stat{padding-right:12px; margin-right:12px; min-width:0; flex:1 1 0;} .stats .stat:last-child{margin-right:0; padding-right:0;} }
   .stats .num{font-size:20px; font-weight:bold; display:block;}
   .stats .lbl{font-size:11px; color:#DCEBF2;}
 
@@ -123,7 +125,7 @@
   .rate-dest-count{
     background:var(--teal-deep); color:#fff; font-size:11px; font-weight:bold; border-radius:10px; padding:1px 8px;
   }
-  .rate-card-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; margin:14px 16px 0;}
+  .rate-card-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap:14px; margin:14px 16px 0;}
   .rate-card{border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff;}
   .rate-card-head{background:#4f758b; color:#fff; font-weight:bold; font-size:14px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px 10px;}
   .rate-card-head .rate-edit-all, .rate-card-head .rate-tipo-toggle{white-space:nowrap;}
@@ -153,7 +155,7 @@
   .fruit-info-panel .row{font-size:13px; color:var(--muted); margin-bottom:3px;}
   .fruit-info-panel .row b{color:var(--ink);}
 
-  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(270px,1fr)); gap:12px;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(min(270px, 100%),1fr)); gap:12px;}
   .card{
     background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;
     transition:box-shadow .15s, transform .15s; display:flex; flex-direction:column;
@@ -268,7 +270,8 @@
 
   .swipe-hint{display:none; font-weight:normal; text-transform:none; letter-spacing:normal; color:var(--muted); font-size:11px;}
   @media (max-width: 760px){
-    .layout{grid-template-columns:1fr;}
+    .layout{grid-template-columns:minmax(0,1fr);}
+    .sidebar, .main{min-width:0;}
     .sidebar{position:static; max-height:none; border-right:none; border-bottom:1px solid var(--line);}
     .alerts-wrap{position:relative;}
     .alerts-wrap::after{
@@ -281,7 +284,7 @@
     .main-header{flex-wrap:wrap; gap:10px;}
     .main-header > div:last-child{flex-wrap:wrap;}
     .rate-card-grid{grid-template-columns:1fr;}
-    .grid.cs-grid{grid-template-columns:1fr;}
+    .grid.cs-grid{grid-template-columns:minmax(0,1fr);}
     .swipe-hint{display:inline;}
   }
 
@@ -3571,7 +3574,7 @@ function validityOf(r, lang){
 // All-in: a fee is charged per kg when it is marked so (or, for older fees, when its note says "/kg" or "por kg")
 const feeIsPerKg = (f) => f.porKg != null ? !!f.porKg : /\/\s*kg|por\s*kg/i.test(f.obs || '');
 const usdFmt = (n) => 'USD ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const HBI_BUILD = '2026-11-11 20:02';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-16 18:29';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -3834,8 +3837,10 @@ function renderCards(){
     list.sort((a,b) => (a.active === b.active ? 0 : (a.active ? -1 : 1)) || b.shipments - a.shipments);
   }
 
-  document.getElementById('mainTitle').textContent = activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : (onlyProspects ? 'Novos prospects' : 'Todos os exportadores');
-  document.getElementById('mainSub').textContent = `${list.length} exportador${list.length===1?'':'es'} encontrado${list.length===1?'':'s'}`;
+  if (document.getElementById('cardGrid').style.display !== 'none'){   // only while the Exportadores tab is the one open (a late redraw must not rename another tab)
+    document.getElementById('mainTitle').textContent = activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : (onlyProspects ? 'Novos prospects' : 'Todos os exportadores');
+    document.getElementById('mainSub').textContent = `${list.length} exportador${list.length===1?'':'es'} encontrado${list.length===1?'':'s'}`;
+  }
 
   empty.style.display = list.length === 0 ? 'block' : 'none';
 
@@ -5235,7 +5240,7 @@ function setNav(which){
   if (impOn) renderImportersView();
   if (cotTarOn) setCotTarMode(ctMode);
   if (feedbacksOn) renderFeedbacksView();
-  if (gridOn) renderExportersToolbar();
+  if (gridOn){ render(); renderExportersToolbar(); }   // coming back to Exportadores: recompute its title and count
 }
 document.getElementById('navExporters').addEventListener('click', () => setNav('exporters'));
 document.getElementById('navImporters').addEventListener('click', () => setNav('importers'));
@@ -6345,8 +6350,9 @@ function getAllScheduledFeiraEvents(){
   return events;
 }
 
-function renderFeiraCalendarHtml(){
-  const events = getAllScheduledFeiraEvents();
+function renderFeiraCalendarHtml(filter){
+  const nf = normTxt(filter || '');
+  const events = getAllScheduledFeiraEvents().filter(e => !nf || normTxt(e.companyName).includes(nf) || normTxt(e.feira || e.colorKey || '').includes(nf));
   const firstOfMonth = new Date(feiraCalYear, feiraCalMonth, 1);
   const startWeekday = firstOfMonth.getDay();
   const daysInMonth = new Date(feiraCalYear, feiraCalMonth + 1, 0).getDate();
@@ -6626,10 +6632,15 @@ function renderFeedbacksView(){
 
 function renderFbGroups(filter){
   const wrap = document.getElementById('fbGroups');
+  const sb = document.getElementById('fbSearch');
+  if (sb) sb.placeholder = feedbacksMode === 'feiras' ? 'Buscar por cliente ou título do evento…' : 'Buscar por cliente…';
 
   if (feedbacksMode === 'feiras'){
-    const groups = buildFeiraCompanyGroups().filter(g => !filter || g.display.toLowerCase().includes(filter));
-    const calendarHtml = renderFeiraCalendarHtml();
+    const nf = normTxt(filter || '');
+    const groups = buildFeiraCompanyGroups()
+      .map(g => (!nf || normTxt(g.display).includes(nf)) ? g : { ...g, items: g.items.filter(f => normTxt(f.feira || '').includes(nf)) })
+      .filter(g => g.items.length);
+    const calendarHtml = renderFeiraCalendarHtml(filter);
     const ciaMeetingsFiltered = ciaMeetingsCache.filter(m => !filter || m.cia.toLowerCase().includes(filter));
     const ciaRowsHtml = ciaMeetingsFiltered.length ? `<h4 style="margin-top:18px;">✈ Companhias aéreas</h4>${[...ciaMeetingsFiltered].sort((a,b)=>(b.ts||0)-(a.ts||0)).map(m => `<div class="history-row" data-cia-id="${m.id}">
         <div>
