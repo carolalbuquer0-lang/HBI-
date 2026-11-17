@@ -351,6 +351,9 @@
   .ship-table th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--pf-muted); padding:5px 4px; border-bottom:2px solid var(--line);}
   .ship-table td{padding:5px 4px; border-bottom:1px solid var(--line); vertical-align:top;}
   .ship-sel{font-size:12.5px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:#fff;}
+  .q-tar{margin-top:6px; font-size:12px; color:var(--pf-muted);}
+  .q-tar summary{cursor:pointer; color:var(--teal-deep);}
+  .q-tar div{padding:1px 0;}
   .log-entry .le-ts{font-size:11px; color:var(--pf-muted); margin-bottom:4px;}
   .log-entry .le-notes{font-size:13px; color:var(--pf-text); white-space:pre-wrap;}
   .log-entry .le-del{cursor:pointer; color:#B3413B; font-size:11px; background:none; border:none; padding:0;}
@@ -2997,7 +3000,8 @@ function openQuoteBuilder(){
       const quote = {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(),
         cliente, status: 'Cotação enviada',
-        notes: `Gerada automaticamente ao emitir o PDF${ref ? ' (REF: '+ref+')' : ''} · ${routesSummary}`,
+        notes: `Cotação aérea enviada em ${when} · Origens: ${origs.join(', ')} · Destinos: ${dests.join(', ')} · Média de profit: USD ${avgProfit.toFixed(2).replace('.', ',')}/kg${ref ? ' · REF: ' + ref : ''}`,
+        tarifas: selectedRates.map(r => ({ cia: r.cia, o: r.origem, d: r.destino, v: Number(r.tarifaVenda.toFixed(2)) })),
         agendorTitle: 'Aéreo - ' + (dests.length > 3 ? dests.slice(0, 3).join(', ') + ' +' + (dests.length - 3) : dests.join(', ')),
         agendorText: `Cotação aérea enviada em ${when} · Origens: ${origs.join(', ')} · Destinos: ${dests.join(', ')} · Média de profit: USD ${avgProfit.toFixed(2).replace('.', ',')}/kg${ref ? ' · REF: ' + ref : ''}`
       };
@@ -3578,7 +3582,29 @@ function validityOf(r, lang){
 // All-in: a fee is charged per kg when it is marked so (or, for older fees, when its note says "/kg" or "por kg")
 const feeIsPerKg = (f) => f.porKg != null ? !!f.porKg : /\/\s*kg|por\s*kg/i.test(f.obs || '');
 const usdFmt = (n) => 'USD ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const HBI_BUILD = '2026-11-17 11:51';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+// Quotes made with the PDF button: the note is a short description; the tariffs sent are kept apart (q.tarifas). Older quotes carry them inside a long note.
+function quoteParts(q){
+  const notes = q.notes || '';
+  let main = notes, lines = [];
+  const group = (arr) => { const g = {}; arr.forEach(t => { const k = `${t.cia}|${t.o}|${t.d}`; (g[k] = g[k] || { cia: t.cia, o: t.o, d: t.d, v: [] }).v.push(t.v); });
+    return Object.values(g).map(x => `${x.cia} ${x.o}→${x.d} — USD ${[...new Set(x.v)].sort((a, b) => a - b).map(v => v.toFixed(2)).join(' / ')}/kg`).sort(); };
+  if (q.tarifas && q.tarifas.length) lines = group(q.tarifas);
+  else {
+    const m = notes.match(/^(Gerada automaticamente[^·]*)·\s*(.+)$/);
+    if (m){
+      main = m[1].trim(); const arr = [];
+      m[2].replace(/(.+?)\s([A-Z]{3})→([A-Z]{3})\s\(USD ([\d.]+)\/kg\)(?:;\s*|$)/g, (_, cia, o, d, v) => { arr.push({ cia: cia.trim(), o, d, v: +v }); return ''; });
+      lines = group(arr);
+      if (q.agendorText) main = q.agendorText;
+      else if (arr.length){   // rebuild the same short description from what the old note already says (no profit average: it wasn't saved)
+        const u = a => [...new Set(a)], ref = (main.match(/\(REF:\s*([^)]+)\)/) || [])[1], t = entryTs(q);
+        main = `Cotação aérea enviada${t ? ' em ' + fmtStamp(t) : ''} · Origens: ${u(arr.map(x => x.o)).join(', ')} · Destinos: ${u(arr.map(x => x.d)).join(', ')}${ref ? ' · REF: ' + ref : ''}`;
+      }
+    }
+  }
+  return { main, lines };
+}
+const HBI_BUILD = '2026-11-17 17:48';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -4591,8 +4617,8 @@ async function syncQuoteToAgendor(d, quote, statusChanged){
     }
 
     const taskText = statusChanged
-      ? `Status atualizado: ${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`
-      : (quote.agendorText || `${quote.status}${quote.notes ? ' — ' + quote.notes : ''}`);
+      ? `Status atualizado: ${quote.status}${quoteParts(quote).main ? ' — ' + quoteParts(quote).main : ''}`
+      : (quote.agendorText || `${quote.status}${quoteParts(quote).main ? ' — ' + quoteParts(quote).main : ''}`);
     const taskResult = await agendorApiCall('agendorCreateTask', { dealId, text: taskText });
     if (taskResult && taskResult.status && (taskResult.status < 200 || taskResult.status >= 300)){
       return { ok: false, error: friendlyAgendorError(taskResult), agendorOrgId: orgId, agendorDealId: dealId };
@@ -4624,7 +4650,7 @@ async function initQuotesPane(d, key){
         </div>
         <div class="le-top"><span>${QUOTE_STATUS_ICON[q.status] || ''} <b>${q.cliente}</b> · ${q.status}</span></div>
         ${stampHtml(q)}
-        <div class="le-notes">${(q.notes || '').replace(/</g,'&lt;')}</div>
+        ${(() => { const p = quoteParts(q), e = s => String(s).replace(/</g, '&lt;'); return `<div class="le-notes">${e(p.main)}</div>` + (p.lines.length ? `<details class="q-tar"><summary>Tarifas enviadas (${p.lines.length})</summary>${p.lines.map(l => `<div>${e(l)}</div>`).join('')}</details>` : ''); })()}
       </div>
     `).join('');
     quoteList.querySelectorAll('.qt-del').forEach(btn => {
@@ -5223,7 +5249,7 @@ async function buildActivities(){
   const byKey = {}; EXPORTERS.concat(IMPORTERS).forEach(d => { byKey[exporterKey(d)] = d; });
   const rows = [];
   const add = (o) => rows.push(o);
-  Object.entries(quotesCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(q => add({ id: q.id, ts: entryTs(q), upd: q.upd, d, tipo: 'Cotação', negocio: q.agendorTitle || `Cotação: ${q.cliente}`, deal: q.agendorDealId, status: q.status, titulo: q.cliente, notes: q.notes || '', detalhe: q.agendorText || '', desc: `${q.status}${q.notes ? ' — ' + q.notes : ''}` })); });
+  Object.entries(quotesCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(q => add({ id: q.id, ts: entryTs(q), upd: q.upd, d, tipo: 'Cotação', negocio: q.agendorTitle || `Cotação: ${q.cliente}`, deal: q.agendorDealId, status: q.status, titulo: q.cliente, notes: quoteParts(q).main, detalhe: quoteParts(q).lines.join('; '), desc: `${q.status}${quoteParts(q).main ? ' — ' + quoteParts(q).main : ''}` })); });
   Object.entries(firstContactsCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => add({ id: f.id, ts: entryTs(f), upd: f.upd, d, tipo: 'Primeiro contato', negocio: '', status: f.status, titulo: f.emailUsado || 'E-mail geral', notes: f.notes || '', desc: `${f.emailUsado ? `Primeiro contato (${f.emailUsado})` : 'Primeiro contato'}: ${f.status}${f.notes ? ' — ' + f.notes : ''}` })); });
   Object.entries(feirasCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => { const dl = f.dataDia ? formatBRDate(f.dataDia) + (f.data ? ' — ' + f.data : '') : f.data;
     add({ id: f.id, ts: entryTs(f), upd: f.upd, sched: f.dataDia ? f.dataDia + ' 00:00:00' : '', d, tipo: 'Reunião em feira', negocio: '', status: f.status, titulo: f.feira || 'Feira', notes: f.notes || '', detalhe: dl || '', desc: `${f.feira ? `Reunião em feira (${f.feira})` : 'Reunião em feira'}: ${f.status}${dl ? ' — ' + dl : ''}${f.notes ? ' — ' + f.notes : ''}` }); }); });
