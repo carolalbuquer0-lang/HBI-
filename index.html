@@ -345,6 +345,8 @@
   .log-entry .le-top b{color:var(--pf-text);}
   #qbRatesList .qb-weight{display:none;}
   #qbRatesList.allin-on .qb-weight{display:block;}
+  .act-filters{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px;}
+  .act-filters label{display:block; font-size:12px; font-weight:bold; color:var(--pf-muted); margin-bottom:3px;}
   .ship-table{width:100%; border-collapse:collapse; font-size:12px;}
   .ship-table th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--pf-muted); padding:5px 4px; border-bottom:2px solid var(--line);}
   .ship-table td{padding:5px 4px; border-bottom:1px solid var(--line); vertical-align:top;}
@@ -390,7 +392,7 @@
     .feira-cal-cell{min-height:44px;}
     .feira-cal-event{font-size:8.5px;}
   }
-  .nav-toggle{display:flex; gap:8px; margin-bottom:16px;}
+  .nav-toggle{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;}
   .nav-toggle button{
     background:#fff; border:1px solid var(--line); padding:7px 14px; border-radius:8px; font-size:12.5px; cursor:pointer; color:var(--muted);
   }
@@ -513,6 +515,7 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
       <button id="navImporters">Importadores</button>
       <button id="navCotTar">Cotações e Tarifas</button>
       <button id="navFeedbacks">Feedbacks</button>
+      <button id="navAtividades">Atividades</button>
     </div>
 
     <div class="main-header">
@@ -543,6 +546,7 @@ break;case"<bookViews":;case"<bookViews>":;case"</bookViews>":break;case"<workbo
       <div id="quotesView"></div>
       <div id="ratesView" style="display:none;"></div>
     </div>
+    <div id="atividadesView" style="display:none;"></div>
     <div id="feedbacksView" style="display:none;">
       <div class="nav-toggle" style="margin-bottom:16px;">
         <button id="fbModePrimeiroContato">Primeiro Contato</button>
@@ -3574,7 +3578,7 @@ function validityOf(r, lang){
 // All-in: a fee is charged per kg when it is marked so (or, for older fees, when its note says "/kg" or "por kg")
 const feeIsPerKg = (f) => f.porKg != null ? !!f.porKg : /\/\s*kg|por\s*kg/i.test(f.obs || '');
 const usdFmt = (n) => 'USD ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const HBI_BUILD = '2026-11-16 18:29';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-17 11:51';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -5205,6 +5209,99 @@ document.getElementById('search').addEventListener('input', e => {
 });
 document.getElementById('clearFilter').addEventListener('click', () => { activeFruit = null; render(); });
 
+/* ---------- Atividades: everything registered in HBI, as a list and as an Excel in the layout of the Agendor activities report ---------- */
+const ACT_USER = 'CAROLINA ALBUQUERQUE';
+const ACT_COLUMNS = ["Código da atividade", "Criado por", "Código do Negócio", "Negócio relacionado", "Código da Pessoa", "Pessoa relacionada", "Código da Empresa", "Empresa relacionada", "Data de cadastro", "Data de agendamento", "Data de atualização", "Usuários responsáveis", "Usuário que finalizou", "Data de finalização", "Tipo de atividade", "Descrição", "Telefone", "Celular", "Fax", "Whatsapp", "Ramal", "Rádio", "E-mail", "País", "Estado", "Cidade", "CEP", "Bairro", "Rua", "Número", "Complemento", "Facebook", "Twitter", "LinkedIn", "Skype", "Instagram", "Categoria", "Setor da Empresa", "Origem do cliente"];   // same 39 columns, same order as the Agendor export
+const ACT_EXTRA = ['Tipo no HBI', 'Status', 'Título / assunto', 'O que foi dito (notas)', 'Detalhes'];   // extra columns, always at the end
+const actState = { all: [], from: '', to: '', tipo: '', q: '' };
+const actStamp = (t) => { if (!t) return ''; const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+
+async function buildActivities(){
+  const fbAll = {};
+  (await backendListValues('hevile_feedback:')).forEach(({key, value}) => { if (value) fbAll[key.replace('hevile_feedback:', '')] = { text: value }; });
+  (await backendListValues('hevile_feedback_ts:')).forEach(({key, value}) => { const k = key.replace('hevile_feedback_ts:', ''); if (fbAll[k]) fbAll[k].ts = +value; });
+  const byKey = {}; EXPORTERS.concat(IMPORTERS).forEach(d => { byKey[exporterKey(d)] = d; });
+  const rows = [];
+  const add = (o) => rows.push(o);
+  Object.entries(quotesCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(q => add({ id: q.id, ts: entryTs(q), upd: q.upd, d, tipo: 'Cotação', negocio: q.agendorTitle || `Cotação: ${q.cliente}`, deal: q.agendorDealId, status: q.status, titulo: q.cliente, notes: q.notes || '', detalhe: q.agendorText || '', desc: `${q.status}${q.notes ? ' — ' + q.notes : ''}` })); });
+  Object.entries(firstContactsCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => add({ id: f.id, ts: entryTs(f), upd: f.upd, d, tipo: 'Primeiro contato', negocio: '', status: f.status, titulo: f.emailUsado || 'E-mail geral', notes: f.notes || '', desc: `${f.emailUsado ? `Primeiro contato (${f.emailUsado})` : 'Primeiro contato'}: ${f.status}${f.notes ? ' — ' + f.notes : ''}` })); });
+  Object.entries(feirasCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => { const dl = f.dataDia ? formatBRDate(f.dataDia) + (f.data ? ' — ' + f.data : '') : f.data;
+    add({ id: f.id, ts: entryTs(f), upd: f.upd, sched: f.dataDia ? f.dataDia + ' 00:00:00' : '', d, tipo: 'Reunião em feira', negocio: '', status: f.status, titulo: f.feira || 'Feira', notes: f.notes || '', detalhe: dl || '', desc: `${f.feira ? `Reunião em feira (${f.feira})` : 'Reunião em feira'}: ${f.status}${dl ? ' — ' + dl : ''}${f.notes ? ' — ' + f.notes : ''}` }); }); });
+  Object.entries(referralsCache).forEach(([key, arr]) => { const d0 = byKey[key]; if (d0) arr.forEach(e => {
+    let owner = d0, other = e.importer;
+    if (IMPORTERS.includes(d0)){ const ex = (e.importerKey && byKey[e.importerKey]) || EXPORTERS.find(x => x.trade.toLowerCase() === (e.importer || '').toLowerCase()); if (ex){ owner = ex; other = d0.trade; } }   // same owner rule used when sending to Agendor
+    const fl = FEEDBACK_LABEL_PT[e.feedback] || e.feedback, tp = e.tipo || 'Indicação';
+    add({ id: e.id, ts: entryTs(e), upd: e.upd, d: owner, tipo: tp === 'Cotação' ? 'Pedido de cotação' : 'Indicação', negocio: other ? `${tp}: ${other} (${e.season})` : `${tp}: ${e.titulo || 'sem título'} (${e.season})`, deal: e.agendorDealId, status: fl, titulo: e.titulo || other || '', notes: e.notes || '', detalhe: e.season || '', desc: `Feedback: ${fl}${e.notes ? ' — ' + e.notes : ''}` }); }); });
+  Object.entries(fbAll).forEach(([key, f]) => { const d = byKey[key]; if (d) add({ id: 'fb-' + key, ts: f.ts || 0, d, tipo: 'Feedback geral', negocio: '', status: '', titulo: '', notes: f.text, desc: f.text }); });
+  ciaMeetingsCache.forEach(m => add({ id: m.id, ts: entryTs(m), upd: m.upd, sched: m.dataDia ? m.dataDia + ' 00:00:00' : '', d: null, empresa: m.cia, tipo: 'Reunião com CIA', negocio: '', status: m.status, titulo: m.cia, notes: m.notes || '', detalhe: m.dataDia ? formatBRDate(m.dataDia) + (m.data ? ' — ' + m.data : '') : (m.data || ''), desc: `Reunião com CIA (${m.cia}): ${m.status}${m.dataDia ? ' — ' + formatBRDate(m.dataDia) : ''}${m.data ? ' — ' + m.data : ''}${m.notes ? ' — ' + m.notes : ''}` }));
+  rows.forEach(r => { r.empresaNome = r.d ? r.d.trade : (r.empresa || ''); });
+  return rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+}
+
+function activityRow(r){   // one line in the Agendor layout (39 columns) + 3 extra at the end
+  const d = r.d, isExp = d && EXPORTERS.includes(d), cad = actStamp(r.ts);
+  const cat = d ? (isExp ? (d.agendor_categoria || (isProspect(d) ? 'Prospect' : 'Cliente')) : (isProspectImp(d) ? 'Prospect' : 'Cliente')) : '';
+  const v = { 'Código da atividade': r.id, 'Criado por': ACT_USER, 'Código do Negócio': r.deal || '', 'Negócio relacionado': r.negocio || '', 'Código da Empresa': (d && d.agendorOrgId) || '', 'Empresa relacionada': r.empresaNome,
+    'Data de cadastro': cad, 'Data de agendamento': r.sched || cad, 'Data de atualização': r.upd ? actStamp(r.upd) : cad, 'Usuários responsáveis': ACT_USER, 'Tipo de atividade': 'Tarefa', 'Descrição': r.desc,
+    'Telefone': (d && d.phone) || '', 'E-mail': (d && d.email) || '', 'País': isExp ? 'Brasil' : '', 'Rua': (d && d.address) || '', 'Categoria': cat };
+  return [...ACT_COLUMNS.map(h => v[h] == null ? '' : v[h]), r.tipo, r.status || '', r.titulo || '', r.notes || '', r.detalhe || ''];
+}
+
+async function renderAtividadesView(){
+  const el = document.getElementById('atividadesView');
+  el.innerHTML = '<div class="empty">Carregando atividades…</div>';
+  actState.all = await buildActivities();
+  const types = [...new Set(actState.all.map(r => r.tipo))];
+  el.innerHTML = `
+    <div class="nav-toggle" id="actRanges" style="margin-bottom:10px;">${[['hoje', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['mes', 'Este mês'], ['mesant', 'Mês passado'], ['tudo', 'Tudo']].map(([k, t]) => `<button data-r="${k}">${t}</button>`).join('')}</div>
+    <div class="act-filters">
+      <div style="flex:0 0 150px;"><label>De</label><input type="date" id="actFrom" class="ship-sel" style="width:100%;"></div>
+      <div style="flex:0 0 150px;"><label>Até</label><input type="date" id="actTo" class="ship-sel" style="width:100%;"></div>
+      <div style="flex:0 0 190px;"><label>Tipo</label><select id="actTipo" class="ship-sel" style="width:100%;"><option value="">Todos os tipos</option>${types.map(t => `<option>${t}</option>`).join('')}</select></div>
+      <div style="flex:1; min-width:200px;"><label>Buscar</label><input type="text" id="actQ" class="ship-sel" placeholder="Cliente, título, status ou descrição…" style="width:100%;"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+      <div id="actSummary" style="font-size:13px; color:var(--pf-muted);"></div>
+      <button id="actDownload" style="background:var(--orange); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:bold; cursor:pointer;">⬇ Baixar Excel (formato Agendor)</button>
+    </div>
+    <div style="overflow-x:auto;"><table class="ship-table"><thead><tr><th>Data e hora</th><th>Tipo</th><th>Cliente</th><th>Status</th><th>Descrição (o que foi dito)</th></tr></thead><tbody id="actBody"></tbody></table></div>`;
+  const fmtD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const setRange = (k) => {
+    const now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let from = '', to = '';
+    if (k === 'hoje') from = to = fmtD(t0);
+    else if (k === '7' || k === '30'){ const f = new Date(t0); f.setDate(f.getDate() - (+k - 1)); from = fmtD(f); to = fmtD(t0); }
+    else if (k === 'mes'){ from = fmtD(new Date(now.getFullYear(), now.getMonth(), 1)); to = fmtD(t0); }
+    else if (k === 'mesant'){ from = fmtD(new Date(now.getFullYear(), now.getMonth() - 1, 1)); to = fmtD(new Date(now.getFullYear(), now.getMonth(), 0)); }
+    el.querySelector('#actFrom').value = from; el.querySelector('#actTo').value = to;
+    el.querySelectorAll('#actRanges button').forEach(b => b.classList.toggle('active', b.dataset.r === k));
+    draw();
+  };
+  const filtered = () => {
+    const from = el.querySelector('#actFrom').value, to = el.querySelector('#actTo').value, tp = el.querySelector('#actTipo').value, q = normTxt(el.querySelector('#actQ').value.trim());
+    const t1 = from ? new Date(from + 'T00:00:00').getTime() : 0, t2 = to ? new Date(to + 'T23:59:59').getTime() : Infinity;
+    return actState.all.filter(r => (!from && !to || (r.ts && r.ts >= t1 && r.ts <= t2)) && (!tp || r.tipo === tp) && (!q || normTxt([r.empresaNome, r.desc, r.negocio, r.titulo, r.status, r.notes, r.detalhe].join(' ')).includes(q)));
+  };
+  const draw = () => {
+    const list = filtered(), esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'), by = {};
+    list.forEach(r => { by[r.tipo] = (by[r.tipo] || 0) + 1; });
+    el.querySelector('#actSummary').innerHTML = `<b>${list.length}</b> atividade(s)${Object.keys(by).length ? ' · ' + Object.entries(by).map(([t, n]) => `${t}: ${n}`).join(' · ') : ''}`;
+    el.querySelector('#actBody').innerHTML = list.slice(0, 400).map(r => `<tr><td style="white-space:nowrap;">${r.ts ? actStamp(r.ts).slice(0, 16).split(' ').map((x, i) => i ? x : x.split('-').reverse().join('/')).join(' ') : '—'}</td><td>${esc(r.tipo)}${r.titulo && r.titulo !== r.empresaNome ? `<div style="font-size:11px; color:var(--pf-muted);">${esc(r.titulo)}</div>` : ''}</td><td>${esc(r.empresaNome)}</td><td>${r.status ? `<span class="rel-tag rel-tag-client">${esc(r.status)}</span>` : '—'}</td><td>${esc(r.notes || '—')}${r.detalhe ? `<div style="font-size:11px; color:var(--pf-muted); margin-top:2px;">${esc(r.detalhe)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--pf-muted); padding:14px 4px;">Nenhuma atividade nesse filtro.</td></tr>';
+    if (list.length > 400) el.querySelector('#actBody').insertAdjacentHTML('beforeend', `<tr><td colspan="5" style="color:var(--pf-muted);">Mostrando as 400 mais recentes na tela. O Excel leva todas as ${list.length}.</td></tr>`);
+  };
+  el.querySelectorAll('#actRanges button').forEach(b => b.onclick = () => setRange(b.dataset.r));
+  ['#actFrom', '#actTo'].forEach(s => el.querySelector(s).onchange = () => { el.querySelectorAll('#actRanges button').forEach(b => b.classList.remove('active')); draw(); });
+  el.querySelector('#actTipo').onchange = draw; el.querySelector('#actQ').oninput = draw;
+  el.querySelector('#actDownload').onclick = () => {
+    const list = filtered(); if (!list.length){ alert('Nenhuma atividade nesse filtro para baixar.'); return; }
+    const ws = XLSX.utils.aoa_to_sheet([[...ACT_COLUMNS, ...ACT_EXTRA], ...list.map(activityRow)]);
+    ws['!cols'] = [...ACT_COLUMNS, ...ACT_EXTRA].map(h => ({ wch: h === 'Descrição' ? 70 : /Negócio|Empresa relacionada|Título|Detalhes/.test(h) ? 32 : /notas/.test(h) ? 60 : /Data/.test(h) ? 19 : 16 }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Atividades');
+    XLSX.writeFile(wb, `hbi-atividades-${actStamp(Date.now()).replace(/[: ]/g, '-')}.xlsx`);
+  };
+  setRange('tudo');
+}
+
 /* ---------- Navigation: Exporters x Referrals & feedback ---------- */
 let currentNav = 'exporters';
 
@@ -5214,10 +5311,13 @@ function setNav(which){
   document.getElementById('navImporters').classList.toggle('active', which === 'importers');
   document.getElementById('navCotTar').classList.toggle('active', which === 'cottar');
   document.getElementById('navFeedbacks').classList.toggle('active', which === 'feedbacks');
+  document.getElementById('navAtividades').classList.toggle('active', which === 'atividades');
   const gridOn = which === 'exporters';
   const impOn = which === 'importers';
   const cotTarOn = which === 'cottar';
   const feedbacksOn = which === 'feedbacks';
+  const atvOn = which === 'atividades';
+  document.getElementById('atividadesView').style.display = atvOn ? 'block' : 'none';
   document.getElementById('cardGrid').style.display = gridOn ? 'grid' : 'none';
   document.getElementById('fruitInfoPanel').style.display = gridOn ? '' : 'none';
   document.getElementById('search').style.display = gridOn ? 'block' : 'none';
@@ -5228,21 +5328,23 @@ function setNav(which){
   document.getElementById('feedbacksView').style.display = feedbacksOn ? 'block' : 'none';
   document.getElementById('mainTitle').textContent = gridOn
     ? (activeFruit ? `Exportadores que trabalham com ${ptFruit(activeFruit)}` : 'Todos os exportadores')
-    : (impOn ? 'Importadores (compradores no exterior)' : (cotTarOn ? 'Cotações e Tarifas' : 'Feedbacks'));
+    : (impOn ? 'Importadores (compradores no exterior)' : (cotTarOn ? 'Cotações e Tarifas' : (atvOn ? 'Atividades' : 'Feedbacks')));
   document.getElementById('mainSub').textContent = gridOn
     ? document.getElementById('mainSub').textContent
     : (impOn ? `${IMPORTERS.length} compradores no exterior — inclui histórico de embarques e inteligência de mercado (LPCO/DU-E)`
         : (cotTarOn
         ? 'Cotações já pedidas por cliente, e o tarifário aéreo de compra pra montar novas propostas'
-        : 'Primeiro contato, reuniões em feira, e indicações — tudo por cliente'));
-  document.getElementById('newExporterBtn').style.display = (impOn || cotTarOn || feedbacksOn) ? 'none' : 'inline-block';
+        : (atvOn ? 'Tudo que você registrou no HBI, em lista e em Excel no formato do relatório de atividades do Agendor' : 'Primeiro contato, reuniões em feira, e indicações — tudo por cliente')));
+  document.getElementById('newExporterBtn').style.display = (impOn || cotTarOn || feedbacksOn || atvOn) ? 'none' : 'inline-block';
   document.getElementById('newImporterBtn').style.display = impOn ? 'inline-block' : 'none';
   if (impOn) renderImportersView();
   if (cotTarOn) setCotTarMode(ctMode);
   if (feedbacksOn) renderFeedbacksView();
+  if (atvOn) renderAtividadesView();
   if (gridOn){ render(); renderExportersToolbar(); }   // coming back to Exportadores: recompute its title and count
 }
 document.getElementById('navExporters').addEventListener('click', () => setNav('exporters'));
+document.getElementById('navAtividades').addEventListener('click', () => setNav('atividades'));
 document.getElementById('navImporters').addEventListener('click', () => setNav('importers'));
 document.getElementById('navCotTar').addEventListener('click', () => setNav('cottar'));
 document.getElementById('navFeedbacks').addEventListener('click', () => setNav('feedbacks'));
