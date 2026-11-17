@@ -1451,6 +1451,7 @@ function openCiaMeetingForm(meeting){
       ciaMeetingsCache.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), ts: Date.now(), cia, status, dataDia, data, notes });
     }
     await setCiaMeetings(ciaMeetingsCache);
+    await logAct('__cia', 'cia', meeting ? 'u' : 'n', meeting ? ciaMeetingsCache.find(m => m.id === meeting.id) : ciaMeetingsCache[ciaMeetingsCache.length - 1]);
     closeModal();
     if (currentNav === 'feedbacks' && feedbacksMode === 'feiras') renderFeedbacksView();
   };
@@ -3007,6 +3008,7 @@ function openQuoteBuilder(){
       };
       quotes.push(quote);
       await setQuotes(key, quotes);
+      await logAct(key, 'cotacao', 'n', quote);
       quotesCache[key] = quotes;
       if (getAgendorToken() && getSheetsUrl()){
         await syncQuoteToAgendor(matched, quote, false);
@@ -3604,7 +3606,7 @@ function quoteParts(q){
   }
   return { main, lines };
 }
-const HBI_BUILD = '2026-11-17 17:48';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-17 18:05';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -3632,12 +3634,10 @@ function fruitCount(fruit){
 function renderStats(){
   const bar = document.getElementById('statsBar');
   const fruits = allFruits();
-  const withSite = EXPORTERS.filter(d => d.site).length;
   bar.innerHTML = `
     <div class="stat"><span class="num">${EXPORTERS.length}</span><span class="lbl">Exportadores</span></div>
+    <div class="stat"><span class="num">${buildUnifiedImporters().length}</span><span class="lbl">Importadores</span></div>
     <div class="stat"><span class="num">${fruits.length}</span><span class="lbl">Categorias de fruta</span></div>
-    <div class="stat"><span class="num">${withSite}</span><span class="lbl">Com site cadastrado</span></div>
-    
   `;
 }
 
@@ -4714,6 +4714,7 @@ async function initQuotesPane(d, key){
     const syncStatus = document.getElementById('qtSyncStatus');
     syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
     await setQuotes(key, quotes);
+    await logAct(key, 'cotacao', editingQuoteId ? 'u' : 'n', quote);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
     if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
@@ -4836,6 +4837,7 @@ async function initPrimeiroContatoPane(d, key){
     const syncStatus = document.getElementById('fcSyncStatus');
     syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
     await setFirstContacts(key, contacts);
+    await logAct(key, 'primeiro', editingFcId ? 'u' : 'n', entry);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
     if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
@@ -4974,6 +4976,7 @@ async function initFeiraPane(d, key){
     const syncStatus = document.getElementById('frSyncStatus');
     syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
     await setFeiras(key, feiras);
+    await logAct(key, 'feira', editingFrId ? 'u' : 'n', entry);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
     if (noAgendor){
@@ -5159,6 +5162,7 @@ async function initHistoricoPane(d, key){
     const syncStatus = document.getElementById('cfSyncStatus');
     syncStatus.textContent = getSheetsUrl() ? 'Salvando…' : '';
     await setReferrals(key, log);
+    await logAct(key, 'indicacao', editingId ? 'u' : 'n', entry);
     syncStatus.textContent = getSheetsUrl() ? 'Salvo na nuvem ✓' : 'Salvo só neste dispositivo';
 
     if (syncToAgendor && getAgendorToken() && getSheetsUrl()){
@@ -5186,7 +5190,9 @@ async function initHistoricoPane(d, key){
 
   document.getElementById('feedbackSave').onclick = async () => {
     statusEl.textContent = 'Salvando…';
+    const hadFeedback = !!(await getFeedback(key));
     await setFeedback(key, feedbackEl.value);
+    await logAct(key, 'feedback', hadFeedback ? 'u' : 'n', { id: 'fb-' + key, text: feedbackEl.value });
     statusEl.textContent = 'Salvo ✓';
     document.getElementById('feedbackTs').textContent = '📅 Última atualização: ' + fmtStamp(Date.now());
 
@@ -5215,12 +5221,14 @@ async function initHistoricoPane(d, key){
 
 function closeModal(){
   document.getElementById('overlay').classList.remove('visible');
+  renderStats();   // anything changed inside the window (site, fruits, merge...) shows in the header numbers right away
 }
 document.getElementById('overlay').addEventListener('click', (e) => {
   if (e.target.id === 'overlay') closeModal();
 });
 
 function render(){
+  renderStats();   // the header numbers always follow the list (also after the late loading of saved data)
   renderFruitList();
   renderFruitInfoPanel();
   renderCards();
@@ -5238,28 +5246,73 @@ document.getElementById('clearFilter').addEventListener('click', () => { activeF
 /* ---------- Atividades: everything registered in HBI, as a list and as an Excel in the layout of the Agendor activities report ---------- */
 const ACT_USER = 'CAROLINA ALBUQUERQUE';
 const ACT_COLUMNS = ["Código da atividade", "Criado por", "Código do Negócio", "Negócio relacionado", "Código da Pessoa", "Pessoa relacionada", "Código da Empresa", "Empresa relacionada", "Data de cadastro", "Data de agendamento", "Data de atualização", "Usuários responsáveis", "Usuário que finalizou", "Data de finalização", "Tipo de atividade", "Descrição", "Telefone", "Celular", "Fax", "Whatsapp", "Ramal", "Rádio", "E-mail", "País", "Estado", "Cidade", "CEP", "Bairro", "Rua", "Número", "Complemento", "Facebook", "Twitter", "LinkedIn", "Skype", "Instagram", "Categoria", "Setor da Empresa", "Origem do cliente"];   // same 39 columns, same order as the Agendor export
-const ACT_EXTRA = ['Tipo no HBI', 'Status', 'Título / assunto', 'O que foi dito (notas)', 'Detalhes'];   // extra columns, always at the end
+const ACT_EXTRA = ['Tipo no HBI', 'Status', 'Título / assunto', 'O que foi dito (notas)', 'Detalhes', 'Ação'];   // extra columns, always at the end
 const actState = { all: [], from: '', to: '', tipo: '', q: '' };
 const actStamp = (t) => { if (!t) return ''; const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+
+// History of updates: every time something is created or edited a record is kept (per client and month, so nothing outgrows a cloud cell)
+let actLog = {};   // key -> [{ id, ts, k: kind, a: 'n' (new) | 'u' (update), e: entry id, f: snapshot }]
+const actMonth = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+async function loadActLog(){
+  actLog = {};
+  (await backendListValues('hevile_actlog:')).forEach(({key, value}) => { try{ const k = key.replace('hevile_actlog:', ''), i = k.lastIndexOf('~'), arr = JSON.parse(value);
+    if (arr && arr.length) actLog[k.slice(0, i)] = [...(actLog[k.slice(0, i)] || []), ...arr]; } catch(e){ /* skip */ } });
+}
+async function persistActLog(key, onlyMonth){
+  const by = {}; (actLog[key] || []).forEach(ev => { (by[actMonth(ev.ts)] = by[actMonth(ev.ts)] || []).push(ev); });
+  for (const [ym, evs] of Object.entries(by)) if (!onlyMonth || ym === onlyMonth) await backendSet(`hevile_actlog:${key}~${ym}`, JSON.stringify(evs.slice(0, 100)));
+}
+function actSnap(kind, e){   // the fields of an activity at that moment (short, so the history stays small)
+  const cut = s => String(s == null ? '' : s).slice(0, 300);
+  if (kind === 'cotacao') return { cliente: e.cliente, status: e.status, notes: cut(quoteParts(e).main), agendorTitle: e.agendorTitle, agendorDealId: e.agendorDealId };
+  if (kind === 'primeiro') return { emailUsado: e.emailUsado, status: e.status, notes: cut(e.notes) };
+  if (kind === 'feira') return { feira: e.feira, status: e.status, dataDia: e.dataDia, data: e.data, notes: cut(e.notes) };
+  if (kind === 'indicacao') return { tipo: e.tipo, titulo: e.titulo, importer: e.importer, importerKey: e.importerKey, season: e.season, feedback: e.feedback, notes: cut(e.notes), agendorDealId: e.agendorDealId };
+  if (kind === 'feedback') return { text: cut(e.text) };
+  return { cia: e.cia, status: e.status, dataDia: e.dataDia, data: e.data, notes: cut(e.notes) };
+}
+async function logAct(key, kind, action, entry){
+  if (!entry) return;
+  const ev = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: Date.now(), k: kind, a: action, e: entry.id || '', f: actSnap(kind, entry) };
+  actLog[key] = [ev, ...(actLog[key] || [])];
+  try{ await persistActLog(key, actMonth(ev.ts)); } catch(e){ /* the activity itself is already saved */ }
+}
 
 async function buildActivities(){
   const fbAll = {};
   (await backendListValues('hevile_feedback:')).forEach(({key, value}) => { if (value) fbAll[key.replace('hevile_feedback:', '')] = { text: value }; });
   (await backendListValues('hevile_feedback_ts:')).forEach(({key, value}) => { const k = key.replace('hevile_feedback_ts:', ''); if (fbAll[k]) fbAll[k].ts = +value; });
   const byKey = {}; EXPORTERS.concat(IMPORTERS).forEach(d => { byKey[exporterKey(d)] = d; });
+  const hasNew = new Set(), hasAny = new Set();
+  Object.values(actLog).forEach(arr => arr.forEach(ev => { hasAny.add(ev.e); if (ev.a === 'n') hasNew.add(ev.e); }));
   const rows = [];
-  const add = (o) => rows.push(o);
-  Object.entries(quotesCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(q => add({ id: q.id, ts: entryTs(q), upd: q.upd, d, tipo: 'Cotação', negocio: q.agendorTitle || `Cotação: ${q.cliente}`, deal: q.agendorDealId, status: q.status, titulo: q.cliente, notes: quoteParts(q).main, detalhe: quoteParts(q).lines.join('; '), desc: `${q.status}${quoteParts(q).main ? ' — ' + quoteParts(q).main : ''}` })); });
-  Object.entries(firstContactsCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => add({ id: f.id, ts: entryTs(f), upd: f.upd, d, tipo: 'Primeiro contato', negocio: '', status: f.status, titulo: f.emailUsado || 'E-mail geral', notes: f.notes || '', desc: `${f.emailUsado ? `Primeiro contato (${f.emailUsado})` : 'Primeiro contato'}: ${f.status}${f.notes ? ' — ' + f.notes : ''}` })); });
-  Object.entries(feirasCache).forEach(([key, arr]) => { const d = byKey[key]; if (d) arr.forEach(f => { const dl = f.dataDia ? formatBRDate(f.dataDia) + (f.data ? ' — ' + f.data : '') : f.data;
-    add({ id: f.id, ts: entryTs(f), upd: f.upd, sched: f.dataDia ? f.dataDia + ' 00:00:00' : '', d, tipo: 'Reunião em feira', negocio: '', status: f.status, titulo: f.feira || 'Feira', notes: f.notes || '', detalhe: dl || '', desc: `${f.feira ? `Reunião em feira (${f.feira})` : 'Reunião em feira'}: ${f.status}${dl ? ' — ' + dl : ''}${f.notes ? ' — ' + f.notes : ''}` }); }); });
-  Object.entries(referralsCache).forEach(([key, arr]) => { const d0 = byKey[key]; if (d0) arr.forEach(e => {
-    let owner = d0, other = e.importer;
-    if (IMPORTERS.includes(d0)){ const ex = (e.importerKey && byKey[e.importerKey]) || EXPORTERS.find(x => x.trade.toLowerCase() === (e.importer || '').toLowerCase()); if (ex){ owner = ex; other = d0.trade; } }   // same owner rule used when sending to Agendor
-    const fl = FEEDBACK_LABEL_PT[e.feedback] || e.feedback, tp = e.tipo || 'Indicação';
-    add({ id: e.id, ts: entryTs(e), upd: e.upd, d: owner, tipo: tp === 'Cotação' ? 'Pedido de cotação' : 'Indicação', negocio: other ? `${tp}: ${other} (${e.season})` : `${tp}: ${e.titulo || 'sem título'} (${e.season})`, deal: e.agendorDealId, status: fl, titulo: e.titulo || other || '', notes: e.notes || '', detalhe: e.season || '', desc: `Feedback: ${fl}${e.notes ? ' — ' + e.notes : ''}` }); }); });
-  Object.entries(fbAll).forEach(([key, f]) => { const d = byKey[key]; if (d) add({ id: 'fb-' + key, ts: f.ts || 0, d, tipo: 'Feedback geral', negocio: '', status: '', titulo: '', notes: f.text, desc: f.text }); });
-  ciaMeetingsCache.forEach(m => add({ id: m.id, ts: entryTs(m), upd: m.upd, sched: m.dataDia ? m.dataDia + ' 00:00:00' : '', d: null, empresa: m.cia, tipo: 'Reunião com CIA', negocio: '', status: m.status, titulo: m.cia, notes: m.notes || '', detalhe: m.dataDia ? formatBRDate(m.dataDia) + (m.data ? ' — ' + m.data : '') : (m.data || ''), desc: `Reunião com CIA (${m.cia}): ${m.status}${m.dataDia ? ' — ' + formatBRDate(m.dataDia) : ''}${m.data ? ' — ' + m.data : ''}${m.notes ? ' — ' + m.notes : ''}` }));
+  const R = (kind, f, up, d0) => {   // the fields of one activity, from its snapshot
+    if (kind === 'cotacao') return { tipo: 'Cotação', negocio: f.agendorTitle || `Cotação: ${f.cliente}`, deal: f.agendorDealId, status: f.status, titulo: f.cliente, notes: f.notes, desc: (up ? `Status atualizado: ${f.status}` : f.status) + (f.notes ? ' — ' + f.notes : '') };
+    if (kind === 'primeiro') return { tipo: 'Primeiro contato', negocio: '', status: f.status, titulo: f.emailUsado || 'E-mail geral', notes: f.notes, desc: `${f.emailUsado ? `Primeiro contato (${f.emailUsado})` : 'Primeiro contato'}: ${f.status}${f.notes ? ' — ' + f.notes : ''}` };
+    if (kind === 'feira'){ const dl = f.dataDia ? formatBRDate(f.dataDia) + (f.data ? ' — ' + f.data : '') : f.data;
+      return { tipo: 'Reunião em feira', negocio: '', status: f.status, titulo: f.feira || 'Feira', notes: f.notes, detalhe: dl || '', sched: f.dataDia ? f.dataDia + ' 00:00:00' : '', desc: `${f.feira ? `Reunião em feira (${f.feira})` : 'Reunião em feira'}: ${f.status}${dl ? ' — ' + dl : ''}${f.notes ? ' — ' + f.notes : ''}` }; }
+    if (kind === 'indicacao'){
+      let owner = d0, other = f.importer;
+      if (IMPORTERS.includes(d0)){ const ex = (f.importerKey && byKey[f.importerKey]) || EXPORTERS.find(x => x.trade.toLowerCase() === (f.importer || '').toLowerCase()); if (ex){ owner = ex; other = d0.trade; } }   // same owner rule used when sending to Agendor
+      const fl = FEEDBACK_LABEL_PT[f.feedback] || f.feedback, tp = f.tipo || 'Indicação';
+      return { d: owner, tipo: tp === 'Cotação' ? 'Pedido de cotação' : 'Indicação', negocio: other ? `${tp}: ${other} (${f.season})` : `${tp}: ${f.titulo || 'sem título'} (${f.season})`, deal: f.agendorDealId, status: fl, titulo: f.titulo || other || '', notes: f.notes, detalhe: f.season || '', desc: `Feedback: ${fl}${f.notes ? ' — ' + f.notes : ''}` }; }
+    if (kind === 'feedback') return { tipo: 'Feedback geral', negocio: '', status: '', titulo: '', notes: f.text, desc: f.text };
+    const dl = f.dataDia ? formatBRDate(f.dataDia) + (f.data ? ' — ' + f.data : '') : (f.data || '');
+    return { d: null, empresa: f.cia, tipo: 'Reunião com CIA', negocio: '', status: f.status, titulo: f.cia, notes: f.notes, detalhe: dl, sched: f.dataDia ? f.dataDia + ' 00:00:00' : '', desc: `Reunião com CIA (${f.cia}): ${f.status}${dl ? ' — ' + dl : ''}${f.notes ? ' — ' + f.notes : ''}` };
+  };
+  const add = (kind, f, ts, a, id, d0, detalhe) => { const r = R(kind, f, a === 'u', d0); rows.push({ id, ts, acao: a === 'n' ? 'Nova' : 'Atualização', d: d0, ...r, ...(detalhe ? { detalhe } : {}) }); };
+  // 1) every record in the history
+  Object.entries(actLog).forEach(([key, arr]) => { const d0 = key === '__cia' ? null : byKey[key]; if (key !== '__cia' && !d0) return;
+    arr.forEach(ev => { const q = ev.k === 'cotacao' ? (quotesCache[key] || []).find(x => x.id === ev.e) : null; add(ev.k, ev.f, ev.ts, ev.a, ev.id, d0, q ? quoteParts(q).lines.join('; ') : ''); }); });
+  // 2) what was registered before the history existed: the creation (and the last edit, if there was one), with the text as it is now
+  const old = (cache, kind) => Object.entries(cache).forEach(([key, arr]) => { const d0 = byKey[key]; if (d0) arr.forEach(e => { const f = actSnap(kind, e), det = kind === 'cotacao' ? quoteParts(e).lines.join('; ') : '';
+    if (!hasNew.has(e.id)) add(kind, f, entryTs(e), 'n', e.id, d0, det);
+    if (!hasAny.has(e.id) && e.upd) add(kind, f, e.upd, 'u', e.id + '-u', d0, det); }); });
+  old(quotesCache, 'cotacao'); old(firstContactsCache, 'primeiro'); old(feirasCache, 'feira'); old(referralsCache, 'indicacao');
+  Object.entries(fbAll).forEach(([key, f]) => { const d = byKey[key]; if (d && !hasAny.has('fb-' + key)) add('feedback', { text: f.text }, f.ts || 0, 'n', 'fb-' + key, d); });
+  ciaMeetingsCache.forEach(m => { const f = actSnap('cia', m);
+    if (!hasNew.has(m.id)) add('cia', f, entryTs(m), 'n', m.id, null);
+    if (!hasAny.has(m.id) && m.upd) add('cia', f, m.upd, 'u', m.id + '-u', null); });
   rows.forEach(r => { r.empresaNome = r.d ? r.d.trade : (r.empresa || ''); });
   return rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
 }
@@ -5268,9 +5321,9 @@ function activityRow(r){   // one line in the Agendor layout (39 columns) + 3 ex
   const d = r.d, isExp = d && EXPORTERS.includes(d), cad = actStamp(r.ts);
   const cat = d ? (isExp ? (d.agendor_categoria || (isProspect(d) ? 'Prospect' : 'Cliente')) : (isProspectImp(d) ? 'Prospect' : 'Cliente')) : '';
   const v = { 'Código da atividade': r.id, 'Criado por': ACT_USER, 'Código do Negócio': r.deal || '', 'Negócio relacionado': r.negocio || '', 'Código da Empresa': (d && d.agendorOrgId) || '', 'Empresa relacionada': r.empresaNome,
-    'Data de cadastro': cad, 'Data de agendamento': r.sched || cad, 'Data de atualização': r.upd ? actStamp(r.upd) : cad, 'Usuários responsáveis': ACT_USER, 'Tipo de atividade': 'Tarefa', 'Descrição': r.desc,
+    'Data de cadastro': cad, 'Data de agendamento': r.sched || cad, 'Data de atualização': cad, 'Usuários responsáveis': ACT_USER, 'Tipo de atividade': 'Tarefa', 'Descrição': r.desc,
     'Telefone': (d && d.phone) || '', 'E-mail': (d && d.email) || '', 'País': isExp ? 'Brasil' : '', 'Rua': (d && d.address) || '', 'Categoria': cat };
-  return [...ACT_COLUMNS.map(h => v[h] == null ? '' : v[h]), r.tipo, r.status || '', r.titulo || '', r.notes || '', r.detalhe || ''];
+  return [...ACT_COLUMNS.map(h => v[h] == null ? '' : v[h]), r.tipo, r.status || '', r.titulo || '', r.notes || '', r.detalhe || '', r.acao || ''];
 }
 
 async function renderAtividadesView(){
@@ -5283,6 +5336,7 @@ async function renderAtividadesView(){
     <div class="act-filters">
       <div style="flex:0 0 150px;"><label>De</label><input type="date" id="actFrom" class="ship-sel" style="width:100%;"></div>
       <div style="flex:0 0 150px;"><label>Até</label><input type="date" id="actTo" class="ship-sel" style="width:100%;"></div>
+      <div style="flex:0 0 150px;"><label>Ação</label><select id="actAcao" class="ship-sel" style="width:100%;"><option value="">Todas</option><option>Nova</option><option>Atualização</option></select></div>
       <div style="flex:0 0 190px;"><label>Tipo</label><select id="actTipo" class="ship-sel" style="width:100%;"><option value="">Todos os tipos</option>${types.map(t => `<option>${t}</option>`).join('')}</select></div>
       <div style="flex:1; min-width:200px;"><label>Buscar</label><input type="text" id="actQ" class="ship-sel" placeholder="Cliente, título, status ou descrição…" style="width:100%;"></div>
     </div>
@@ -5304,20 +5358,20 @@ async function renderAtividadesView(){
     draw();
   };
   const filtered = () => {
-    const from = el.querySelector('#actFrom').value, to = el.querySelector('#actTo').value, tp = el.querySelector('#actTipo').value, q = normTxt(el.querySelector('#actQ').value.trim());
+    const from = el.querySelector('#actFrom').value, to = el.querySelector('#actTo').value, tp = el.querySelector('#actTipo').value, ac = el.querySelector('#actAcao').value, q = normTxt(el.querySelector('#actQ').value.trim());
     const t1 = from ? new Date(from + 'T00:00:00').getTime() : 0, t2 = to ? new Date(to + 'T23:59:59').getTime() : Infinity;
-    return actState.all.filter(r => (!from && !to || (r.ts && r.ts >= t1 && r.ts <= t2)) && (!tp || r.tipo === tp) && (!q || normTxt([r.empresaNome, r.desc, r.negocio, r.titulo, r.status, r.notes, r.detalhe].join(' ')).includes(q)));
+    return actState.all.filter(r => (!from && !to || (r.ts && r.ts >= t1 && r.ts <= t2)) && (!tp || r.tipo === tp) && (!ac || r.acao === ac) && (!q || normTxt([r.empresaNome, r.desc, r.negocio, r.titulo, r.status, r.notes, r.detalhe].join(' ')).includes(q)));
   };
   const draw = () => {
     const list = filtered(), esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'), by = {};
     list.forEach(r => { by[r.tipo] = (by[r.tipo] || 0) + 1; });
     el.querySelector('#actSummary').innerHTML = `<b>${list.length}</b> atividade(s)${Object.keys(by).length ? ' · ' + Object.entries(by).map(([t, n]) => `${t}: ${n}`).join(' · ') : ''}`;
-    el.querySelector('#actBody').innerHTML = list.slice(0, 400).map(r => `<tr><td style="white-space:nowrap;">${r.ts ? actStamp(r.ts).slice(0, 16).split(' ').map((x, i) => i ? x : x.split('-').reverse().join('/')).join(' ') : '—'}</td><td>${esc(r.tipo)}${r.titulo && r.titulo !== r.empresaNome ? `<div style="font-size:11px; color:var(--pf-muted);">${esc(r.titulo)}</div>` : ''}</td><td>${esc(r.empresaNome)}</td><td>${r.status ? `<span class="rel-tag rel-tag-client">${esc(r.status)}</span>` : '—'}</td><td>${esc(r.notes || '—')}${r.detalhe ? `<div style="font-size:11px; color:var(--pf-muted); margin-top:2px;">${esc(r.detalhe)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--pf-muted); padding:14px 4px;">Nenhuma atividade nesse filtro.</td></tr>';
+    el.querySelector('#actBody').innerHTML = list.slice(0, 400).map(r => `<tr><td style="white-space:nowrap;">${r.ts ? actStamp(r.ts).slice(0, 16).split(' ').map((x, i) => i ? x : x.split('-').reverse().join('/')).join(' ') : '—'}</td><td>${esc(r.tipo)}${r.acao === 'Atualização' ? ' <span style="font-size:11px; color:var(--orange);">· atualização</span>' : ''}${r.titulo && r.titulo !== r.empresaNome ? `<div style="font-size:11px; color:var(--pf-muted);">${esc(r.titulo)}</div>` : ''}</td><td>${esc(r.empresaNome)}</td><td>${r.status ? `<span class="rel-tag rel-tag-client">${esc(r.status)}</span>` : '—'}</td><td>${esc(r.notes || '—')}${r.detalhe ? `<div style="font-size:11px; color:var(--pf-muted); margin-top:2px;">${esc(r.detalhe)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--pf-muted); padding:14px 4px;">Nenhuma atividade nesse filtro.</td></tr>';
     if (list.length > 400) el.querySelector('#actBody').insertAdjacentHTML('beforeend', `<tr><td colspan="5" style="color:var(--pf-muted);">Mostrando as 400 mais recentes na tela. O Excel leva todas as ${list.length}.</td></tr>`);
   };
   el.querySelectorAll('#actRanges button').forEach(b => b.onclick = () => setRange(b.dataset.r));
   ['#actFrom', '#actTo'].forEach(s => el.querySelector(s).onchange = () => { el.querySelectorAll('#actRanges button').forEach(b => b.classList.remove('active')); draw(); });
-  el.querySelector('#actTipo').onchange = draw; el.querySelector('#actQ').oninput = draw;
+  el.querySelector('#actTipo').onchange = draw; el.querySelector('#actAcao').onchange = draw; el.querySelector('#actQ').oninput = draw;
   el.querySelector('#actDownload').onclick = () => {
     const list = filtered(); if (!list.length){ alert('Nenhuma atividade nesse filtro para baixar.'); return; }
     const ws = XLSX.utils.aoa_to_sheet([[...ACT_COLUMNS, ...ACT_EXTRA], ...list.map(activityRow)]);
@@ -6028,6 +6082,7 @@ async function mergeCompanyData(src, srcKey, tgt, tgtKey, isImporter){
   // market relations (importers it ships to) + names, so the old name still finds its market data
   if (marketRelations[srcKey] && marketRelations[srcKey].length) await saveMarketRelations(tgtKey, marketRelations[srcKey]);
   if (shipLog[srcKey] && shipLog[srcKey].length) await saveShipLog(tgtKey, shipLog[srcKey]);
+  if (actLog[srcKey] && actLog[srcKey].length){ actLog[tgtKey] = [...actLog[srcKey], ...(actLog[tgtKey] || [])]; await persistActLog(tgtKey); }
   await addExporterAlias(src.name, tgtKey);
   if (src.trade && normalizeName(src.trade) !== normalizeName(src.name)) await addExporterAlias(src.trade, tgtKey);
 }
@@ -6135,6 +6190,7 @@ function unifiedImporterCard(item){
 }
 
 function renderImportersView(){
+  renderStats();   // the importers total in the header follows the tab
   const el = document.getElementById('importersView');
   let unified = buildUnifiedImporters();
 
@@ -7243,6 +7299,7 @@ loadCiaFeesCache();
 const customReady = Promise.all([loadCustomExporters(), loadCustomImporters()]); // the saved extras below need these companies to exist first
 customReady.then(loadRemoved).then(() => { renderStats(); render(); if (currentNav === 'importers') renderImportersView(); });
 customReady.then(loadShipLog).then(loadShipSeed);
+customReady.then(loadActLog);
 customReady.then(loadProspectFruitOverrides).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 customReady.then(loadContactOverrides).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
 customReady.then(loadStatsOverrides).then(applyImporterHistory).then(() => { render(); if (currentNav === 'importers') renderImportersView(); });
