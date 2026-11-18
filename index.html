@@ -228,8 +228,8 @@
   .rel-item{display:flex; justify-content:space-between; align-items:center; padding:9px 12px; gap:12px; border-bottom:1px solid var(--pf-border); background:#fff;}
   .rel-item:last-child{border-bottom:none;}
   .rel-item:nth-child(even){background:var(--pf-navy-light);}
-  .rel-item .rel-name{font-size:12.5px; font-weight:bold; color:var(--pf-text);}
-  .rel-item .rel-meta{font-size:11px; color:var(--pf-muted); text-align:right; flex-shrink:0;}
+  .rel-item .rel-name{font-size:12.5px; font-weight:bold; color:var(--pf-text); flex:0 1 38%; min-width:0; overflow-wrap:anywhere;}
+  .rel-item .rel-meta{font-size:11px; color:var(--pf-muted); text-align:right; flex:1 1 0; min-width:0; overflow-wrap:anywhere;}   /* long text wraps instead of being cut at the edge */
   .rel-tag{font-size:10.5px; font-weight:normal; padding:1px 7px; border-radius:999px; margin-left:4px;}
   .rel-tag-client{background:var(--pf-client-bg); color:var(--pf-client-text);}
   .rel-tag-opp{background:var(--pf-opp-bg); color:var(--pf-opp-text);}
@@ -3527,8 +3527,17 @@ function portLabel(v){
   return t.length > 44 ? t.slice(0, 42) + '…' : t;
 }
 let shipLog = {};
+let shipIdx = null;   // shipments grouped by the first 8 letters of the importer name; rebuilt only when the shipments change
+const nnCache = {};
+const nn = (s) => nnCache[s] || (nnCache[s] = normalizeName(s));
+function shipIndex(){
+  if (shipIdx) return shipIdx;
+  shipIdx = {};
+  Object.entries(shipLog).forEach(([ek, arr]) => arr.forEach(a => { const n = nn(a[2]), k = n.length >= 8 ? n.slice(0, 8) : n; (shipIdx[k] = shipIdx[k] || []).push([ek, a]); }));
+  return shipIdx;
+}
 async function loadShipLog(){
-  shipLog = {};
+  shipLog = {}; shipIdx = null;
   (await backendListValues('hevile_ship:')).forEach(({key, value}) => { try{ const a = JSON.parse(value); if (a && a.length) shipLog[key.replace('hevile_ship:', '')] = a; } catch(e){ /* skip */ } });
 }
 const mergeShip = (...lists) => {
@@ -3541,7 +3550,7 @@ const mergeShip = (...lists) => {
 };
 async function saveShipLog(key, incoming){
   const arr = mergeShip(shipLog[key], incoming);
-  shipLog[key] = arr;
+  shipLog[key] = arr; shipIdx = null;
   await backendSet('hevile_ship:' + key, JSON.stringify(arr));
 }
 // Shipments already in the LPCO reports received so far (Jul-Aug 2026), so the Embarques tab opens filled.
@@ -3559,6 +3568,7 @@ async function loadShipSeed(){
       });
       shipLog[key] = mergeShip(recs, shipLog[key]);
     });
+    shipIdx = null;
   } catch(e){ /* keep going without the seed */ }
 }
 // Tariff observations in the English PDF: the typed English version (obsEn) wins; otherwise a text made ONLY of known pieces is
@@ -3640,7 +3650,7 @@ function quoteParts(q){
   }
   return { main, lines, arr: rawArr };
 }
-const HBI_BUILD = '2026-11-17 21:15';   // bumped on every delivery; shown in the sidebar and compared by the update check below
+const HBI_BUILD = '2026-11-18 10:54';   // bumped on every delivery; shown in the sidebar and compared by the update check below
 // Hevile shipments per importer in the 2024-2026 shipment list (first 10 letters of the consignee -> shipments): a baseline,
 // so companies Hevile worked with in the past don't look like prospects. New shipments come in through the LPCO import.
 const IMPORTER_HISTORY = {"sweet frut":1074,"torres fre":379,"el sol bra":102,"one world":151,"nour gener":158,"jinwon tra":105,"mc garlet":80,"trust gree":120,"marz produ":85,"prima frut":161,"vega produ":43,"dps m s lt":119,"arghya ent":71,"pommer fre":13,"minor weir":66,"barakat qu":62,"hlb tropic":62,"jumbo plus":30,"westfalia":116,"evergreen":44,"baraka mix":49,"yes fresh":11,"swg domini":14,"siwon inte":27,"tmk veg lt":49,"neta sas":32,"kibsons in":43,"mideumga k":18,"belen trad":13,"sunny fres":35,"direct pro":38,"ingmar heu":29,"j c tropic":8,"shin pyung":22,"yex bv":40,"unifruta l":25,"nextbrix":15,"am fresh u":18,"tropical a":2,"a commerce":11,"delina inc":4,"supreme fr":3,"fresh trop":2,"jj global":2,"mango al j":5,"tamisha tr":5,"sunjai co":7,"everyday p":1,"exotic roo":10,"hermanos f":1,"transfood":17,"satori s a":8,"golden tro":2,"courchesne":2,"roveg frui":1,"veggie fru":14,"jamaica fr":24,"wealmoor l":21,"malaga nat":7,"peter gild":1,"amazon pro":3,"mission pr":4,"georges he":6,"grupo jbp":18,"kdam food":20,"m s c f b":8,"helmy limi":17,"alimentari":1,"cultipalta":10,"anima so e":5,"eagle trad":1,"kenpro imp":16,"ludite s a":4,"planet pro":11,"mercajara":2,"great ocea":169,"tk interna":17,"fresh make":2,"ehwa fresh":2,"fresh dire":4,"yokorei co":1,"fruticril":1,"dekalb far":139,"exotica sa":4,"bing bing":1,"frontier f":5,"kacha baza":4,"fmx food m":3,"sas magell":2,"internatio":33,"sh pratt g":4,"celine k p":32,"inwoo inte":11,"gaia inter":2,"caribbean":24,"maya foods":62,"trops impo":3,"arc en cie":26,"nouna and":2,"sasu venex":1,"optimize i":1,"celestee b":3,"phoenix in":1,"c h robins":1,"samjoo mar":2,"luis vicen":2,"pearlmark":6,"panorama p":2,"global tra":14,"matzell tr":1,"frutos tro":2,"origin far":2,"granmar pr":131,"importador":8,"world mark":1};
@@ -6034,6 +6044,16 @@ function getImportersForExporter(exp){
     if ((r.d || '') > b.ultimo) b.ultimo = r.d;
     (r.p || []).forEach(p => b.produtos.add(p));
   });
+  // the Embarques tab and this list must tell the same story: every importer that has a shipment there is here too
+  const sh = {};
+  (shipLog[exporterKey(exp)] || []).forEach(a => { const o = sh[nn(a[2])] || (sh[nn(a[2])] = { name: a[2], dues: new Set(), h: new Set(), p: new Set(), last: '' }); o.dues.add(a[1]); if (a[6] === 'H') o.h.add(a[1]); o.p.add(a[3]); if ((a[0] || '') > o.last) o.last = a[0]; });
+  Object.entries(sh).forEach(([k, o]) => {
+    const hit = byImporter[k] ? k : (o.name.length >= 47 ? Object.keys(byImporter).find(x => x.startsWith(k)) : null);   // names are saved cut at 48 letters
+    const b = hit ? byImporter[hit] : bucket(o.name);
+    b.eventos = Math.max(b.eventos, o.dues.size); b.viaHevile = Math.max(b.viaHevile, o.h.size);
+    if (o.last > b.ultimo) b.ultimo = o.last;
+    o.p.forEach(p => b.produtos.add(p));
+  });
   return Object.values(byImporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
 }
 
@@ -6059,6 +6079,14 @@ function getExportersForImporter(imp){
       e.eventos = Math.max(e.eventos, r.n); (r.p || []).forEach(p => e.produtos.add(p));
       if ((r.d || '') > e.ultimo) e.ultimo = r.d;
     });
+  });
+  const idx = shipIndex(), mine = {};
+  norms.forEach(n => (idx[n.length >= 8 ? n.slice(0, 8) : n] || []).forEach(([ek, a]) => { if (normPrefixMatch(nn(a[2]), n)) (mine[ek] = mine[ek] || new Set()).add(a); }));
+  Object.entries(mine).forEach(([ek, set]) => {
+    const ex = EXPORTERS.find(x => exporterKey(x) === ek); if (!ex) return;
+    const list = [...set], e = bucket(ex.trade, list.some(a => a[6] === 'H') || (ex.active && ex.tier !== 'Prospect'));
+    e.eventos = Math.max(e.eventos, new Set(list.map(a => a[1])).size); list.forEach(a => e.produtos.add(a[3]));
+    const last = list.reduce((m, a) => (a[0] || '') > m ? a[0] : m, ''); if (last > e.ultimo) e.ultimo = last;
   });
   return Object.values(byExporter).map(v => ({ ...v, produtos: [...v.produtos] })).sort((a,b) => b.eventos - a.eventos);
 }
@@ -6211,8 +6239,9 @@ function unifiedImporterCard(item){
     </div>`;
   } else {
     const r = item.data;
-    const hevileChips = r.exporters_hevile_client.map(e => `<span class="pill" style="background:#4F6E45;">${e} ✓ cliente atual</span>`).join('');
-    const otherChips = r.exporters_not_hevile.map(e => `<span class="pill" style="background:#B5502E;">${e}</span>`).join('');
+    const exs = getExportersForImporter({ name: r.importer, trade: r.importer });   // same source as the registry importers: market snapshot + reports + shipments
+    const hevileChips = exs.filter(e => e.isClient).map(e => `<span class="pill" style="background:#4F6E45;">${e.exportador} ✓ cliente atual</span>`).join('');
+    const otherChips = exs.filter(e => !e.isClient).map(e => `<span class="pill" style="background:#B5502E;">${e.exportador}</span>`).join('');
     const fruitChips = r.products.map(f => `<span class="pill" style="background:${fruitColor(f)}">${ptFruit(f)}</span>`).join('');
     const newBadge = isProspectMkt(r) ? '<span class="prospect-tag">PROSPECT</span>' : '';
     return `<div class="card" data-market-name="${r.importer.replace(/"/g,'&quot;')}" style="cursor:pointer;">
